@@ -130,7 +130,7 @@ export default function Home() {
             One-time USDG payment links on Robinhood Chain
           </p>
           <h1 className="mt-5 font-display uppercase leading-[0.98] text-snow">
-            <span className="block text-[2.6rem] font-extralight tracking-[0.02em] sm:text-6xl lg:text-7xl">A fresh address</span>
+            <span className="block text-[2.6rem] font-extralight tracking-[0.02em] sm:text-6xl lg:text-7xl">A fresh address</span>{" "}
             <span className="block text-[2.6rem] font-bold tracking-[0.01em] sm:text-6xl lg:text-7xl">for every payment.</span>
           </h1>
           <Link href="/create" className="btn btn-primary mt-10 min-h-12 px-7">
