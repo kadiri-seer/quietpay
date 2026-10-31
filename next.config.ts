@@ -18,15 +18,26 @@ const rpcOrigins = [
     : []),
 ];
 
+// WalletConnect (Reown) relay, wallet registry images and verify frame. Only allowed when a
+// project ID is configured, so the default build talks to nothing but the RPC.
+const wc = !!process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+const wcConnect = wc
+  ? " https://*.walletconnect.com https://*.walletconnect.org wss://*.walletconnect.com wss://*.walletconnect.org https://*.reown.com wss://*.reown.com https://*.web3modal.org https://*.web3modal.com"
+  : "";
+const wcImg = wc ? " https://*.walletconnect.com https://*.walletconnect.org https://*.reown.com" : "";
+const wcFrame = wc ? "https://verify.walletconnect.com https://verify.walletconnect.org https://secure.walletconnect.org https://*.reown.com" : "";
+const wcFont = wc ? " https://fonts.reown.com" : "";
+
 // Next.js App Router needs 'unsafe-inline' for its bootstrap scripts without a nonce setup.
 // No third-party scripts are loaded. See SECURITY.md.
 const csp = [
   "default-src 'self'",
   `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob:",
-  "font-src 'self'",
-  `connect-src 'self' ${rpcOrigins.join(" ")}${isDev ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
+  `img-src 'self' data: blob:${wcImg}`,
+  `font-src 'self'${wcFont}`,
+  `connect-src 'self' ${rpcOrigins.join(" ")}${wcConnect}${isDev ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
+  wc ? `frame-src ${wcFrame}` : "frame-src 'none'",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

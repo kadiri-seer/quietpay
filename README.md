@@ -117,6 +117,14 @@ explorer `https://explorer.testnet.chain.robinhood.com`, ETH faucet
 Deploy the web app anywhere that serves Next.js (`npm run build && npm start`, Vercel, Netlify).
 Security headers, including the Content Security Policy, are set in `next.config.ts`.
 
+### Wallets
+
+Browser extensions (MetaMask, Rabby, Coinbase Wallet…) are detected automatically via EIP-6963.
+For phones and other wallets, set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (free from
+[dashboard.reown.com](https://dashboard.reown.com), with your site's domain added to its
+allowlist) to enable WalletConnect. Without it, phone users can still open the site inside their
+wallet app's browser.
+
 ### Contract addresses and configuration
 
 The deployed testnet addresses are committed in `.env.production`, so a production build needs no extra configuration. Host environment variables override them.
@@ -195,6 +203,9 @@ Mainnet must stay disabled until all of these are done:
 7. **Gas top-up privacy.** Funding a stealth address from a known wallet links them. A safer
    gas-sponsorship design (e.g. ERC-4337 paymaster) is not implemented.
 8. **CSP hardening.** Move to nonce-based scripts to drop `'unsafe-inline'`.
+9. **Dependency upgrades.** `npm audit` reports advisories in wagmi 2 / WalletConnect / viem / zod 3
+   transitive dependencies whose fixes need major upgrades (wagmi 3, zod 4). Review and upgrade
+   before mainnet.
 
 See [SECURITY.md](./SECURITY.md) for the threat model.
 

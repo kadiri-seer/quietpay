@@ -1,6 +1,7 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import type { Connector } from "wagmi";
 import { useAccount, useConnect, useSwitchChain } from "wagmi";
 import type { NetworkConfig } from "@/config/networks";
 import { classifyTxError } from "@/lib/tx-errors";
@@ -12,21 +13,64 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
   const { isConnected, chainId, isConnecting, isReconnecting } = useAccount();
   const { connectors, connect, isPending, error } = useConnect();
   const { switchChain, isPending: switching, error: switchError } = useSwitchChain();
-  const injected = connectors[0];
+  const [hasInjected, setHasInjected] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  useEffect(() => setHasInjected(typeof window !== "undefined" && !!(window as { ethereum?: unknown }).ethereum), []);
+
+  // Wallet extensions announced via EIP-6963 (MetaMask, Rabby, Coinbase…) appear by name.
+  const announced = connectors.filter((c) => c.type === "injected" && c.id !== "injected");
+  const generic = connectors.find((c) => c.id === "injected");
+  const wc = connectors.find((c) => c.type === "walletConnect");
+  const options: { connector: Connector; label: string; hint: string; icon?: string }[] = [
+    ...announced.map((c) => ({ connector: c, label: c.name, hint: "Browser extension", icon: c.icon })),
+    ...(announced.length === 0 && hasInjected && generic ? [{ connector: generic, label: "Browser wallet", hint: "Extension or in-app browser" }] : []),
+    ...(wc ? [{ connector: wc, label: "WalletConnect", hint: "Mobile wallets: scan a QR code or open your wallet app" }] : []),
+  ];
 
   if (!isConnected) {
     return (
       <div className="space-y-4">
         <p className="text-sm text-haze">{purpose}</p>
-        <button
-          type="button"
-          className="btn btn-primary w-full sm:w-auto"
-          disabled={isPending || isConnecting || isReconnecting || !injected}
-          onClick={() => injected && connect({ connector: injected })}
-        >
-          {isPending ? <Spinner /> : null} Connect wallet
-        </button>
-        {!injected && <Notice tone="warn">No browser wallet found. Install a wallet extension such as MetaMask or Rabby.</Notice>}
+        {options.length > 0 ? (
+          <ul className="grid gap-2">
+            {options.map((o, i) => (
+              <li key={o.connector.uid}>
+                <button
+                  type="button"
+                  className={`group flex w-full items-center gap-4 rounded-[2px] border px-4 py-3 text-left transition-colors disabled:opacity-50 ${
+                    i === 0 ? "border-snow/80 hover:bg-snow/10" : "border-harbor hover:border-mist/60"
+                  }`}
+                  disabled={isPending || isConnecting || isReconnecting}
+                  onClick={() => {
+                    setPendingId(o.connector.uid);
+                    connect({ connector: o.connector });
+                  }}
+                >
+                  {o.icon ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={o.icon} alt="" className="h-7 w-7 shrink-0 rounded" />
+                  ) : (
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-mist/30 text-xs text-mist" aria-hidden>
+                      {o.connector.type === "walletConnect" ? "WC" : "◆"}
+                    </span>
+                  )}
+                  <span className="flex-1">
+                    <span className="block font-medium text-snow">{o.label}</span>
+                    <span className="block text-xs text-haze">{o.hint}</span>
+                  </span>
+                  {isPending && pendingId === o.connector.uid ? <Spinner /> : <span className="text-haze group-hover:text-snow" aria-hidden>›</span>}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <Notice tone="warn" title="No wallet found">
+            Install a wallet extension such as MetaMask, or open this page inside your wallet app&apos;s built-in browser.
+          </Notice>
+        )}
+        {!wc && !hasInjected && (
+          <p className="text-xs text-haze">On a phone, open this page in the MetaMask or Trust Wallet app&apos;s browser.</p>
+        )}
         {error && <Notice tone="bad">{classifyTxError(error).message}</Notice>}
       </div>
     );

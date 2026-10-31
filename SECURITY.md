@@ -91,6 +91,17 @@ states this on every page and the payer must acknowledge it before paying.
   transaction submitted. Use a trusted or self-hosted RPC (`NEXT_PUBLIC_*_RPC_URL`), or a VPN/Tor,
   if that matters.
 
+### WalletConnect
+- Optional. Enabled only when `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is set; otherwise the CSP
+  allows no WalletConnect hosts at all.
+- Messages between the site and the mobile wallet are end-to-end encrypted, but they pass through
+  Reown's relay, which can see IP addresses, connection timing and session topics. Users who mind
+  that can use a browser extension or a wallet's in-app browser instead.
+- `@walletconnect/ethereum-provider` is pinned to 2.21.1, the last Apache-2.0 release, as wagmi
+  recommends. It pulls in `pino@7`. The advisory against pino 7 concerns its server-side redaction
+  dependency; QuietPay only ever loads pino's browser build (WalletConnect runs client-side only),
+  which does not include it. Newer pino browser builds are incompatible with WalletConnect's logger.
+
 ### Announcement spam
 - Anyone can call `announce` with arbitrary data. Matching requires the view tag and the full
   ECDH-derived address to match the request's keys, so spam can't create false matches.
