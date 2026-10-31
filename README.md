@@ -119,10 +119,12 @@ Security headers, including the Content Security Policy, are set in `next.config
 
 ### Contract addresses and configuration
 
+The deployed testnet addresses are committed in `.env.production`, so a production build needs no extra configuration. Host environment variables override them.
+
 | Item | Testnet (46630) | Mainnet (4663) |
 | --- | --- | --- |
-| Payment token | `QuietPayTestUSDG` (**mock**, `tUSDG`, 6 decimals): you deploy it; set `NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS` | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (hard-coded; symbol and decimals verified onchain at runtime) |
-| ERC-5564 announcer | You deploy it; set `NEXT_PUBLIC_TESTNET_ANNOUNCER_ADDRESS` | Not deployed; set `NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS` after deployment |
+| Payment token | `QuietPayTestUSDG` (**mock**, `tUSDG`, 6 decimals) at `0x271c29c9d99e0dd4ae250c7dd302052355cb3db9` | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (hard-coded; symbol and decimals verified onchain at runtime) |
+| ERC-5564 announcer | `0x6ec677c1195ac4951afcaead14debad6f74be577` | Not deployed; set `NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS` after deployment |
 | ERC-6538 registry | Not used in v1 | Not used in v1 |
 
 Why no defaults:
