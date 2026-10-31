@@ -33,8 +33,19 @@ function fail(msg: string): never {
 }
 
 async function main() {
-  const key = process.env.DEPLOYER_PRIVATE_KEY as Hex | undefined;
-  if (!key || !/^0x[0-9a-fA-F]{64}$/.test(key)) fail("Set DEPLOYER_PRIVATE_KEY to a 0x-prefixed 32-byte hex key (use a throwaway testnet key).");
+  // Accept keys copied from wallets: strip whitespace/quotes and add a missing 0x prefix.
+  const raw = (process.env.DEPLOYER_PRIVATE_KEY ?? "").replace(/[\s"']/g, "");
+  const key = (raw.startsWith("0x") ? raw : `0x${raw}`) as Hex;
+  if (!/^0x[0-9a-fA-F]{64}$/.test(key)) {
+    const hexLen = key.slice(2).length;
+    fail(
+      raw.length === 0
+        ? "DEPLOYER_PRIVATE_KEY is empty."
+        : `DEPLOYER_PRIVATE_KEY must be a 64-character hex private key; got ${hexLen} characters${
+            hexLen === 40 ? " (that looks like an address, not a private key)" : raw.includes(" ") || /[g-z]/i.test(raw) ? " (that looks like a seed phrase; use the private key instead)" : ""
+          }.`,
+    );
+  }
   const rpc = process.env.RPC_URL || "https://rpc.testnet.chain.robinhood.com";
   const what = (process.env.DEPLOY || "announcer,token").split(",").map((s) => s.trim());
 
