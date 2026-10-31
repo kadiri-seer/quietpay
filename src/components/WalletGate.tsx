@@ -22,7 +22,7 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
           type="button"
           className="btn btn-primary w-full sm:w-auto"
           disabled={isPending || isConnecting || isReconnecting || !injected}
-          onClick={() => injected && connect({ connector: injected, chainId: network.chain.id })}
+          onClick={() => injected && connect({ connector: injected })}
         >
           {isPending ? <Spinner /> : null} Connect wallet
         </button>

@@ -97,5 +97,21 @@ export function classifyTxError(err: unknown): ClassifiedError {
   if (n.includes("HttpRequestError") || n.includes("RpcRequestError") || n.includes("InternalRpcError") || text.includes("fetch")) {
     return { kind: "rpc", message: "Could not reach the Robinhood Chain RPC. Check your connection and try again." };
   }
-  return { kind: "unknown", message: err instanceof BaseError ? err.shortMessage : "Something went wrong. Check the explorer before retrying." };
+  if (n.includes("ConnectorAlreadyConnectedError")) {
+    return { kind: "unknown", message: "Your wallet is already connected. Reload the page." };
+  }
+  if (n.includes("ProviderNotFoundError") || n.includes("ConnectorNotFoundError")) {
+    return { kind: "unknown", message: "No browser wallet found. Install or unlock MetaMask, then reload the page." };
+  }
+  if (c.includes(-32002) || text.includes("already pending")) {
+    return { kind: "unknown", message: "Your wallet already has a request open. Open MetaMask, approve or reject it, then try again." };
+  }
+  if (c.includes(4902) || text.includes("unrecognized chain")) {
+    return { kind: "chain_mismatch", message: "Your wallet doesn't know Robinhood Chain Testnet yet. Approve adding it when your wallet asks, or add it manually (chain ID 46630)." };
+  }
+  // Fall back to the library's own short message (viem and wagmi both provide one) so the real cause is visible.
+  const short = (err as { shortMessage?: unknown })?.shortMessage;
+  if (typeof short === "string" && short) return { kind: "unknown", message: short };
+  if (err instanceof Error && err.message) return { kind: "unknown", message: err.message.split("\n")[0].slice(0, 200) };
+  return { kind: "unknown", message: "Something went wrong. Check the explorer before retrying." };
 }

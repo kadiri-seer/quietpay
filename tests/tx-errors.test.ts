@@ -30,9 +30,14 @@ describe("transaction failure classification", () => {
   it("detects RPC failures", () => {
     expect(classifyTxError(new HttpRequestError({ url: "https://rpc.example" })).kind).toBe("rpc");
   });
-  it("falls back to a generic message", () => {
-    const c = classifyTxError(new Error("weird"));
+  it("surfaces the underlying message instead of a generic one", () => {
+    const c = classifyTxError(new Error("weird thing happened\nstack"));
     expect(c.kind).toBe("unknown");
-    expect(c.message).toMatch(/explorer/);
+    expect(c.message).toBe("weird thing happened");
+    expect(classifyTxError({ name: "ConnectorAlreadyConnectedError", shortMessage: "Connector already connected." }).message).toMatch(/already connected/);
+    expect(classifyTxError({ code: -32002, message: "Request already pending" }).message).toMatch(/already has a request open/);
+    expect(classifyTxError({ code: 4902, message: "Unrecognized chain ID" }).kind).toBe("chain_mismatch");
+    expect(classifyTxError({ shortMessage: "Provider not found." }).message).toBe("Provider not found.");
+    expect(classifyTxError(undefined).message).toMatch(/explorer/);
   });
 });
