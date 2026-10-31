@@ -62,8 +62,7 @@ const TILES: Tile[] = [
     ),
   },
   {
-    href: "https://github.com/kadiri-seer/quietpay/blob/main/SECURITY.md",
-    external: true,
+    href: "/security",
     title: "What's public",
     body: "Payer, amount, receiving address and time stay visible onchain.",
     action: "Security model",

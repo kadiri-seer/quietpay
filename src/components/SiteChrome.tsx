@@ -97,8 +97,8 @@ export function SiteFooter() {
         <FooterCol
           title="Trust"
           links={[
-            { href: "https://github.com/kadiri-seer/quietpay/blob/main/SECURITY.md", label: "Security model", external: true },
-            { href: "https://github.com/kadiri-seer/quietpay", label: "Source code", external: true },
+            { href: "/security", label: "Security model" },
+            { href: "/security#contracts", label: "Contracts" },
             { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
           ]}
         />

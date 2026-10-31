@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { NetworkConfig } from "@/config/networks";
 import type { NetworkReadiness } from "./hooks";
 import { Notice } from "./ui";
@@ -19,7 +20,7 @@ export function SetupBlocker({ network, readiness, error }: { network: NetworkCo
         )}
       </Notice>
       <p className="text-xs leading-relaxed text-haze">
-        Payments stay disabled until the contracts are verified onchain. Operators: see the README section on testnet deployment.
+        Payments stay off until these contracts verify onchain. This is usually a temporary network problem, so try again in a minute. See the <Link href="/security#contracts" className="underline underline-offset-4">contract details</Link>.
       </p>
     </div>
   );
