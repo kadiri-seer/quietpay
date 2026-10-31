@@ -1,0 +1,57 @@
+import type { NextConfig } from "next";
+
+const isDev = process.env.NODE_ENV === "development";
+
+function origin(url: string | undefined, fallback: string) {
+  try {
+    return new URL(url || fallback).origin;
+  } catch {
+    return new URL(fallback).origin;
+  }
+}
+
+// The browser talks directly to these RPCs; nothing else is allowed for fetch/XHR/WebSocket.
+const rpcOrigins = [
+  origin(process.env.NEXT_PUBLIC_TESTNET_RPC_URL, "https://rpc.testnet.chain.robinhood.com"),
+  ...(process.env.NEXT_PUBLIC_ENABLE_MAINNET === "true"
+    ? [origin(process.env.NEXT_PUBLIC_MAINNET_RPC_URL, "https://rpc.mainnet.chain.robinhood.com")]
+    : []),
+];
+
+// Next.js App Router needs 'unsafe-inline' for its bootstrap scripts without a nonce setup.
+// No third-party scripts are loaded. See SECURITY.md.
+const csp = [
+  "default-src 'self'",
+  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self'",
+  `connect-src 'self' ${rpcOrigins.join(" ")}${isDev ? " ws: http://127.0.0.1:* http://localhost:*" : ""}`,
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  ...(isDev ? [] : ["upgrade-insecure-requests"]),
+].join("; ");
+
+const nextConfig: NextConfig = {
+  reactStrictMode: true,
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        source: "/(.*)",
+        headers: [
+          { key: "Content-Security-Policy", value: csp },
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          { key: "X-Frame-Options", value: "DENY" },
+          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(), payment=()" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
+        ],
+      },
+    ];
+  },
+};
+
+export default nextConfig;

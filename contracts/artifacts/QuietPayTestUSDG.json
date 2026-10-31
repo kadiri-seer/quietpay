@@ -1,0 +1,312 @@
+{
+  "contractName": "QuietPayTestUSDG",
+  "sourceFile": "contracts/src/QuietPayTestUSDG.sol",
+  "compiler": "0.8.23+commit.f704f362.Emscripten.clang",
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "paris"
+  },
+  "abi": [
+    {
+      "inputs": [],
+      "name": "FaucetLimitExceeded",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InsufficientAllowance",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "InsufficientBalance",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAddress",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "owner",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "Approval",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "value",
+          "type": "uint256"
+        }
+      ],
+      "name": "Transfer",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "FAUCET_LIMIT",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "allowance",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "spender",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "approve",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "name": "balanceOf",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "decimals",
+      "outputs": [
+        {
+          "internalType": "uint8",
+          "name": "",
+          "type": "uint8"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "faucet",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "name",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "symbol",
+      "outputs": [
+        {
+          "internalType": "string",
+          "name": "",
+          "type": "string"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "totalSupply",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transfer",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "from",
+          "type": "address"
+        },
+        {
+          "internalType": "address",
+          "name": "to",
+          "type": "address"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "transferFrom",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "",
+          "type": "bool"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561001057600080fd5b5061067e806100206000396000f3fe608060405234801561001057600080fd5b50600436106100a95760003560e01c80635791589711610071578063579158971461016757806370a082311461017c57806395d89b411461019c578063a9059cbb146101c0578063c536a737146101d3578063dd62ed3e146101df57600080fd5b806306fdde03146100ae578063095ea7b31461010057806318160ddd1461012357806323b872dd1461013a578063313ce5671461014d575b600080fd5b6100ea6040518060400160405280601981526020017f51756965745061792054657374205553444720284d4f434b290000000000000081525081565b6040516100f791906104cd565b60405180910390f35b61011361010e366004610538565b61020a565b60405190151581526020016100f7565b61012c60005481565b6040519081526020016100f7565b610113610148366004610562565b610298565b610155600681565b60405160ff90911681526020016100f7565b61017a61017536600461059e565b61032b565b005b61012c61018a3660046105b7565b60016020526000908152604090205481565b6100ea60405180604001604052806005815260200164745553444760d81b81525081565b6101136101ce366004610538565b6103c5565b61012c6402540be40081565b61012c6101ed3660046105d9565b600260209081526000928352604080842090915290825290205481565b60006001600160a01b0383166102335760405163d92e233d60e01b815260040160405180910390fd5b3360008181526002602090815260408083206001600160a01b03881680855290835292819020869055518581529192917f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925910160405180910390a35060015b92915050565b6001600160a01b0383166000908152600260209081526040808320338452909152812054600019811461031557828110156102e6576040516313be252b60e01b815260040160405180910390fd5b6102f08382610622565b6001600160a01b03861660009081526002602090815260408083203384529091529020555b6103208585856103db565b506001949350505050565b6402540be4008111156103505760405162b2b8d760e31b815260040160405180910390fd5b806000808282546103619190610635565b90915550503360009081526001602052604081208054839290610385908490610635565b909155505060405181815233906000907fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9060200160405180910390a350565b60006103d23384846103db565b50600192915050565b6001600160a01b0382166104025760405163d92e233d60e01b815260040160405180910390fd5b6001600160a01b0383166000908152600160205260409020548181101561043c57604051631e9acf1760e31b815260040160405180910390fd5b6001600160a01b03808516600090815260016020526040808220858503905591851681529081208054849290610473908490610635565b92505081905550826001600160a01b0316846001600160a01b03167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef846040516104bf91815260200190565b60405180910390a350505050565b60006020808352835180602085015260005b818110156104fb578581018301518582016040015282016104df565b506000604082860101526040601f19601f8301168501019250505092915050565b80356001600160a01b038116811461053357600080fd5b919050565b6000806040838503121561054b57600080fd5b6105548361051c565b946020939093013593505050565b60008060006060848603121561057757600080fd5b6105808461051c565b925061058e6020850161051c565b9150604084013590509250925092565b6000602082840312156105b057600080fd5b5035919050565b6000602082840312156105c957600080fd5b6105d28261051c565b9392505050565b600080604083850312156105ec57600080fd5b6105f58361051c565b91506106036020840161051c565b90509250929050565b634e487b7160e01b600052601160045260246000fd5b818103818111156102925761029261060c565b808201808211156102925761029261060c56fea264697066735822122046933f68e408e64daeb6247a9a40f97d052d8df3c0146dac92d8c460121509b164736f6c63430008170033",
+  "deployedBytecode": "0x608060405234801561001057600080fd5b50600436106100a95760003560e01c80635791589711610071578063579158971461016757806370a082311461017c57806395d89b411461019c578063a9059cbb146101c0578063c536a737146101d3578063dd62ed3e146101df57600080fd5b806306fdde03146100ae578063095ea7b31461010057806318160ddd1461012357806323b872dd1461013a578063313ce5671461014d575b600080fd5b6100ea6040518060400160405280601981526020017f51756965745061792054657374205553444720284d4f434b290000000000000081525081565b6040516100f791906104cd565b60405180910390f35b61011361010e366004610538565b61020a565b60405190151581526020016100f7565b61012c60005481565b6040519081526020016100f7565b610113610148366004610562565b610298565b610155600681565b60405160ff90911681526020016100f7565b61017a61017536600461059e565b61032b565b005b61012c61018a3660046105b7565b60016020526000908152604090205481565b6100ea60405180604001604052806005815260200164745553444760d81b81525081565b6101136101ce366004610538565b6103c5565b61012c6402540be40081565b61012c6101ed3660046105d9565b600260209081526000928352604080842090915290825290205481565b60006001600160a01b0383166102335760405163d92e233d60e01b815260040160405180910390fd5b3360008181526002602090815260408083206001600160a01b03881680855290835292819020869055518581529192917f8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925910160405180910390a35060015b92915050565b6001600160a01b0383166000908152600260209081526040808320338452909152812054600019811461031557828110156102e6576040516313be252b60e01b815260040160405180910390fd5b6102f08382610622565b6001600160a01b03861660009081526002602090815260408083203384529091529020555b6103208585856103db565b506001949350505050565b6402540be4008111156103505760405162b2b8d760e31b815260040160405180910390fd5b806000808282546103619190610635565b90915550503360009081526001602052604081208054839290610385908490610635565b909155505060405181815233906000907fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9060200160405180910390a350565b60006103d23384846103db565b50600192915050565b6001600160a01b0382166104025760405163d92e233d60e01b815260040160405180910390fd5b6001600160a01b0383166000908152600160205260409020548181101561043c57604051631e9acf1760e31b815260040160405180910390fd5b6001600160a01b03808516600090815260016020526040808220858503905591851681529081208054849290610473908490610635565b92505081905550826001600160a01b0316846001600160a01b03167fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef846040516104bf91815260200190565b60405180910390a350505050565b60006020808352835180602085015260005b818110156104fb578581018301518582016040015282016104df565b506000604082860101526040601f19601f8301168501019250505092915050565b80356001600160a01b038116811461053357600080fd5b919050565b6000806040838503121561054b57600080fd5b6105548361051c565b946020939093013593505050565b60008060006060848603121561057757600080fd5b6105808461051c565b925061058e6020850161051c565b9150604084013590509250925092565b6000602082840312156105b057600080fd5b5035919050565b6000602082840312156105c957600080fd5b6105d28261051c565b9392505050565b600080604083850312156105ec57600080fd5b6105f58361051c565b91506106036020840161051c565b90509250929050565b634e487b7160e01b600052601160045260246000fd5b818103818111156102925761029261060c565b808201808211156102925761029261060c56fea264697066735822122046933f68e408e64daeb6247a9a40f97d052d8df3c0146dac92d8c460121509b164736f6c63430008170033",
+  "runtimeCodeHash": "0x7ed2078db1dc7dec7ac49172e597f9d7bee15356908dc6160cd03e72fa7d052c",
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "QuietPayTestUSDG.sol": {
+        "content": "// SPDX-License-Identifier: MIT\n\npragma solidity 0.8.23;\n\n/// @title QuietPay Test USDG (MOCK)\n/// @notice A deliberately simple, worthless ERC-20 used ONLY on Robinhood Chain Testnet,\n/// because no verified testnet USDG contract address was available. It is not USDG, is not\n/// issued by Paxos, and must never be deployed or configured on mainnet.\n/// @dev 6 decimals to mirror USDG. Anyone may mint up to `FAUCET_LIMIT` per call for testing.\ncontract QuietPayTestUSDG {\n  string public constant name = \"QuietPay Test USDG (MOCK)\";\n  string public constant symbol = \"tUSDG\";\n  uint8 public constant decimals = 6;\n  uint256 public constant FAUCET_LIMIT = 10_000 * 10 ** 6;\n\n  uint256 public totalSupply;\n  mapping(address => uint256) public balanceOf;\n  mapping(address => mapping(address => uint256)) public allowance;\n\n  event Transfer(address indexed from, address indexed to, uint256 value);\n  event Approval(address indexed owner, address indexed spender, uint256 value);\n\n  error FaucetLimitExceeded();\n  error InsufficientBalance();\n  error InsufficientAllowance();\n  error ZeroAddress();\n\n  /// @notice Mint test tokens to the caller. Testnet only.\n  function faucet(uint256 amount) external {\n    if (amount > FAUCET_LIMIT) revert FaucetLimitExceeded();\n    totalSupply += amount;\n    balanceOf[msg.sender] += amount;\n    emit Transfer(address(0), msg.sender, amount);\n  }\n\n  function transfer(address to, uint256 amount) external returns (bool) {\n    _transfer(msg.sender, to, amount);\n    return true;\n  }\n\n  function approve(address spender, uint256 amount) external returns (bool) {\n    if (spender == address(0)) revert ZeroAddress();\n    allowance[msg.sender][spender] = amount;\n    emit Approval(msg.sender, spender, amount);\n    return true;\n  }\n\n  function transferFrom(address from, address to, uint256 amount) external returns (bool) {\n    uint256 allowed = allowance[from][msg.sender];\n    if (allowed != type(uint256).max) {\n      if (allowed < amount) revert InsufficientAllowance();\n      allowance[from][msg.sender] = allowed - amount;\n    }\n    _transfer(from, to, amount);\n    return true;\n  }\n\n  function _transfer(address from, address to, uint256 amount) internal {\n    if (to == address(0)) revert ZeroAddress();\n    uint256 bal = balanceOf[from];\n    if (bal < amount) revert InsufficientBalance();\n    unchecked {\n      balanceOf[from] = bal - amount;\n    }\n    balanceOf[to] += amount;\n    emit Transfer(from, to, amount);\n  }\n}\n"
+      }
+    },
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "paris",
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object"
+          ]
+        }
+      }
+    }
+  }
+}

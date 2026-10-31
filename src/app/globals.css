@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+@theme {
+  --color-abyss: #061a23;
+  --color-deep: #0c2c39;
+  --color-harbor: #164a5c;
+  --color-tide: #1f6278;
+  --color-signal: #5bb8ea;
+  --color-mist: #c9dde5;
+  --color-haze: #8fb1bd;
+  --color-snow: #f4f9fb;
+  --color-ok: #6fd3ad;
+  --color-warn: #e9c46a;
+  --color-bad: #ee8a7f;
+
+  --font-display: "Montserrat", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html {
+  background: var(--color-abyss);
+}
+
+body {
+  background:
+    radial-gradient(120% 60% at 50% 0%, #0f3646 0%, transparent 60%),
+    linear-gradient(180deg, #08212c 0%, var(--color-abyss) 55%, #051720 100%);
+  background-attachment: fixed;
+  color: var(--color-mist);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-signal) 40%, transparent);
+  color: var(--color-snow);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-signal);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Outlined, uppercase buttons echo the reference design's "LEARN MORE" boxes. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 2.75rem;
+  padding: 0 1.25rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.8125rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border: 1.5px solid var(--color-snow);
+  color: var(--color-snow);
+  background: transparent;
+  border-radius: 2px;
+  transition: background-color 150ms, color 150ms, border-color 150ms;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) {
+  background: var(--color-snow);
+  color: var(--color-abyss);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn-primary {
+  background: var(--color-snow);
+  color: var(--color-abyss);
+}
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-signal);
+  border-color: var(--color-signal);
+}
+.btn-quiet {
+  border-color: color-mix(in oklab, var(--color-mist) 35%, transparent);
+  color: var(--color-mist);
+}
+.btn-sm {
+  min-height: 2.25rem;
+  padding: 0 0.875rem;
+  font-size: 0.75rem;
+}
+
+.panel {
+  background: color-mix(in oklab, var(--color-deep) 82%, transparent);
+  border: 1px solid color-mix(in oklab, var(--color-harbor) 80%, transparent);
+  border-radius: 4px;
+  backdrop-filter: blur(6px);
+}
+
+.field {
+  width: 100%;
+  background: color-mix(in oklab, var(--color-abyss) 70%, transparent);
+  border: 1px solid var(--color-harbor);
+  border-radius: 2px;
+  color: var(--color-snow);
+  padding: 0.75rem 0.875rem;
+  font-size: 1rem;
+}
+.field:focus {
+  border-color: var(--color-signal);
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-signal) 25%, transparent);
+}
+
+.hex {
+  clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@keyframes lights {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+.city-glow {
+  animation: lights 9s ease-in-out infinite;
+}

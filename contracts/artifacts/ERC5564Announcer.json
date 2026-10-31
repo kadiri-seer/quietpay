@@ -1,0 +1,109 @@
+{
+  "contractName": "ERC5564Announcer",
+  "sourceFile": "contracts/src/ERC5564Announcer.sol",
+  "compiler": "0.8.23+commit.f704f362.Emscripten.clang",
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "paris"
+  },
+  "abi": [
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "schemeId",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "stealthAddress",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "caller",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes",
+          "name": "ephemeralPubKey",
+          "type": "bytes"
+        },
+        {
+          "indexed": false,
+          "internalType": "bytes",
+          "name": "metadata",
+          "type": "bytes"
+        }
+      ],
+      "name": "Announcement",
+      "type": "event"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "schemeId",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "stealthAddress",
+          "type": "address"
+        },
+        {
+          "internalType": "bytes",
+          "name": "ephemeralPubKey",
+          "type": "bytes"
+        },
+        {
+          "internalType": "bytes",
+          "name": "metadata",
+          "type": "bytes"
+        }
+      ],
+      "name": "announce",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405234801561001057600080fd5b50610272806100206000396000f3fe608060405234801561001057600080fd5b506004361061002b5760003560e01c80634d1f958314610030575b600080fd5b61004361003e36600461013c565b610045565b005b336001600160a01b0316836001600160a01b0316857f5f0eab8057630ba7676c49b4f21a0231414e79474595be8e4c432fbf6bf0f4e7858560405161008b92919061020e565b60405180910390a450505050565b634e487b7160e01b600052604160045260246000fd5b600082601f8301126100c057600080fd5b813567ffffffffffffffff808211156100db576100db610099565b604051601f8301601f19908116603f0116810190828211818310171561010357610103610099565b8160405283815286602085880101111561011c57600080fd5b836020870160208301376000602085830101528094505050505092915050565b6000806000806080858703121561015257600080fd5b8435935060208501356001600160a01b038116811461017057600080fd5b9250604085013567ffffffffffffffff8082111561018d57600080fd5b610199888389016100af565b935060608701359150808211156101af57600080fd5b506101bc878288016100af565b91505092959194509250565b6000815180845260005b818110156101ee576020818501810151868301820152016101d2565b506000602082860101526020601f19601f83011685010191505092915050565b60408152600061022160408301856101c8565b828103602084015261023381856101c8565b9594505050505056fea2646970667358221220199a748a27c49e47607ad12e5746b236d059e413aa3e8c9a382f9e4f9d5649a064736f6c63430008170033",
+  "deployedBytecode": "0x608060405234801561001057600080fd5b506004361061002b5760003560e01c80634d1f958314610030575b600080fd5b61004361003e36600461013c565b610045565b005b336001600160a01b0316836001600160a01b0316857f5f0eab8057630ba7676c49b4f21a0231414e79474595be8e4c432fbf6bf0f4e7858560405161008b92919061020e565b60405180910390a450505050565b634e487b7160e01b600052604160045260246000fd5b600082601f8301126100c057600080fd5b813567ffffffffffffffff808211156100db576100db610099565b604051601f8301601f19908116603f0116810190828211818310171561010357610103610099565b8160405283815286602085880101111561011c57600080fd5b836020870160208301376000602085830101528094505050505092915050565b6000806000806080858703121561015257600080fd5b8435935060208501356001600160a01b038116811461017057600080fd5b9250604085013567ffffffffffffffff8082111561018d57600080fd5b610199888389016100af565b935060608701359150808211156101af57600080fd5b506101bc878288016100af565b91505092959194509250565b6000815180845260005b818110156101ee576020818501810151868301820152016101d2565b506000602082860101526020601f19601f83011685010191505092915050565b60408152600061022160408301856101c8565b828103602084015261023381856101c8565b9594505050505056fea2646970667358221220199a748a27c49e47607ad12e5746b236d059e413aa3e8c9a382f9e4f9d5649a064736f6c63430008170033",
+  "runtimeCodeHash": "0x0af95fb5a29fc215ce3b805393c1f7c0530999f793faeb08f8bae6dd110797c0",
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "ERC5564Announcer.sol": {
+        "content": "// SPDX-License-Identifier: CC0-1.0\n\npragma solidity 0.8.23;\n\n// Source: ScopeLift/stealth-address-erc-contracts (src/ERC5564Announcer.sol), CC0-1.0.\n// Interface and logic are reproduced unchanged (only indentation differs) so it can be\n// deployed on Robinhood Chain, where no verified ERC-5564 announcer deployment was found\n// at the time of writing.\n\n/// @notice `ERC5564Announcer` contract to emit an `Announcement` event to broadcast information\n/// about a transaction involving a stealth address. See\n/// [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) to learn more.\ncontract ERC5564Announcer {\n  /// @notice Emitted when something is sent to a stealth address.\n  /// @param schemeId Identifier corresponding to the applied stealth address scheme, e.g. 1 for\n  /// secp256k1, as specified in ERC-5564.\n  /// @param stealthAddress The computed stealth address for the recipient.\n  /// @param caller The caller of the `announce` function that emitted this event.\n  /// @param ephemeralPubKey Ephemeral public key used by the sender to derive the `stealthAddress`.\n  /// @param metadata Arbitrary data to emit with the event. The first byte MUST be the view tag.\n  /// @dev The remaining metadata can be used by the senders however they like. See\n  /// [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) for recommendations on how to structure\n  /// this metadata.\n  event Announcement(\n    uint256 indexed schemeId,\n    address indexed stealthAddress,\n    address indexed caller,\n    bytes ephemeralPubKey,\n    bytes metadata\n  );\n\n  /// @notice Called by integrators to emit an `Announcement` event.\n  /// @param schemeId Identifier corresponding to the applied stealth address scheme, e.g. 1 for\n  /// secp256k1, as specified in ERC-5564.\n  /// @param stealthAddress The computed stealth address for the recipient.\n  /// @param ephemeralPubKey Ephemeral public key used by the sender.\n  /// @param metadata Arbitrary data to emit with the event. The first byte MUST be the view tag.\n  /// @dev The remaining metadata can be used by the senders however they like. See\n  /// [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) for recommendations on how to structure\n  /// this metadata.\n  function announce(\n    uint256 schemeId,\n    address stealthAddress,\n    bytes memory ephemeralPubKey,\n    bytes memory metadata\n  ) external {\n    emit Announcement(schemeId, stealthAddress, msg.sender, ephemeralPubKey, metadata);\n  }\n}\n"
+      }
+    },
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "paris",
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object"
+          ]
+        }
+      }
+    }
+  }
+}
