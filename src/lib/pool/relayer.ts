@@ -112,11 +112,12 @@ export async function refreshApprovals(
   network: NetworkConfig,
   info: PoolInfo,
   events: PoolEvents,
-  p: { delaySeconds: number; nowSeconds?: number },
+  p: { delaySeconds: number; nowSeconds?: number; fromBlock?: bigint },
 ): Promise<{ hash: Hash | null; uptoBlock: bigint; approved: number }> {
   const now = BigInt(p.nowSeconds ?? Math.floor(Date.now() / 1000));
   const cutoff = now - BigInt(p.delaySeconds);
-  let upto = await findBlockAtOrBefore(client, cutoff);
+  // Search from the pool's deployment block, not genesis (Robinhood Chain has 100 ms blocks).
+  let upto = await findBlockAtOrBefore(client, cutoff, p.fromBlock ?? network.pool?.fromBlock ?? 0n);
   if (upto > events.toBlock) upto = events.toBlock;
   const labels = aspLabels(events.deposits, upto);
   if (labels.length === 0) return { hash: null, uptoBlock: upto, approved: 0 };

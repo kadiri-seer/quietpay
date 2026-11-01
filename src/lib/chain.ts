@@ -114,13 +114,13 @@ export async function verifyRouter(
 }
 
 /** Finds the latest block with timestamp <= ts (binary search). */
-export async function findBlockAtOrBefore(client: PublicClient, timestamp: bigint): Promise<bigint> {
+export async function findBlockAtOrBefore(client: PublicClient, timestamp: bigint, fromBlock = 0n): Promise<bigint> {
   const latest = await client.getBlock({ blockTag: "latest" });
   if (latest.timestamp <= timestamp) return latest.number;
-  let lo = 0n;
+  let lo = fromBlock;
   let hi = latest.number;
-  const genesis = await client.getBlock({ blockNumber: 0n });
-  if (genesis.timestamp > timestamp) return 0n;
+  const first = await client.getBlock({ blockNumber: fromBlock });
+  if (first.timestamp > timestamp) return fromBlock;
   while (hi - lo > 1n) {
     const mid = (lo + hi) / 2n;
     const b = await client.getBlock({ blockNumber: mid });
