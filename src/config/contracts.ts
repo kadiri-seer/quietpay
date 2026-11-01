@@ -14,6 +14,29 @@ export const KNOWN_ANNOUNCER_CODE_HASHES: readonly `0x${string}`[] = [
   "0x0af95fb5a29fc215ce3b805393c1f7c0530999f793faeb08f8bae6dd110797c0",
 ];
 
+/** QuietPayRouter build (no constructor args or immutables, so the hash is the same everywhere). */
+export const KNOWN_ROUTER_CODE_HASHES: readonly `0x${string}`[] = [
+  "0xc651ba2cdd6e69e0ff3048a9d2291633ec1476301cc964ea563bdb494066483d",
+];
+
+export const routerAbi = [
+  {
+    type: "function",
+    name: "pay",
+    stateMutability: "payable",
+    inputs: [
+      { name: "token", type: "address" },
+      { name: "announcer", type: "address" },
+      { name: "stealthAddress", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "ephemeralPubKey", type: "bytes" },
+      { name: "metadata", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  { type: "function", name: "MAX_GAS_STIPEND", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+] as const;
+
 export const MOCK_TOKEN_CODE_HASH =
   "0x7ed2078db1dc7dec7ac49172e597f9d7bee15356908dc6160cd03e72fa7d052c" as const;
 
@@ -53,6 +76,26 @@ export const erc20Abi = [
     stateMutability: "view",
     inputs: [{ name: "account", type: "address" }],
     outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "allowance",
+    stateMutability: "view",
+    inputs: [
+      { name: "owner", type: "address" },
+      { name: "spender", type: "address" },
+    ],
+    outputs: [{ type: "uint256" }],
+  },
+  {
+    type: "function",
+    name: "approve",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "spender", type: "address" },
+      { name: "amount", type: "uint256" },
+    ],
+    outputs: [{ type: "bool" }],
   },
   {
     type: "function",

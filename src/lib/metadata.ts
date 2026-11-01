@@ -19,13 +19,19 @@ import { getAddress, type Address, type Hex } from "viem";
 const MAGIC = "515001";
 const ERC20_TRANSFER_SELECTOR = "a9059cbb";
 
-export function buildPaymentMetadata(p: { viewTag: Hex; token: Address; amount: bigint; requestId: Hex }): Hex {
-  if (!/^0x[0-9a-fA-F]{32}$/.test(p.requestId)) throw new Error("requestId must be 16 bytes");
+/**
+ * Builds announcement metadata. Pass `requestId` only for one-time (fixed) links: it lets payers
+ * check whether the link was already paid. Reusable links omit it so observers cannot group
+ * payments made to the same link.
+ */
+export function buildPaymentMetadata(p: { viewTag: Hex; token: Address; amount: bigint; requestId?: Hex | null }): Hex {
   const base = buildMetadataForERC20({
     viewTag: p.viewTag.toLowerCase() as Hex,
     tokenAddress: p.token,
     amount: p.amount,
   });
+  if (!p.requestId) return base as Hex;
+  if (!/^0x[0-9a-fA-F]{32}$/.test(p.requestId)) throw new Error("requestId must be 16 bytes");
   return `${base}${MAGIC}${p.requestId.slice(2).toLowerCase()}` as Hex;
 }
 

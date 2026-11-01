@@ -3,6 +3,7 @@
  * Only ciphertext is ever written. Plain keys exist only in memory while the vault is unlocked.
  */
 import { getAddress, type Address, type Hex } from "viem";
+import type { LinkKind } from "./link";
 import { z } from "zod";
 import { open, seal, vaultAad, type Sealed } from "./vault-crypto";
 
@@ -14,19 +15,24 @@ export interface StoredPayment {
   detectedAt: number; // ms, from the announcement block timestamp
   receivedAmount: string | null; // base units actually received (verified Transfer logs)
   transferVerified: boolean;
+  /** Set once the payment's token balance has been fully moved out. */
   claimTx?: Hex;
   claimedTo?: Address;
   claimedAt?: number;
+  /** Every send out of this one-time address (full claims and partial sends). */
+  sends?: { tx: Hex; to: Address; amount: string; at: number }[];
 }
 
 export interface StoredRequest {
   id: Hex;
+  /** "fixed" (one payment of a set amount) or "open" (reusable, any amount). Missing = fixed. */
+  kind?: LinkKind;
   chainId: number;
   token: Address;
-  amount: string; // base units
+  amount: string; // base units; "0" for open links
   decimals: number;
   symbol: string;
-  expiresAt: number; // unix seconds
+  expiresAt: number; // unix seconds; 0 = never
   createdAt: number; // ms
   fromBlock: string; // block number at creation; scanning starts here
   lastScannedBlock?: string;
@@ -55,12 +61,13 @@ const vaultSchema = z.object({
     z
       .object({
         id: hex,
+        kind: z.enum(["fixed", "open"]).optional(),
         chainId: z.number().int(),
         token: hex,
         amount: z.string().regex(/^\d+$/),
         decimals: z.number().int().min(0).max(36),
         symbol: z.string().max(32),
-        expiresAt: z.number().int(),
+        expiresAt: z.number().int().min(0),
         createdAt: z.number(),
         fromBlock: z.string().regex(/^\d+$/),
         link: z.string().max(400),
@@ -149,9 +156,12 @@ export function mergeVaults(current: VaultData, incoming: VaultData): { vault: V
 
 export type RequestStatus = "created" | "expired" | "announcement_pending" | "claimable" | "claimed";
 
+export const isExpired = (r: Pick<StoredRequest, "expiresAt">, nowSeconds = Math.floor(Date.now() / 1000)) =>
+  r.expiresAt !== 0 && r.expiresAt <= nowSeconds;
+
 /** Recipient-side status of a request, derived from verified local scan results. */
 export function requestStatus(r: StoredRequest, nowSeconds = Math.floor(Date.now() / 1000)): RequestStatus {
-  if (r.payments.length === 0) return r.expiresAt <= nowSeconds ? "expired" : "created";
+  if (r.payments.length === 0) return isExpired(r, nowSeconds) ? "expired" : "created";
   const funded = r.payments.filter((p) => p.transferVerified);
   if (funded.length === 0) return "announcement_pending";
   if (funded.some((p) => !p.claimTx)) return "claimable";

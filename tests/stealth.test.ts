@@ -68,6 +68,12 @@ describe("announcement metadata", () => {
     const p = parsePaymentMetadata(m);
     expect(p).toEqual({ viewTag: "0xab", selector: "0xa9059cbb", token: TEST_TOKEN, amount: 25_000_000n, requestId: REQ_ID });
   });
+  it("omits the request ID for reusable links (standard 57-byte metadata)", () => {
+    const m = buildPaymentMetadata({ viewTag: "0xab", token: TEST_TOKEN, amount: 1n });
+    expect((m.length - 2) / 2).toBe(57);
+    expect(parsePaymentMetadata(m).requestId).toBeNull();
+    expect(parsePaymentMetadata(m).amount).toBe(1n);
+  });
   it("parses foreign/short metadata without throwing", () => {
     expect(parsePaymentMetadata("0x12").requestId).toBeNull();
     expect(parsePaymentMetadata(`0x12${"00".repeat(56)}`).token).toBeNull();

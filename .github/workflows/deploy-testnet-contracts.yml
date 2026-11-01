@@ -10,9 +10,9 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "What to deploy (announcer,token | announcer | token)"
+        description: "What to deploy, comma separated: announcer, token, router"
         required: true
-        default: "announcer,token"
+        default: "router"
 
 permissions:
   contents: read

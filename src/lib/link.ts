@@ -1,36 +1,50 @@
 /**
- * Payment link encoding (v1).
+ * Payment link encoding.
  *
- * Binary layout, then base64url (no padding):
- *   [0]        version            uint8   (= 1)
- *   [1..4]     chainId            uint32  big-endian
- *   [5..24]    token              20 bytes
- *   [25..40]   amount             uint128 big-endian, token base units
- *   [41..45]   expiresAt          uint40  big-endian, unix seconds
- *   [46..61]   requestId          16 random bytes
- *   [62..127]  stealthMetaAddress 66 bytes (33-byte compressed spending key || 33-byte viewing key)
- *   [128..131] checksum           first 4 bytes of keccak256(bytes[0..127])
- * Total 132 bytes -> 176 characters.
+ * v2 (current), base64url of 133 bytes:
+ *   [0]        version            uint8   (= 2)
+ *   [1]        flags              bit 0 = open amount (payer chooses; amount field is 0)
+ *   [2..5]     chainId            uint32  big-endian
+ *   [6..25]    token              20 bytes
+ *   [26..41]   amount             uint128 big-endian, token base units (0 for open links)
+ *   [42..46]   expiresAt          uint40  big-endian, unix seconds (0 = never expires)
+ *   [47..62]   requestId          16 random bytes
+ *   [63..128]  stealthMetaAddress 66 bytes (33-byte compressed spending key || 33-byte viewing key)
+ *   [129..132] checksum           first 4 bytes of keccak256(bytes[0..128])
  *
- * The link carries public data only. It never contains private keys or viewing secrets.
- * The code is placed in the URL fragment (/pay#<code>) so it is not sent to the web server.
+ * v1 (still accepted): fixed amount only, 132 bytes, same fields without the flags byte.
+ *
+ * Links carry public data only, never private keys or viewing secrets. The code lives in the URL
+ * fragment (/pay#<code>) so it is not sent to the web server.
  */
 import { bytesToHex, getAddress, hexToBytes, keccak256, type Address, type Hex } from "viem";
 import { z } from "zod";
-import { CLOCK_SKEW_SECONDS, MAX_EXPIRY_SECONDS, NETWORKS, networkForChainId, type NetworkConfig, type NetworkKey } from "@/config/networks";
+import {
+  CLOCK_SKEW_SECONDS,
+  MAX_EXPIRY_SECONDS,
+  MAX_OPEN_EXPIRY_SECONDS,
+  NETWORKS,
+  networkForChainId,
+  type NetworkConfig,
+  type NetworkKey,
+} from "@/config/networks";
 import { isValidCompressedPoint } from "./stealth";
 
-export const LINK_VERSION = 1;
-const LENGTH = 132;
-const BODY = 128;
+export const LINK_VERSION = 2;
+const FLAG_OPEN = 0x01;
 const MAX_U128 = (1n << 128n) - 1n;
 const MAX_U40 = (1n << 40n) - 1n;
 
+export type LinkKind = "fixed" | "open";
+
 export interface PaymentRequestLink {
   version: number;
+  kind: LinkKind;
   chainId: number;
   token: Address;
+  /** Base units. 0n for open links, where the payer chooses. */
   amount: bigint;
+  /** Unix seconds. 0 means the link never expires (open links only). */
   expiresAt: number;
   requestId: Hex; // 16 bytes
   stealthMetaAddress: Hex; // 66 bytes
@@ -46,15 +60,20 @@ export class LinkError extends Error {
 const hexBytes = (len: number) =>
   z.string().regex(new RegExp(`^0x[0-9a-fA-F]{${len * 2}}$`), `Expected ${len} bytes of hex`);
 
-export const linkSchema = z.object({
-  version: z.literal(LINK_VERSION),
-  chainId: z.number().int().positive().max(0xffffffff),
-  token: hexBytes(20),
-  amount: z.bigint().positive().max(MAX_U128),
-  expiresAt: z.number().int().positive(),
-  requestId: hexBytes(16),
-  stealthMetaAddress: hexBytes(66),
-});
+export const linkSchema = z
+  .object({
+    version: z.union([z.literal(1), z.literal(2)]),
+    kind: z.enum(["fixed", "open"]),
+    chainId: z.number().int().positive().max(0xffffffff),
+    token: hexBytes(20),
+    amount: z.bigint().min(0n).max(MAX_U128),
+    expiresAt: z.number().int().min(0),
+    requestId: hexBytes(16),
+    stealthMetaAddress: hexBytes(66),
+  })
+  .refine((r) => (r.kind === "fixed" ? r.amount > 0n && r.expiresAt > 0 : r.amount === 0n), {
+    message: "Fixed links need an amount and expiry; open links carry no amount.",
+  });
 
 function writeUint(target: Uint8Array, offset: number, size: number, value: bigint) {
   let v = value;
@@ -86,45 +105,73 @@ export function fromBase64Url(s: string): Uint8Array {
   return out;
 }
 
-export function encodePaymentLink(req: PaymentRequestLink): string {
-  const parsed = linkSchema.safeParse(req);
+function checksum(body: Uint8Array) {
+  return hexToBytes(keccak256(body)).subarray(0, 4);
+}
+
+/** Encodes a link in the current (v2) format. */
+export function encodePaymentLink(req: Omit<PaymentRequestLink, "version"> & { version?: number }): string {
+  const full = { ...req, version: LINK_VERSION };
+  const parsed = linkSchema.safeParse(full);
   if (!parsed.success) throw new LinkError(`Invalid payment request: ${parsed.error.issues[0]?.message}`);
   if (BigInt(req.expiresAt) > MAX_U40) throw new LinkError("Expiry out of range.");
-  const buf = new Uint8Array(LENGTH);
-  buf[0] = req.version;
-  writeUint(buf, 1, 4, BigInt(req.chainId));
-  buf.set(hexToBytes(req.token), 5);
-  writeUint(buf, 25, 16, req.amount);
-  writeUint(buf, 41, 5, BigInt(req.expiresAt));
-  buf.set(hexToBytes(req.requestId), 46);
-  buf.set(hexToBytes(req.stealthMetaAddress), 62);
-  const checksum = hexToBytes(keccak256(buf.subarray(0, BODY))).subarray(0, 4);
-  buf.set(checksum, BODY);
+  const buf = new Uint8Array(133);
+  buf[0] = LINK_VERSION;
+  buf[1] = req.kind === "open" ? FLAG_OPEN : 0;
+  writeUint(buf, 2, 4, BigInt(req.chainId));
+  buf.set(hexToBytes(req.token), 6);
+  writeUint(buf, 26, 16, req.amount);
+  writeUint(buf, 42, 5, BigInt(req.expiresAt));
+  buf.set(hexToBytes(req.requestId), 47);
+  buf.set(hexToBytes(req.stealthMetaAddress), 63);
+  buf.set(checksum(buf.subarray(0, 129)), 129);
   return toBase64Url(buf);
 }
 
-/** Decodes the binary structure only. Use validatePaymentLink for policy checks. */
+/** Decodes the binary structure only (v1 or v2). Use validatePaymentLink for policy checks. */
 export function decodePaymentLink(code: string): PaymentRequestLink {
   const trimmed = code.trim();
   if (trimmed.length === 0) throw new LinkError("This link is empty.");
   if (trimmed.length > 400) throw new LinkError("This link is too long to be a QuietPay link.");
   const buf = fromBase64Url(trimmed);
-  if (buf.length !== LENGTH) throw new LinkError("This link is incomplete or was copied incorrectly.");
-  if (buf[0] !== LINK_VERSION) throw new LinkError(`Unsupported link version ${buf[0]}.`);
-  const expected = hexToBytes(keccak256(buf.subarray(0, BODY))).subarray(0, 4);
-  const actual = buf.subarray(BODY);
-  if (!expected.every((b, i) => b === actual[i])) {
-    throw new LinkError("This link is damaged (checksum mismatch). Ask the recipient to share it again.");
+  const version = buf[0];
+  let req: PaymentRequestLink;
+  if (version === 1) {
+    if (buf.length !== 132) throw new LinkError("This link is incomplete or was copied incorrectly.");
+    if (!checksum(buf.subarray(0, 128)).every((b, i) => b === buf[128 + i])) {
+      throw new LinkError("This link is damaged (checksum mismatch). Ask the recipient to share it again.");
+    }
+    req = {
+      version: 1,
+      kind: "fixed",
+      chainId: Number(readUint(buf, 1, 4)),
+      token: getAddress(bytesToHex(buf.subarray(5, 25))),
+      amount: readUint(buf, 25, 16),
+      expiresAt: Number(readUint(buf, 41, 5)),
+      requestId: bytesToHex(buf.subarray(46, 62)),
+      stealthMetaAddress: bytesToHex(buf.subarray(62, 128)),
+    };
+  } else if (version === 2) {
+    if (buf.length !== 133) throw new LinkError("This link is incomplete or was copied incorrectly.");
+    if (!checksum(buf.subarray(0, 129)).every((b, i) => b === buf[129 + i])) {
+      throw new LinkError("This link is damaged (checksum mismatch). Ask the recipient to share it again.");
+    }
+    if ((buf[1] & ~FLAG_OPEN) !== 0) throw new LinkError("This link uses features this version of QuietPay doesn't support.");
+    req = {
+      version: 2,
+      kind: buf[1] & FLAG_OPEN ? "open" : "fixed",
+      chainId: Number(readUint(buf, 2, 4)),
+      token: getAddress(bytesToHex(buf.subarray(6, 26))),
+      amount: readUint(buf, 26, 16),
+      expiresAt: Number(readUint(buf, 42, 5)),
+      requestId: bytesToHex(buf.subarray(47, 63)),
+      stealthMetaAddress: bytesToHex(buf.subarray(63, 129)),
+    };
+  } else if (buf.length === 0) {
+    throw new LinkError("This link is empty.");
+  } else {
+    throw new LinkError(`Unsupported link version ${version}.`);
   }
-  const req: PaymentRequestLink = {
-    version: buf[0],
-    chainId: Number(readUint(buf, 1, 4)),
-    token: getAddress(bytesToHex(buf.subarray(5, 25))),
-    amount: readUint(buf, 25, 16),
-    expiresAt: Number(readUint(buf, 41, 5)),
-    requestId: bytesToHex(buf.subarray(46, 62)),
-    stealthMetaAddress: bytesToHex(buf.subarray(62, 128)),
-  };
   const parsed = linkSchema.safeParse(req);
   if (!parsed.success) throw new LinkError(`Invalid link: ${parsed.error.issues[0]?.message}`);
   return req;
@@ -137,7 +184,7 @@ export interface LinkValidation {
 
 /**
  * Policy validation, done before any wallet connection:
- * known + enabled chain, allowlisted token for that chain, unexpired, sane expiry window,
+ * known + enabled chain, allowlisted token for that chain, expiry rules for the link kind,
  * non-zero request ID, and both meta-address keys are valid secp256k1 points.
  */
 export function validatePaymentLink(
@@ -160,9 +207,12 @@ export function validatePaymentLink(
   if (getAddress(request.token) !== getAddress(network.token)) {
     throw new LinkError("This link asks for a token that QuietPay does not accept. Do not pay it.");
   }
-  if (request.expiresAt <= now) throw new LinkError("This payment link has expired.");
-  if (request.expiresAt > now + MAX_EXPIRY_SECONDS + CLOCK_SKEW_SECONDS) {
-    throw new LinkError("This link's expiry is further out than QuietPay allows.");
+  const maxWindow = request.kind === "fixed" ? MAX_EXPIRY_SECONDS : MAX_OPEN_EXPIRY_SECONDS;
+  if (request.expiresAt !== 0) {
+    if (request.expiresAt <= now) throw new LinkError("This payment link has expired.");
+    if (request.expiresAt > now + maxWindow + CLOCK_SKEW_SECONDS) {
+      throw new LinkError("This link's expiry is further out than QuietPay allows.");
+    }
   }
   if (/^0x0+$/.test(request.requestId)) throw new LinkError("This link has an invalid request ID.");
   const meta = request.stealthMetaAddress.slice(2);

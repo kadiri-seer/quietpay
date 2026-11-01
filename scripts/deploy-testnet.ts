@@ -6,6 +6,7 @@
  * Usage:
  *   DEPLOYER_PRIVATE_KEY=0x... npm run contracts:deploy
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=announcer npm run contracts:deploy   # announcer only
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=router npm run contracts:deploy      # router only
  *
  * Optional: RPC_URL (defaults to the public testnet RPC).
  *
@@ -53,6 +54,7 @@ async function main() {
   const chainId = await probe.getChainId();
   if (chainId === MAINNET_ID) {
     if (process.env.ALLOW_MAINNET_ANNOUNCER !== "true") fail("Refusing to deploy to mainnet. See the header of this script.");
+    // Only the announcer and router may go to mainnet; never the mock token.
     if (what.includes("token")) fail("The mock token must never be deployed to mainnet.");
   } else if (chainId !== TESTNET_ID) {
     fail(`RPC reports chain ${chainId}; expected Robinhood Chain Testnet (${TESTNET_ID}).`);
@@ -90,6 +92,8 @@ async function main() {
 
   if (what.includes("announcer")) env.push(`${prefix}_ANNOUNCER_ADDRESS=${await deploy("ERC5564Announcer")}`);
   if (what.includes("token")) env.push(`${prefix}_TOKEN_ADDRESS=${await deploy("QuietPayTestUSDG")}`);
+  if (what.includes("router")) env.push(`${prefix}_ROUTER_ADDRESS=${await deploy("QuietPayRouter")}`);
+  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router.`);
 
   console.log("\nAdd to .env.local (and your hosting provider's env settings):\n");
   for (const l of env) console.log(`  ${l}`);

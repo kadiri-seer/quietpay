@@ -14,7 +14,7 @@ import {
   type PublicClient,
   type TransactionReceipt,
 } from "viem";
-import { KNOWN_ANNOUNCER_CODE_HASHES, announcerAbi, erc20Abi, ERC5564_SCHEME_ID } from "@/config/contracts";
+import { KNOWN_ANNOUNCER_CODE_HASHES, KNOWN_ROUTER_CODE_HASHES, announcerAbi, erc20Abi, ERC5564_SCHEME_ID } from "@/config/contracts";
 import type { NetworkConfig } from "@/config/networks";
 import { TransferNotVerifiedError, TxReplacedError } from "./tx-errors";
 
@@ -92,6 +92,25 @@ export async function verifyAnnouncer(
     throw new VerificationError("The configured announcer's bytecode does not match a known ERC-5564 announcer build.");
   }
   return { address: network.announcer, codeHash };
+}
+
+/**
+ * Verifies the optional QuietPayRouter. Returns null when none is configured (the app then uses
+ * the two-transaction flow); throws if one is configured but its bytecode is unknown.
+ */
+export async function verifyRouter(
+  client: PublicClient,
+  network: NetworkConfig,
+  knownHashes: readonly Hex[] = KNOWN_ROUTER_CODE_HASHES,
+): Promise<{ address: Address; codeHash: Hex } | null> {
+  if (!network.router) return null;
+  const code = await client.getCode({ address: network.router });
+  if (!code || code === "0x") throw new VerificationError(`No contract is deployed at the configured router address on ${network.label}.`);
+  const codeHash = keccak256(code);
+  if (!knownHashes.map((h) => h.toLowerCase()).includes(codeHash.toLowerCase())) {
+    throw new VerificationError("The configured router's bytecode does not match QuietPay's router build.");
+  }
+  return { address: network.router, codeHash };
 }
 
 /** Finds the latest block with timestamp <= ts (binary search). */

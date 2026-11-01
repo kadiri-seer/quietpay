@@ -23,6 +23,7 @@ const OUT = join(ROOT, "contracts", "artifacts");
 const CONTRACTS = [
   { file: "ERC5564Announcer.sol", name: "ERC5564Announcer" },
   { file: "QuietPayTestUSDG.sol", name: "QuietPayTestUSDG" },
+  { file: "QuietPayRouter.sol", name: "QuietPayRouter" },
 ] as const;
 
 // "paris" avoids PUSH0 so the bytecode runs on any EVM-equivalent chain regardless of hardfork.

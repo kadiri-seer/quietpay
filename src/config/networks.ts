@@ -30,6 +30,8 @@ export interface NetworkConfig {
   expectedSymbol: string;
   /** ERC-5564 announcer address. Null if not deployed/configured. */
   announcer: Address | null;
+  /** QuietPayRouter: one-transaction payment + gas stipend + announcement. Null falls back to two transactions. */
+  router: Address | null;
   /** Confirmations to wait before treating a transaction as final in the UI. */
   confirmations: number;
   /** Max block span per eth_getLogs request (adaptively reduced on RPC errors). */
@@ -93,6 +95,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     tokenIsMock: true,
     expectedSymbol: "tUSDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ANNOUNCER_ADDRESS),
+    router: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS),
     confirmations: positiveInt(process.env.NEXT_PUBLIC_TESTNET_CONFIRMATIONS, 1),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),
     enabled: true,
@@ -107,6 +110,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     tokenIsMock: false,
     expectedSymbol: "USDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS),
+    router: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ROUTER_ADDRESS),
     confirmations: positiveInt(process.env.NEXT_PUBLIC_MAINNET_CONFIRMATIONS, 3),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),
     enabled: MAINNET_ENABLED,
@@ -141,7 +145,15 @@ export const EXPIRY_OPTIONS = [
   { label: "7 days", seconds: 7 * 24 * 60 * 60 },
 ] as const;
 
+/** Expiry choices for reusable "any amount" links. 0 means the link never expires. */
+export const OPEN_EXPIRY_OPTIONS = [
+  { label: "Never", seconds: 0 },
+  { label: "7 days", seconds: 7 * 24 * 60 * 60 },
+  { label: "30 days", seconds: 30 * 24 * 60 * 60 },
+] as const;
+
 export const MAX_EXPIRY_SECONDS = 7 * 24 * 60 * 60;
+export const MAX_OPEN_EXPIRY_SECONDS = 30 * 24 * 60 * 60;
 /** Clock skew tolerated when validating link expiry. */
 export const CLOCK_SKEW_SECONDS = 5 * 60;
 

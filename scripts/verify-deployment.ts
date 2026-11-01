@@ -9,7 +9,7 @@
  * Exits non-zero if anything fails. Run it before enabling a network.
  */
 import { NETWORKS, type NetworkKey } from "../src/config/networks";
-import { assertChainId, createNetworkClient, verifyAnnouncer, verifyToken } from "../src/lib/chain";
+import { assertChainId, createNetworkClient, verifyAnnouncer, verifyRouter, verifyToken } from "../src/lib/chain";
 
 async function main() {
   const key = (process.env.NETWORK || "testnet") as NetworkKey;
@@ -40,6 +40,12 @@ async function main() {
     line(true, "ERC-5564 announcer", `${a.address}, code ${a.codeHash}`);
   } catch (e) {
     line(false, "ERC-5564 announcer", (e as Error).message);
+  }
+  try {
+    const r = await verifyRouter(client, network);
+    line(true, "QuietPay router", r ? `${r.address}, code ${r.codeHash}` : "not configured (two-transaction payments)");
+  } catch (e) {
+    line(false, "QuietPay router", (e as Error).message);
   }
   console.log(`\nMainnet enabled in this build: ${NETWORKS.mainnet.enabled}`);
   process.exit(ok ? 0 : 1);
