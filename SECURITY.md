@@ -149,6 +149,24 @@ states this on every page and the payer must acknowledge it before paying.
   this. Claiming to the connected wallet also links them; the UI suggests a fresh address.
 - Leftover ETH dust stays at the stealth address after a sweep.
 
+### Shielded pool
+- Contracts and circuits are 0xbow's audited Privacy Pools, unchanged; QuietPay's own code around
+  them (key derivation, note reconstruction, verification, relayer) is not audited.
+- Before use, the browser checks every pool contract against the compiled build (immutables and
+  library addresses masked by the compiler's offsets), the contracts' wiring, and every circuit file
+  against the ceremony's SHA-256 digests. A mismatch blocks the pool.
+- The relayer only accepts withdrawals that name its own fee address and fee, simulates them, then
+  submits. The proof binds recipient, fee address and fee, so it cannot redirect funds. It sees IP
+  addresses and can refuse service; it stores nothing.
+- The approver publishes roots by a public rule encoded onchain, so clients verify the approval set
+  themselves. On testnet it approves everything after a delay. Real screening is a mainnet blocker.
+- The entrypoint is upgradeable and owned by the deployer. The owner cannot take pool funds, and
+  `ragequit` works without the owner, approver or relayer, but the owner could block private
+  withdrawals. The relayer key is separate from the owner key and is the only key on the web host.
+- The pool hides which deposit a withdrawal came from. It does not hide deposits, withdrawals,
+  amounts or timing, and gives little privacy while few people use it.
+- Details: [docs/shielded-pool.md](./docs/shielded-pool.md).
+
 ### Other
 - `Number`-free amounts: all token math uses `bigint`, with strict decimal parsing (no exponents,
   separators or silent rounding).

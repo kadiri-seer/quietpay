@@ -14,6 +14,7 @@ const sections: LegalSection[] = [
     body: (
       <ul>
         <li>QuietPay has no accounts, no server database, no cookies for tracking and no analytics.</li>
+        <li>The only QuietPay server code is the shielded pool&apos;s relayer, which you use only when you withdraw from the pool.</li>
         <li>Your payment keys are encrypted and stored only in your own browser.</li>
         <li>Blockchain activity is public and permanent, and some outside services can see technical details such as your IP address.</li>
       </ul>
@@ -39,6 +40,7 @@ const sections: LegalSection[] = [
           <li>Your key vault: each link's keys and payment records, encrypted with a key derived from your wallet's signature.</li>
           <li>Payments you have sent: the one-time address, public announcement data and transaction hashes, so an interrupted payment can be finished.</li>
           <li>Wallet connection settings, so your wallet reconnects when you return.</li>
+          <li>Circuit files for the shielded pool, cached by your browser after the first withdrawal.</li>
         </ul>
         <p>
           This data never leaves your device unless you export a backup file. You can delete it at any time by clearing this site's data in
@@ -74,6 +76,11 @@ const sections: LegalSection[] = [
         <li>
           <strong className="text-snow">WalletConnect (Reown).</strong> Only if you choose it. Messages to your mobile wallet are end-to-end
           encrypted but pass through Reown's relay, which can see connection metadata such as your IP address.
+        </li>
+        <li>
+          <strong className="text-snow">QuietPay relayer.</strong> Only if you withdraw from the shielded pool. It receives the finished
+          proof and the receiving address, sees your IP address, and submits the withdrawal. It never receives your keys or learns which
+          deposit is yours. It does not store or log requests.
         </li>
         <li>
           <strong className="text-snow">Your wallet.</strong> Sees the transactions and messages you approve, under its own policy.

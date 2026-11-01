@@ -18,6 +18,8 @@ import { SetupBlocker } from "@/components/SetupBlocker";
 import { CopyButton, Countdown, formatEthCeil, LoadingRows, ExplorerLink, Mono, Notice, PageTitle, Spinner, StatusPill, formatDateTime, shorten } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
+import { usePoolInfo } from "@/components/pool-hooks";
+import { ShieldForm } from "./ShieldForm";
 
 export function ReceiveFlow() {
   const { network } = useSelectedNetwork();
@@ -191,7 +193,8 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
 function PaymentRow({ request, payment, network }: { request: StoredRequest; payment: StoredPayment; network: NetworkConfig }) {
   const received = payment.receivedAmount ? BigInt(payment.receivedAmount) : 0n;
   const mismatch = request.kind !== "open" && payment.transferVerified && received !== BigInt(request.amount);
-  const sent = (payment.sends ?? []).reduce((s, x) => s + BigInt(x.amount), 0n);
+  const sent =
+    (payment.sends ?? []).reduce((s, x) => s + BigInt(x.amount), 0n) - (payment.returns ?? []).reduce((s, x) => s + BigInt(x.amount), 0n);
   const fmt = (v: bigint) => `${formatAmount(v, request.decimals, { group: true })} ${request.symbol}`;
   return (
     <li className="space-y-3 text-sm">
@@ -223,9 +226,26 @@ function PaymentRow({ request, payment, network }: { request: StoredRequest; pay
       </div>
       {(payment.sends ?? []).length > 0 && (
         <ul className="space-y-1 text-xs text-haze">
+          {(payment.returns ?? []).map((x) => (
+            <li key={x.tx}>
+              {fmt(BigInt(x.amount))} came back from the pool · <ExplorerLink network={network} tx={x.tx} />
+            </li>
+          ))}
           {payment.sends!.map((x) => (
             <li key={x.tx}>
-              Sent {fmt(BigInt(x.amount))} to <Mono>{shorten(x.to, 4)}</Mono> · <ExplorerLink network={network} tx={x.tx} />
+              {network.pool && x.to.toLowerCase() === network.pool.entrypoint.toLowerCase() ? (
+                <>
+                  Shielded {fmt(BigInt(x.amount))} in the{" "}
+                  <a href="/pool" className="text-signal underline underline-offset-4">
+                    pool
+                  </a>
+                </>
+              ) : (
+                <>
+                  Sent {fmt(BigInt(x.amount))} to <Mono>{shorten(x.to, 4)}</Mono>
+                </>
+              )}{" "}
+              · <ExplorerLink network={network} tx={x.tx} />
             </li>
           ))}
         </ul>
@@ -251,6 +271,10 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
   const [busy, setBusy] = useState<"topup" | "send" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const pool = usePoolInfo(network);
+  const poolReady = !!pool.data && !pool.data.dead;
+  const [mode, setMode] = useState<"pool" | "address" | null>(null);
+  const effectiveMode = mode ?? (poolReady ? "pool" : "address");
 
   const destValid = isAddress(dest.trim(), { strict: false });
   const destAddr = destValid ? getAddress(dest.trim()) : null;
@@ -273,8 +297,8 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
   }, [client, request.token, payment.stealthAddress, destAddr]);
 
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    if (open && effectiveMode === "address") void refresh();
+  }, [open, refresh, effectiveMode]);
 
   const amount = useMemo(() => {
     if (!info) return { error: null as string | null };
@@ -337,8 +361,52 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
     );
   }
 
+  const chooser = poolReady ? (
+    <fieldset>
+      <legend className="mb-2 block text-sm font-medium text-snow">Move to</legend>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {(
+          [
+            ["pool", "Shielded pool", "Withdraw later to any address, unlinkable."],
+            ["address", "An address", "Direct. Linked to this payment onchain."],
+          ] as const
+        ).map(([value, title, hint]) => (
+          <label
+            key={value}
+            className={`cursor-pointer rounded-[3px] border p-3 text-sm ${effectiveMode === value ? "border-signal bg-signal/5" : "border-harbor"}`}
+          >
+            <input
+              type="radio"
+              className="sr-only"
+              name={`mode-${payment.stealthAddress}`}
+              value={value}
+              checked={effectiveMode === value}
+              onChange={() => {
+                setMode(value);
+                setConfirming(null);
+                setDone(null);
+              }}
+            />
+            <span className="block font-medium text-snow">{title}</span>
+            <span className="mt-0.5 block text-xs text-haze">{hint}</span>
+          </label>
+        ))}
+      </div>
+    </fieldset>
+  ) : null;
+
+  if (effectiveMode === "pool" && pool.data) {
+    return (
+      <div className="space-y-4 rounded-[3px] border border-harbor p-4">
+        {chooser}
+        <ShieldForm request={request} payment={payment} network={network} info={pool.data} />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-4 rounded-[3px] border border-harbor p-4">
+      {chooser}
       <div>
         <label htmlFor={`dest-${payment.stealthAddress}`} className="mb-2 block text-sm font-medium text-snow">
           Send to

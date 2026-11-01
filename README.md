@@ -72,6 +72,18 @@ From the Receive page you can send all or part of a payment to any address. Quie
 suggests your connected wallet: sending there publicly links the payment to it. Use a fresh account
 or pay someone directly from the payment.
 
+### Shielded pool (testnet)
+
+Moving a payment to a fresh address still leaves a public trail from the one-time address. The
+shielded pool breaks it: *Move funds → Shielded pool* deposits the payment into
+[Privacy Pools by 0xbow](https://github.com/0xbow-io/privacy-pools-core) (audited contracts and
+circuits, used unchanged), and the Pool page withdraws any amount to any fresh address through a
+relayer, with the zero-knowledge proof generated in the browser. Deposits must be approved before
+they can be withdrawn privately; on testnet the approver approves every deposit after a short
+delay. Any deposit can exit back to its one-time address without approval.
+
+Full design, trust assumptions and mainnet blockers: [docs/shielded-pool.md](./docs/shielded-pool.md).
+
 ### Announcement metadata
 
 Bytes 0 to 56 follow ERC-5564's recommendation (view tag, `transfer` selector, token, amount), built
@@ -198,20 +210,27 @@ npm run lint      # TypeScript type check
 npm run build     # production build
 ```
 
-The suite (78 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
+The suite (94 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
 vault encryption, passphrase backups and recovery, stealth derivation and matching, metadata,
 network gating and bytecode fingerprints, the payment state machine, and transaction-error
 classification. `tests/e2e-anvil.test.ts` runs the full flow on a real local EVM: deploy, create,
 validate, preflight, pay, announce, duplicate-payment blocking, scan, match, gas top-up, sweep.
+`tests/e2e-router.test.ts` covers router payments and reusable links. `tests/e2e-pool.test.ts`
+deploys the real pool contracts, deposits from a one-time address, publishes an approval root,
+generates a real Groth16 proof with the ceremony keys, relays a withdrawal to an empty address,
+withdraws the change note, rejects tampered and replayed proofs, and exits a deposit.
 
 ## Project layout
 
 ```
 src/config/      networks, token/announcer config, ABIs, bytecode fingerprints
 src/lib/         amount, link, stealth, metadata, vault + crypto, chain, payer, receive, state machine
-src/app/         Home, /create, /pay, /receive
+src/lib/pool/    shielded pool: keys, notes, proving, verification, relayer
+src/app/         Home, /create, /pay, /receive, /pool, /api/relay, /api/pool/approvals
 src/components/  wallet + vault gates, UI primitives, logo, skyline hero
-contracts/       ERC5564Announcer (CC0, ScopeLift) and QuietPayTestUSDG (mock) + compiled artifacts
+contracts/       ERC5564Announcer (CC0, ScopeLift), QuietPayTestUSDG (mock), QuietPayRouter + artifacts
+contracts/vendor Privacy Pools contracts (Apache-2.0, unchanged) and their library imports
+public/pool-artifacts  circuit files from the Privacy Pools trusted-setup ceremony
 scripts/         compile, deploy (testnet), verify
 tests/           Vitest unit and anvil end-to-end tests
 ```
@@ -238,8 +257,12 @@ Mainnet must stay disabled until all of these are done:
    transitive dependencies whose fixes need major upgrades (wagmi 3, zod 4). Review and upgrade
    before mainnet.
 
+10. **Shielded pool.** Testnet only. See the blockers in [docs/shielded-pool.md](./docs/shielded-pool.md).
+
 See [SECURITY.md](./SECURITY.md) for the threat model.
 
 ## Licence
 
 Application code: MIT. `contracts/src/ERC5564Announcer.sol`: CC0-1.0 (ScopeLift).
+`contracts/vendor/privacy-pools`: Apache-2.0 (0xbow); its generated verifiers and the browser prover
+(snarkjs) are GPL-3.0. See [contracts/vendor/NOTICE.md](./contracts/vendor/NOTICE.md).

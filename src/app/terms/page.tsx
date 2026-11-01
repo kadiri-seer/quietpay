@@ -44,6 +44,11 @@ const sections: LegalSection[] = [
           Robinhood Chain. Payment keys are generated and encrypted in your browser and are never sent to QuietPay.
         </p>
         <p>
+          Funds you shield are held by the Privacy Pools smart contract, not by QuietPay. Only someone with your pool keys can withdraw them,
+          and the address that made a deposit can always take it back. The QuietPay relayer only submits withdrawals you have already
+          proved; it can decline to submit one but cannot redirect it.
+        </p>
+        <p>
           Because of this, QuietPay cannot recover lost keys, reverse or cancel transactions, freeze funds, or retrieve payments sent to the
           wrong place. Blockchain transactions are final once confirmed.
         </p>
@@ -69,7 +74,9 @@ const sections: LegalSection[] = [
     body: (
       <p>
         QuietPay gives each payment a fresh receiving address. Robinhood Chain is public: the payer, amount, destination address and
-        transaction time can be visible. QuietPay does not provide anonymity, and you should not rely on it to hide activity from anyone.
+        transaction time can be visible. The shielded pool hides which deposit a withdrawal came from, but deposits and withdrawals themselves
+        are public and can sometimes be matched by amount and timing. QuietPay does not provide anonymity, and you should not rely on it to
+        hide activity from anyone.
         The <Link href="/security">Security model</Link> explains what is and is not protected.
       </p>
     ),
@@ -79,13 +86,17 @@ const sections: LegalSection[] = [
     title: "Acceptable use",
     body: (
       <>
-        <p>You must not use QuietPay to:</p>
+        <p>You must not use QuietPay, including its shielded pool, to:</p>
         <ul>
           <li>break any law or regulation, or help anyone else do so;</li>
           <li>launder money, finance terrorism, evade sanctions or commit fraud;</li>
           <li>receive the proceeds of crime or pay for illegal goods or services;</li>
           <li>attack, disrupt or overload the site, the blockchain or other users.</li>
         </ul>
+        <p>
+          Every pool deposit must be approved before it can be withdrawn privately. Approval may be withheld from deposits linked to sanctions,
+          theft or other illicit activity; such deposits can only exit back to the address that made them.
+        </p>
       </>
     ),
   },

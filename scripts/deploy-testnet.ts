@@ -126,7 +126,8 @@ async function main() {
   for (const l of env) console.log(`  ${l}`);
   console.log(
     "\nVerify source on Blockscout: contract page → Verify & Publish → Solidity (Standard JSON input),\n" +
-      "compiler v0.8.23, using `standardJsonInput` from contracts/artifacts/<Contract>.json.\n" +
+      "compiler v0.8.23, using `standardJsonInput` from contracts/artifacts/<Contract>.json\n" +
+      "(pool contracts: v0.8.28, contracts/artifacts/pool/<Contract>.json).\n" +
       "Then run: npm run contracts:verify",
   );
 }

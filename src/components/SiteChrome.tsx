@@ -13,6 +13,7 @@ const NAV = [
   { href: "/create", label: "Create" },
   { href: "/pay", label: "Pay" },
   { href: "/receive", label: "Receive" },
+  { href: "/pool", label: "Pool" },
   { href: "/security", label: "Security" },
 ];
 
@@ -161,6 +162,7 @@ export function SiteFooter() {
             { href: "/create", label: "Create a link" },
             { href: "/pay", label: "Pay a link" },
             { href: "/receive", label: "Receive and claim" },
+            { href: "/pool", label: "Shielded pool" },
           ]}
         />
         <FooterCol

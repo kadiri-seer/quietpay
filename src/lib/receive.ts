@@ -184,6 +184,11 @@ export async function sendFromStealthPayment(
   return { hash: receipt.transactionHash, amount, remaining: balance - amount };
 }
 
+/** The payment's one-time address as a local signer. The key is derived in memory only. */
+export function stealthAccount(request: StoredRequest, payment: StoredPayment) {
+  return privateKeyToAccount(deriveStealthPrivateKey(payment.ephemeralPublicKey, payment.stealthAddress, request.keys));
+}
+
 /** Moves the whole balance (a full claim). */
 export function sweepStealthPayment(client: PublicClient, network: NetworkConfig, p: { request: StoredRequest; payment: StoredPayment; to: Address }) {
   return sendFromStealthPayment(client, network, p);

@@ -32,7 +32,9 @@ const wcFont = wc ? " https://fonts.reown.com" : "";
 // No third-party scripts are loaded. See SECURITY.md.
 const csp = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""}`,
+  // 'wasm-unsafe-eval' lets the pool's proof generator compile its WebAssembly; it does not allow eval().
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'${isDev ? " 'unsafe-eval'" : ""}`,
+  "worker-src 'self' blob:",
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob:${wcImg}`,
   `font-src 'self'${wcFont}`,

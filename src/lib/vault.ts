@@ -21,6 +21,8 @@ export interface StoredPayment {
   claimedAt?: number;
   /** Every send out of this one-time address (full claims and partial sends). */
   sends?: { tx: Hex; to: Address; amount: string; at: number }[];
+  /** Funds that came back to this address after being sent out (a pool exit). */
+  returns?: { tx: Hex; amount: string; at: number }[];
 }
 
 export interface StoredRequest {

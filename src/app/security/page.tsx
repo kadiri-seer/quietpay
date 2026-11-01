@@ -16,7 +16,12 @@ export const metadata: Metadata = {
 const announcerSource = readFileSync(join(process.cwd(), "contracts", "src", "ERC5564Announcer.sol"), "utf8");
 
 const VISIBLE = ["Your wallet address when you pay", "The amount", "The one-time receiving address", "When each transaction happened"];
-const HIDDEN = ["Which main wallet a payment belongs to", "That two payments went to the same person", "Your receiving keys"];
+const HIDDEN = [
+  "Which main wallet a payment belongs to",
+  "That two payments went to the same person",
+  "Your receiving keys",
+  "Which pool deposit a withdrawal came from",
+];
 
 const KEYS: { what: string; where: string }[] = [
   { what: "Each link's receiving keys", where: "Encrypted in this browser (AES-256-GCM). The key comes from a message your wallet signs and only lives in memory." },
@@ -24,6 +29,10 @@ const KEYS: { what: string; where: string }[] = [
   { what: "The key that moves a payment", where: "Worked out in your browser at claim time, used once to sign, then discarded." },
   { what: "Backup files", where: "Encrypted with your passphrase (PBKDF2, 600,000 rounds). Keep the file and passphrase apart." },
   { what: "Payment links", where: "Public keys only, kept after the # in the URL so they never reach a web server." },
+  {
+    what: "Pool keys",
+    where: "Derived in this browser from the same signature (separate derivation) and kept in the encrypted vault, so backups include them. Pool proofs are generated on this device.",
+  },
 ];
 
 const RISKS: { title: string; body: string }[] = [
@@ -62,6 +71,14 @@ const RISKS: { title: string; body: string }[] = [
   {
     title: "Where you move the money",
     body: "Moving a payment into your main wallet publicly links them, and the payer can follow it. Send to a fresh account or pay someone directly from the payment. Cashing out to an exchange account in your name links the funds to you.",
+  },
+  {
+    title: "The shielded pool",
+    body: "Pool withdrawals hide which deposit they came from, not that someone withdrew. Privacy depends on how many others use the pool, and matching amounts or quick withdrawals can still be connected. The pool contracts and circuits are 0xbow's audited Privacy Pools, unchanged, with their ceremony keys.",
+  },
+  {
+    title: "The relayer and approver",
+    body: "QuietPay runs a small relayer so withdrawals can go to an empty address. It sees your IP address and the withdrawal, can refuse to submit, but cannot change the recipient or fee because the proof fixes them. The approver publishes approvals by a public rule anyone can check. If either stops, deposits can always exit to their one-time address.",
   },
   {
     title: "Reusable links",
@@ -128,7 +145,10 @@ export default function SecurityPage() {
               </div>
             ))}
           </dl>
-          <p className="mt-4 text-sm text-haze">Nothing is sent to a QuietPay server. There is no QuietPay server, database or analytics.</p>
+          <p className="mt-4 text-sm text-haze">
+            No keys or secrets are ever sent to a server. QuietPay has no database or analytics. The only QuietPay server code is the pool
+            relayer and approver, which receive finished proofs, never secrets.
+          </p>
         </Section>
 
         <Section title="Risks and how QuietPay handles them">
@@ -165,6 +185,18 @@ export default function SecurityPage() {
                   href={n.router ? explorerAddressUrl(n, n.router) : null}
                   emptyLabel="Not deployed yet. Payments use two transactions."
                 />
+                <ContractRow
+                  label="Shielded pool entrypoint (Privacy Pools by 0xbow)"
+                  address={n.pool?.entrypoint ?? null}
+                  href={n.pool ? explorerAddressUrl(n, n.pool.entrypoint) : null}
+                  emptyLabel={n.chain.testnet ? "Not deployed yet." : "Testnet only for now."}
+                />
+                <ContractRow
+                  label="Shielded pool"
+                  address={n.pool?.pool ?? null}
+                  href={n.pool ? explorerAddressUrl(n, n.pool.pool) : null}
+                  emptyLabel={n.chain.testnet ? "Not deployed yet." : "Testnet only for now."}
+                />
                 <div>
                   <dt className="text-haze">Expected announcer bytecode hash</dt>
                   <dd className="mt-1 break-all font-mono text-xs text-mist">{KNOWN_ANNOUNCER_CODE_HASHES.join(", ")}</dd>
@@ -189,6 +221,12 @@ export default function SecurityPage() {
           <p className="mt-4 text-sm leading-relaxed text-haze">
             The announcer only emits a public event. It holds no funds and has no owner. Payments go straight from the payer to the one-time
             address through the token contract.
+          </p>
+          <p className="mt-4 text-sm leading-relaxed text-haze">
+            The shielded pool uses 0xbow&apos;s Privacy Pools contracts and circuits (Apache-2.0), compiled unchanged with the audited compiler
+            version. They were audited by Oxorio and Auditware. Before any deposit, your browser checks every pool contract against that build,
+            and every circuit file against the trusted-setup ceremony output. Unlike the announcer and router, the pool has an owner: on testnet,
+            QuietPay&apos;s deployer can upgrade the entrypoint, add pools and stop new deposits. Funds sit in the pool contract, which the owner cannot take from, and a depositor&apos;s exit back to its one-time address does not depend on the owner, the approver or the relayer.
           </p>
         </Section>
 
