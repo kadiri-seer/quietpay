@@ -13,6 +13,12 @@ tie a payment to the recipient's regular wallet. It does not hide the payer, the
 
 ## How it works
 
+QuietPay has two kinds of link:
+
+- **Fixed amount**: an invoice. Paid once, expires after 1 hour, 24 hours or 7 days.
+- **Any amount**: a reusable link. The payer chooses the amount and can pay many times. Never expires
+  by default (or after 7 or 30 days).
+
 1. **Create** (recipient). Connect a wallet and sign a message that unlocks an encrypted key vault in
    the browser. Enter an amount and expiry. QuietPay generates a brand-new spending/viewing key pair
    for this request only and produces a link holding the public stealth meta-address. The recipient's
@@ -28,28 +34,50 @@ tie a payment to the recipient's regular wallet. It does not hide the payer, the
    If the stealth address has no ETH for gas, the recipient can top it up manually; QuietPay never
    funds addresses automatically.
 
-### Payment link format (v1)
+### Payment link format (v2)
 
-`https://<host>/pay#<code>`. The code is base64url of 132 bytes:
+`https://<host>/pay#<code>`. The code is base64url of 133 bytes (v1 links, 132 bytes without the
+flags byte, are still accepted):
 
 | Bytes | Field |
 | --- | --- |
-| 1 | version (`1`) |
+| 1 | version (`2`) |
+| 1 | flags (bit 0: any amount) |
 | 4 | chain ID |
 | 20 | token address (must equal the allowlisted token for that chain) |
-| 16 | amount, token base units (uint128) |
-| 5 | expiry, unix seconds |
+| 16 | amount, token base units (uint128; 0 for any-amount links) |
+| 5 | expiry, unix seconds (0 = never, any-amount links only) |
 | 16 | random request ID |
 | 66 | stealth meta-address (compressed spending key ‖ compressed viewing key) |
 | 4 | checksum: first 4 bytes of keccak256 of the above |
 
 It lives in the URL fragment, so it is never sent to the web server. It never contains private keys.
 
+### One-transaction payments (QuietPay router)
+
+When `NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS` points at a deployed, bytecode-verified `QuietPayRouter`,
+the payer approves exactly the amount, then one transaction:
+
+1. moves the tokens to the one-time address,
+2. sends a small ETH gas allowance with it (capped at 0.001 ETH), so the recipient can move the funds
+   without topping the address up from a wallet linked to them,
+3. posts the ERC-5564 announcement.
+
+They succeed or fail together. Without a router, QuietPay falls back to the two-transaction flow
+(payment, then a separately retryable announcement) and the recipient must add gas manually.
+
+### Moving funds
+
+From the Receive page you can send all or part of a payment to any address. QuietPay never
+suggests your connected wallet: sending there publicly links the payment to it. Use a fresh account
+or pay someone directly from the payment.
+
 ### Announcement metadata
 
-Bytes 0–56 follow ERC-5564's recommendation (view tag, `transfer` selector, token, amount), built
-with the ScopeLift SDK. QuietPay appends `0x515001` and the 16-byte request ID so anyone holding the
-link can see whether it was already paid (one-time enforcement) without learning the recipient.
+Bytes 0 to 56 follow ERC-5564's recommendation (view tag, `transfer` selector, token, amount), built
+with the ScopeLift SDK. For fixed links QuietPay appends `0x515001` and the 16-byte request ID so
+anyone holding the link can see whether it was already paid (one-time enforcement) without learning
+the recipient. Any-amount links omit it, so payments to the same reusable link can't be grouped.
 
 ## Tech
 
@@ -99,7 +127,9 @@ explorer `https://explorer.testnet.chain.robinhood.com`, ETH faucet
    ```bash
    DEPLOYER_PRIVATE_KEY=0x<throwaway key> npm run contracts:deploy
    ```
-   The script refuses any chain other than 46630, deploys the exact bytecode committed in
+   Add `DEPLOY=router` (or `announcer,token,router`) to choose what to deploy. The GitHub workflow
+   "Deploy testnet contracts" does the same from the Actions tab. The script refuses any chain other
+   than 46630, deploys the exact bytecode committed in
    `contracts/artifacts/`, checks the deployed runtime code hash and prints:
    ```
    NEXT_PUBLIC_TESTNET_ANNOUNCER_ADDRESS=0x…
@@ -133,7 +163,8 @@ The deployed testnet addresses are committed in `.env.production`, so a producti
 | --- | --- | --- |
 | Payment token | `QuietPayTestUSDG` (**mock**, `tUSDG`, 6 decimals) at `0x271c29c9d99e0dd4ae250c7dd302052355cb3db9` | USDG `0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168` (hard-coded; symbol and decimals verified onchain at runtime) |
 | ERC-5564 announcer | `0x6ec677c1195ac4951afcaead14debad6f74be577` | Not deployed; set `NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS` after deployment |
-| ERC-6538 registry | Not used in v1 | Not used in v1 |
+| QuietPay router | Deploy with `DEPLOY=router`; set `NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS` | Not deployed |
+| ERC-6538 registry | Not used | Not used |
 
 Why no defaults:
 

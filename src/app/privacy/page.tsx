@@ -52,8 +52,8 @@ const sections: LegalSection[] = [
     title: "Information on the blockchain",
     body: (
       <p>
-        When you pay or claim, transactions are recorded on Robinhood Chain. Anyone can see the sending address, the amount, the receiving
-        address and the time, and this record cannot be changed or deleted by QuietPay or anyone else. See the{" "}
+        When you pay or move funds, transactions are recorded on Robinhood Chain. Anyone can see the sending address, the amount, the
+        receiving address, any ETH included for fees, and the time. This record cannot be changed or deleted by QuietPay or anyone else. See the{" "}
         <Link href="/security">Security model</Link> for what QuietPay keeps unlinkable.
       </p>
     ),

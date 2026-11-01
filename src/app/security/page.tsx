@@ -56,8 +56,16 @@ const RISKS: { title: string; body: string }[] = [
     body: "Paying is two transactions: the transfer, then an announcement. If the announcement fails, only it can be retried; QuietPay will never resend a payment that was already sent. Payments count only after the transfer is verified onchain.",
   },
   {
-    title: "Gas top-ups and claims",
-    body: "A one-time address starts with no ETH for fees. QuietPay never funds it automatically. Topping it up from, or claiming to, your main wallet publicly links them, so use an unrelated wallet or a fresh address if that matters.",
+    title: "Gas for claims",
+    body: "When the QuietPay router is available, the payer includes a tiny amount of ETH with the payment, so you can move the funds without topping the address up from a wallet linked to you. QuietPay never funds addresses automatically.",
+  },
+  {
+    title: "Where you move the money",
+    body: "Moving a payment into your main wallet publicly links them, and the payer can follow it. Send to a fresh account or pay someone directly from the payment. Cashing out to an exchange account in your name links the funds to you.",
+  },
+  {
+    title: "Reusable links",
+    body: "An any-amount link can be paid many times. Each payment still lands at its own address, and the public announcement carries no link ID, so observers cannot group payments to the same link. Everyone you share it with knows the payments go to you.",
   },
 ];
 
@@ -135,6 +143,10 @@ export default function SecurityPage() {
         </Section>
 
         <Section id="contracts" title="Contracts">
+          <p className="mb-6 text-sm leading-relaxed text-mist">
+            The router moves a payment, the recipient&apos;s gas allowance and the announcement in one transaction, so they succeed or fail
+            together. Like the announcer, it holds no funds and has no owner. The payer approves exactly the amount being paid.
+          </p>
           {networks.map((n) => (
             <div key={n.key} className="space-y-4">
               <p className="text-sm text-haze">
@@ -147,6 +159,12 @@ export default function SecurityPage() {
                   href={n.token ? explorerAddressUrl(n, n.token) : null}
                 />
                 <ContractRow label="ERC-5564 announcer" address={n.announcer} href={n.announcer ? explorerAddressUrl(n, n.announcer) : null} />
+                <ContractRow
+                  label="QuietPay router (one-transaction payments)"
+                  address={n.router}
+                  href={n.router ? explorerAddressUrl(n, n.router) : null}
+                  emptyLabel="Not deployed yet. Payments use two transactions."
+                />
                 <div>
                   <dt className="text-haze">Expected announcer bytecode hash</dt>
                   <dd className="mt-1 break-all font-mono text-xs text-mist">{KNOWN_ANNOUNCER_CODE_HASHES.join(", ")}</dd>
@@ -185,7 +203,7 @@ export default function SecurityPage() {
   );
 }
 
-function ContractRow({ label, address, href }: { label: string; address: string | null; href: string | null }) {
+function ContractRow({ label, address, href, emptyLabel = "Not configured" }: { label: string; address: string | null; href: string | null; emptyLabel?: string }) {
   return (
     <div>
       <dt className="text-haze">{label}</dt>
@@ -195,7 +213,7 @@ function ContractRow({ label, address, href }: { label: string; address: string 
             {address}
           </a>
         ) : (
-          <span className="text-bad">Not configured</span>
+          <span className="font-sans text-sm text-haze">{emptyLabel}</span>
         )}
       </dd>
     </div>

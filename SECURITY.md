@@ -20,7 +20,7 @@ states this on every page and the payer must acknowledge it before paying.
 | --- | --- | --- |
 | Per-request spending + viewing private keys | Browser `localStorage`, inside the vault | AES-256-GCM, key from HKDF-SHA256 over a wallet signature |
 | Vault encryption key | Memory only, non-extractable `CryptoKey` | Gone on reload or wallet change |
-| Wallet signature used for the vault key | Never stored | — |
+| Wallet signature used for the vault key | Never stored | Not applicable |
 | Stealth private key (per payment) | Derived in memory at claim time | Used to sign locally, then discarded |
 | Backup file | Downloaded by the user | AES-256-GCM, PBKDF2-SHA256 600,000 iterations, 12+ character passphrase |
 | Payer record (stealth address, ephemeral **public** key, tx hashes) | Payer's `localStorage`, plaintext | Not secret; lets announcements be retried |
@@ -125,9 +125,26 @@ states this on every page and the payer must acknowledge it before paying.
   blocks payment if one exists. Two payers racing can still both pay; the recipient sees and can
   claim both.
 
+### QuietPay router
+- `QuietPayRouter` has no owner, no storage of funds and no upgrade path. It pulls exactly the
+  approved amount from the payer to the one-time address, forwards any ETH sent with the call
+  (capped at 0.001 ETH) to the same address, and calls the announcer, all in one transaction.
+- The app verifies the router's runtime bytecode hash before using it, and only ever passes its
+  allowlisted token and verified announcer. Approvals are for the exact payment amount, so no
+  lingering allowance remains after a payment.
+- If no router is configured the app falls back to the two-transaction flow below.
+
+### Reusable (any-amount) links
+- Payments to the same link each go to a fresh one-time address, and their announcements carry no
+  request ID, so onchain observers cannot group them. Anyone who holds the link knows payments made
+  through it go to the same person.
+- One-time enforcement applies only to fixed-amount links.
+- Odd amounts are easier to correlate later than round ones; the pay page says so.
+
 ### Gas top-up linking
-- A stealth address starts with no ETH, so it can't pay gas to move tokens. QuietPay never funds it
-  automatically. The recipient must choose to top it up, and the UI warns that funding it from a
+- With the router, the payer includes the gas, so the recipient never needs to fund the one-time
+  address. Without it, a stealth address starts with no ETH and can't pay gas to move tokens.
+  QuietPay never funds it automatically. The recipient must choose to top it up, and the UI warns that funding it from a
   known wallet publicly links that wallet to the payment. Sending from an unrelated wallet avoids
   this. Claiming to the connected wallet also links them; the UI suggests a fresh address.
 - Leftover ETH dust stays at the stealth address after a sweep.

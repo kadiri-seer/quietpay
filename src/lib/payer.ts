@@ -95,9 +95,10 @@ export async function estimateGasStipend(client: PublicClient, token: Address, p
   const maxFee = fees.maxFeePerGas ?? 0n;
   let stipend = (gas * 3n * maxFee * 3n) / 2n;
   if (stipend > MAX_GAS_STIPEND) stipend = MAX_GAS_STIPEND;
-  // Round up to 1e-9 ETH so the figure shown is the figure sent.
-  const unit = 10n ** 9n;
-  return ((stipend + unit - 1n) / unit) * unit;
+  // Round up to 0.000001 ETH so the figure shown everywhere is exactly the figure sent.
+  const unit = 10n ** 12n;
+  const rounded = ((stipend + unit - 1n) / unit) * unit;
+  return rounded > MAX_GAS_STIPEND ? MAX_GAS_STIPEND : rounded;
 }
 
 export async function preflight(
