@@ -51,6 +51,12 @@ export interface VaultData {
   version: 1;
   address: Address;
   requests: StoredRequest[];
+  /**
+   * Shielded pool master keys (decimal field elements). Derived from the wallet signature on
+   * unlock and kept here too, so backups carry them. The first set is used for new deposits;
+   * every set is scanned.
+   */
+  poolKeys?: { masterNullifier: string; masterSecret: string }[];
 }
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -82,6 +88,10 @@ const vaultSchema = z.object({
       })
       .passthrough(),
   ),
+  poolKeys: z
+    .array(z.object({ masterNullifier: z.string().regex(/^\d{1,78}$/), masterSecret: z.string().regex(/^\d{1,78}$/) }))
+    .max(16)
+    .optional(),
 });
 
 export function emptyVault(address: Address): VaultData {
@@ -151,7 +161,14 @@ export function mergeVaults(current: VaultData, incoming: VaultData): { vault: V
     }
     byId.set(r.id.toLowerCase(), { ...existing, payments: [...payments.values()] });
   }
-  return { vault: { ...current, requests: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt) }, added };
+  const poolKeys = [...(current.poolKeys ?? [])];
+  for (const k of incoming.poolKeys ?? []) {
+    if (!poolKeys.some((x) => x.masterNullifier === k.masterNullifier && x.masterSecret === k.masterSecret)) poolKeys.push(k);
+  }
+  return {
+    vault: { ...current, requests: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt), ...(poolKeys.length ? { poolKeys } : {}) },
+    added,
+  };
 }
 
 export type RequestStatus = "created" | "expired" | "announcement_pending" | "claimable" | "claimed";

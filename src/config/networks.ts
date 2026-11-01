@@ -32,11 +32,31 @@ export interface NetworkConfig {
   announcer: Address | null;
   /** QuietPayRouter: one-transaction payment + gas stipend + announcement. Null falls back to two transactions. */
   router: Address | null;
+  /** Shielded pool (Privacy Pools by 0xbow) for this network's token. Null when not deployed. */
+  pool: PoolConfig | null;
   /** Confirmations to wait before treating a transaction as final in the UI. */
   confirmations: number;
   /** Max block span per eth_getLogs request (adaptively reduced on RPC errors). */
   logChunkSize: bigint;
   enabled: boolean;
+}
+
+export interface PoolConfig {
+  /** Entrypoint proxy (deposits, relayed withdrawals, approval roots). */
+  entrypoint: Address;
+  /** The token's privacy pool. */
+  pool: Address;
+  /** Block the pool was deployed at; event scans start here. */
+  fromBlock: bigint;
+  /** Relayer endpoint that submits withdrawals so the receiving address needs no gas. */
+  relayerUrl: string;
+}
+
+function poolConfig(entrypoint: string | undefined, pool: string | undefined, fromBlock: string | undefined, relayerUrl: string | undefined): PoolConfig | null {
+  const e = optionalAddress(entrypoint);
+  const p = optionalAddress(pool);
+  if (!e || !p) return null;
+  return { entrypoint: e, pool: p, fromBlock: BigInt(positiveInt(fromBlock, 0) || 0), relayerUrl: relayerUrl?.trim() || "/api/relay" };
 }
 
 function optionalAddress(value: string | undefined): Address | null {
@@ -96,6 +116,12 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     expectedSymbol: "tUSDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ANNOUNCER_ADDRESS),
     router: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS),
+    pool: poolConfig(
+      process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT,
+      process.env.NEXT_PUBLIC_TESTNET_POOL_ADDRESS,
+      process.env.NEXT_PUBLIC_TESTNET_POOL_FROM_BLOCK,
+      process.env.NEXT_PUBLIC_TESTNET_RELAYER_URL,
+    ),
     confirmations: positiveInt(process.env.NEXT_PUBLIC_TESTNET_CONFIRMATIONS, 1),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),
     enabled: true,
@@ -111,6 +137,8 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     expectedSymbol: "USDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS),
     router: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ROUTER_ADDRESS),
+    // The shielded pool is testnet only until it has been reviewed for this deployment.
+    pool: null,
     confirmations: positiveInt(process.env.NEXT_PUBLIC_MAINNET_CONFIRMATIONS, 3),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),
     enabled: MAINNET_ENABLED,

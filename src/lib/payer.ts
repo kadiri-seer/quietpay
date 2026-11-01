@@ -12,6 +12,7 @@
 import { formatEther, getAddress, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { PAYMENT_LIMITS, CLOCK_SKEW_SECONDS, MAX_EXPIRY_SECONDS, type NetworkConfig } from "@/config/networks";
 import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerAbi } from "@/config/contracts";
+import { SHIELD_GAS_BUDGET } from "./pool/constants";
 import { checkLimits, formatAmount, limitsFor } from "./amount";
 import {
   assertChainId,
@@ -87,13 +88,22 @@ export async function findExistingPayments(
  * ETH to send with the payment so the recipient can move the tokens later: three token transfers'
  * worth of gas (a full claim plus a couple of partial sends) with headroom, capped by the router.
  */
-export async function estimateGasStipend(client: PublicClient, token: Address, payer: Address, probeTo: Address, amount: bigint) {
-  const [gas, fees] = await Promise.all([
+export async function estimateGasStipend(
+  client: PublicClient,
+  token: Address,
+  payer: Address,
+  probeTo: Address,
+  amount: bigint,
+  /** Extra gas the recipient may need, e.g. to shield the payment in the pool. */
+  minGas = 0n,
+) {
+  const [transferGas, fees] = await Promise.all([
     client.estimateContractGas({ address: token, abi: erc20Abi, functionName: "transfer", args: [probeTo, amount], account: payer }),
     client.estimateFeesPerGas(),
   ]);
   const maxFee = fees.maxFeePerGas ?? 0n;
-  let stipend = (gas * 3n * maxFee * 3n) / 2n;
+  const gas = transferGas * 3n > minGas ? transferGas * 3n : minGas;
+  let stipend = (gas * maxFee * 3n) / 2n;
   if (stipend > MAX_GAS_STIPEND) stipend = MAX_GAS_STIPEND;
   // Round up to 0.000001 ETH so the figure shown everywhere is exactly the figure sent.
   const unit = 10n ** 12n;
@@ -220,7 +230,7 @@ export async function preflight(
         const maxFee = fees.maxFeePerGas ?? 0n;
         let gasUnits = gTransfer + gAnnounce;
         if (mode === "router" && p.network.router) {
-          stipend = await estimateGasStipend(client, token.address, p.payer, p.derivation.stealthAddress, amount);
+          stipend = await estimateGasStipend(client, token.address, p.payer, p.derivation.stealthAddress, amount, p.network.pool ? SHIELD_GAS_BUDGET : 0n);
           const allowance = await client.readContract({
             address: token.address,
             abi: erc20Abi,

@@ -1,0 +1,212 @@
+/**
+ * Shielded pool end to end on a local EVM (anvil, chain ID 46630), with the real audited
+ * contracts, the real circuits and the ceremony proving keys:
+ *
+ *   payment -> one-time address -> deposit -> approval root -> local Groth16 proof ->
+ *   relayed withdrawal to an empty fresh address (+ gas drop) -> change note -> second
+ *   withdrawal -> ragequit of another deposit
+ */
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
+import { NETWORKS, type NetworkConfig } from "@/config/networks";
+import { erc20Abi, mockTokenFaucetAbi } from "@/config/contracts";
+import { deployPool } from "../scripts/pool-deploy-lib";
+import { derivePoolMasterKeys, masterKeysFromSeeds } from "@/lib/pool/crypto";
+import { fetchPoolEvents, reconstructNotes, currentApprovalSet } from "@/lib/pool/state";
+import { ArtifactIntegrityError, loadVerified, type ArtifactLoader } from "@/lib/pool/prover";
+import { SHIELD_GAS_BUDGET, depositFromAccount, NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
+import { refreshApprovals, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
+import { VerificationError } from "@/lib/chain";
+
+const ROOT = join(__dirname, "..");
+const ANVIL = join(ROOT, "node_modules", "@foundry-rs", "anvil", "bin.mjs");
+const PORT = 10545 + Math.floor(Math.random() * 1000);
+const RPC = `http://127.0.0.1:${PORT}`;
+const DEPLOYER_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
+const RELAYER_KEY = generatePrivateKey();
+const art = (n: string) => JSON.parse(readFileSync(join(ROOT, "contracts", "artifacts", `${n}.json`), "utf8"));
+const load: ArtifactLoader = async (name) => new Uint8Array(readFileSync(join(ROOT, "public", "pool-artifacts", "artifacts", name)));
+
+let anvil: ChildProcess | undefined;
+let client: PublicClient;
+let deployer: WalletClient;
+let relayer: WalletClient;
+let network: NetworkConfig;
+let info: PoolInfo;
+const FEE_BPS = 50n; // 0.5%
+const GAS_DROP = parseEther("0.0005");
+
+async function fundOneTime(amount: bigint) {
+  // Stands in for a QuietPay payment: tokens plus an ETH stipend at a fresh one-time address.
+  const acct = privateKeyToAccount(generatePrivateKey());
+  for (const h of [
+    await deployer.writeContract({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [acct.address, amount], account: deployer.account!, chain: network.chain }),
+    await deployer.sendTransaction({ to: acct.address, value: parseEther("0.001"), account: deployer.account!, chain: network.chain }),
+  ])
+    await client.waitForTransactionReceipt({ hash: h });
+  return acct;
+}
+
+const events = () => fetchPoolEvents(client, { entrypoint: network.pool!.entrypoint, pool: network.pool!.pool, fromBlock: network.pool!.fromBlock, chunkSize: 1000n });
+const mine = async (seconds: number) => {
+  await client.request({ method: "evm_increaseTime" as never, params: [seconds] as never });
+  await client.request({ method: "evm_mine" as never, params: [] as never });
+};
+
+describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
+  beforeAll(async () => {
+    anvil = spawn(process.execPath, [ANVIL, "--port", String(PORT), "--chain-id", "46630", "--silent"], { stdio: "ignore" });
+    network = { ...NETWORKS.testnet, rpcUrl: RPC, chain: { ...NETWORKS.testnet.chain, rpcUrls: { default: { http: [RPC] } } }, confirmations: 1, logChunkSize: 1000n };
+    client = createPublicClient({ chain: network.chain, transport: http(RPC) }) as PublicClient;
+    for (let i = 0; i < 50; i++) {
+      try {
+        await client.getChainId();
+        break;
+      } catch {
+        await new Promise((r) => setTimeout(r, 200));
+      }
+    }
+    deployer = createWalletClient({ account: privateKeyToAccount(DEPLOYER_KEY), chain: network.chain, transport: http(RPC) });
+    relayer = createWalletClient({ account: privateKeyToAccount(RELAYER_KEY), chain: network.chain, transport: http(RPC) });
+    const fund = await deployer.sendTransaction({ to: relayer.account!.address, value: parseEther("10"), account: deployer.account!, chain: network.chain });
+    await client.waitForTransactionReceipt({ hash: fund });
+    const tokenArt = art("QuietPayTestUSDG");
+    const th = await deployer.deployContract({ abi: tokenArt.abi, bytecode: tokenArt.bytecode as Hex, account: deployer.account!, chain: network.chain });
+    const token = (await client.waitForTransactionReceipt({ hash: th })).contractAddress!;
+    for (let i = 0; i < 3; i++) {
+      const h = await deployer.writeContract({ address: token, abi: mockTokenFaucetAbi, functionName: "faucet", args: [10_000_000_000n], account: deployer.account!, chain: network.chain });
+      await client.waitForTransactionReceipt({ hash: h });
+    }
+    network = { ...network, token };
+    const d = await deployPool(deployer, client, {
+      token,
+      owner: deployer.account!.address,
+      postman: relayer.account!.address,
+      minimumDeposit: 1_000_000n,
+      vettingFeeBPS: 0n,
+      maxRelayFeeBPS: 100n,
+    });
+    network = { ...network, pool: { entrypoint: d.entrypoint, pool: d.pool, fromBlock: d.fromBlock, relayerUrl: "/api/relay" } };
+  }, 120_000);
+  afterAll(() => anvil?.kill());
+
+  it("verifies the deployed pool against the audited build and rejects impostors", async () => {
+    info = (await verifyPool(client, network))!;
+    expect(info.minimumDeposit).toBe(1_000_000n);
+    expect(info.maxRelayFeeBPS).toBe(100n);
+    expect(info.aspRoot).toBe(0n);
+    await expect(verifyPool(client, { ...network, pool: { ...network.pool!, pool: network.token! } })).rejects.toBeInstanceOf(VerificationError);
+    await expect(verifyPool(client, { ...network, pool: { ...network.pool!, entrypoint: network.pool!.pool } })).rejects.toBeInstanceOf(VerificationError);
+    expect(await verifyPool(client, { ...network, pool: null })).toBeNull();
+  });
+
+  it("refuses tampered circuit files", async () => {
+    const bad: ArtifactLoader = async () => new Uint8Array([1, 2, 3]);
+    await expect(loadVerified(bad, "commitment.vkey")).rejects.toBeInstanceOf(ArtifactIntegrityError);
+  });
+
+  it("derives pool keys deterministically from the vault signature, separate per address", async () => {
+    const sig = `0x${"ab".repeat(65)}` as Hex;
+    const a = await derivePoolMasterKeys(sig, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+    const b = await derivePoolMasterKeys(sig, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+    const c = await derivePoolMasterKeys(sig, "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
+    expect(a).toEqual(b);
+    expect(a.masterNullifier).not.toBe(c.masterNullifier);
+  });
+
+  it("deposits from a one-time address, waits for approval, and withdraws privately via the relayer", async () => {
+    const keys = masterKeysFromSeeds(111n, 222n);
+    const oneTime = await fundOneTime(50_000_000n);
+
+    let ev = await events();
+    const before = reconstructNotes(keys, info.scope, ev);
+    expect(before.notes).toHaveLength(0);
+    const dep = await depositFromAccount(client, network, info, { account: oneTime, keys, depositIndex: before.nextDepositIndex, amount: 50_000_000n });
+    expect(dep.value).toBe(50_000_000n);
+    // The payer's gas stipend budgets SHIELD_GAS_BUDGET for approve + deposit.
+    const used = (await client.getTransactionReceipt({ hash: dep.hash })).gasUsed + (await client.getTransactionReceipt({ hash: dep.approveHash! })).gasUsed;
+    expect(used).toBeLessThan(SHIELD_GAS_BUDGET);
+
+    ev = await events();
+    let { notes } = reconstructNotes(keys, info.scope, ev);
+    expect(notes).toHaveLength(1);
+    expect(notes[0]).toMatchObject({ value: 50_000_000n, status: "spendable", label: dep.label });
+
+    // Not approved yet: the approver only includes deposits older than the delay.
+    const r0 = await refreshApprovals(client, relayer, network, info, ev, { delaySeconds: 3600 });
+    expect(r0.hash).toBeNull();
+    const recipient = privateKeyToAccount(generatePrivateKey()).address;
+    await expect(
+      prepareWithdrawal(load, { info, events: ev, keys, note: notes[0], amount: 1n, recipient, feeRecipient: relayer.account!.address, feeBPS: FEE_BPS }),
+    ).rejects.toThrow();
+
+    await mine(3601);
+    ev = await events();
+    const r1 = await refreshApprovals(client, relayer, network, info, ev, { delaySeconds: 3600, nowSeconds: Number((await client.getBlock()).timestamp) });
+    expect(r1.hash).not.toBeNull();
+    expect(r1.approved).toBe(1);
+    info = (await verifyPool(client, network))!;
+    ev = await events();
+    expect(currentApprovalSet(ev, info.aspRoot)?.labels).toEqual([dep.label]);
+    // Idempotent: nothing new to approve.
+    expect((await refreshApprovals(client, relayer, network, info, ev, { delaySeconds: 3600, nowSeconds: Number((await client.getBlock()).timestamp) })).hash).toBeNull();
+
+    // Withdraw 30 to an empty address. Proof is generated locally.
+    const t0 = Date.now();
+    const w = await prepareWithdrawal(load, { info, events: ev, keys, note: notes[0], amount: 30_000_000n, recipient, feeRecipient: relayer.account!.address, feeBPS: FEE_BPS });
+    console.log(`  withdrawal proof generated in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    const body = JSON.parse(JSON.stringify(serializeWithdrawal(w)));
+
+    // The relayer refuses anything it did not agree to.
+    const policy = { feeRecipient: relayer.account!.address, feeBPS: FEE_BPS, gasDrop: GAS_DROP };
+    await expect(relayWithdrawal(client, relayer, network, info, { ...policy, feeBPS: 10n }, body)).rejects.toBeInstanceOf(RelayRejected);
+    await expect(relayWithdrawal(client, relayer, network, info, policy, { ...body, scope: "1" })).rejects.toBeInstanceOf(RelayRejected);
+    const tampered = structuredClone(body);
+    tampered.proof.pubSignals[2] = "40000000"; // claim more than proven
+    await expect(relayWithdrawal(client, relayer, network, info, policy, tampered)).rejects.toBeInstanceOf(RelayRejected);
+
+    const res = await relayWithdrawal(client, relayer, network, info, policy, body);
+    expect(res.fee).toBe(150_000n);
+    const got = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [recipient] });
+    expect(got).toBe(30_000_000n - 150_000n);
+    expect(await client.getBalance({ address: recipient })).toBe(GAS_DROP);
+    // Double spend is refused.
+    await expect(relayWithdrawal(client, relayer, network, info, policy, body)).rejects.toBeInstanceOf(RelayRejected);
+
+    // The change note (20) is found from the chain alone and can be withdrawn again.
+    ev = await events();
+    ({ notes } = reconstructNotes(keys, info.scope, ev));
+    expect(notes[0]).toMatchObject({ value: 20_000_000n, withdrawalCount: 1n, status: "spendable" });
+    const recipient2 = privateKeyToAccount(generatePrivateKey()).address;
+    const w2 = await prepareWithdrawal(load, { info, events: ev, keys, note: notes[0], amount: 20_000_000n, recipient: recipient2, feeRecipient: relayer.account!.address, feeBPS: FEE_BPS });
+    await relayWithdrawal(client, relayer, network, info, policy, JSON.parse(JSON.stringify(serializeWithdrawal(w2))));
+    ev = await events();
+    ({ notes } = reconstructNotes(keys, info.scope, ev));
+    expect(notes[0]).toMatchObject({ value: 0n, status: "spent" });
+
+    // Nothing onchain links the one-time address to either recipient except through the pool.
+    const relayed = await client.getTransaction({ hash: res.hash });
+    expect(relayed.from.toLowerCase()).toBe(relayer.account!.address.toLowerCase());
+  }, 240_000);
+
+  it("lets the depositor exit without approval (ragequit) back to the one-time address", async () => {
+    const keys = masterKeysFromSeeds(333n, 444n);
+    const oneTime = await fundOneTime(5_000_000n);
+    const dep = await depositFromAccount(client, network, info, { account: oneTime, keys, depositIndex: 0n, amount: 5_000_000n });
+    let ev = await events();
+    let { notes } = reconstructNotes(keys, info.scope, ev);
+    expect(() => {
+      if (!currentApprovalSet(ev, info.aspRoot)?.labels.includes(dep.label)) throw new NotApprovedYetError();
+    }).toThrow(NotApprovedYetError);
+    await ragequit(client, network, load, { info, account: oneTime, note: notes[0] });
+    expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [oneTime.address] })).toBe(5_000_000n);
+    ev = await events();
+    ({ notes } = reconstructNotes(keys, info.scope, ev));
+    expect(notes[0].status).toBe("ragequit");
+    void (0 as unknown as Address);
+  }, 120_000);
+});

@@ -10,9 +10,13 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "What to deploy, comma separated: announcer, token, router"
+        description: "What to deploy, comma separated: announcer, token, router, pool"
         required: true
         default: "router"
+      postman:
+        description: "For pool: the relayer's address (its public address, never its key)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -48,11 +52,12 @@ jobs:
         env:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           DEPLOY: ${{ inputs.deploy }}
+          POSTMAN_ADDRESS: ${{ inputs.postman }}
         shell: bash
         run: |
           set -o pipefail
           npm run contracts:deploy 2>&1 | tee deploy.log
-          grep -oE 'NEXT_PUBLIC_TESTNET_[A-Z_]+_ADDRESS=0x[0-9a-fA-F]{40}' deploy.log > addresses.txt || true
+          grep -oE 'NEXT_PUBLIC_TESTNET_[A-Z_]+=(0x[0-9a-fA-F]{40}|[0-9]+)' deploy.log > addresses.txt || true
           if [ ! -s addresses.txt ]; then
             echo "::error::Deploy printed no contract addresses. See the log above."
             exit 1

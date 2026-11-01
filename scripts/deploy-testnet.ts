@@ -7,6 +7,10 @@
  *   DEPLOYER_PRIVATE_KEY=0x... npm run contracts:deploy
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=announcer npm run contracts:deploy   # announcer only
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=router npm run contracts:deploy      # router only
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=pool POSTMAN_ADDRESS=0x... npm run contracts:deploy
+ *     Shielded pool (Privacy Pools contracts, unchanged) for the configured testnet token.
+ *     POSTMAN_ADDRESS is the relayer's address: it publishes approval roots. The deployer
+ *     stays the pool owner, so keep its key out of the web host.
  *
  * Optional: RPC_URL (defaults to the public testnet RPC).
  *
@@ -17,10 +21,13 @@
  * Deploys the exact bytecode in contracts/artifacts (run `npm run contracts:compile` after
  * changing Solidity) and verifies the deployed runtime code hash before printing config.
  */
+import "./load-env";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { createPublicClient, createWalletClient, defineChain, formatEther, http, keccak256, type Hex } from "viem";
+import { getAddress, isAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
+import { deployPool } from "./pool-deploy-lib";
 
 const TESTNET_ID = 46630;
 const MAINNET_ID = 4663;
@@ -93,7 +100,27 @@ async function main() {
   if (what.includes("announcer")) env.push(`${prefix}_ANNOUNCER_ADDRESS=${await deploy("ERC5564Announcer")}`);
   if (what.includes("token")) env.push(`${prefix}_TOKEN_ADDRESS=${await deploy("QuietPayTestUSDG")}`);
   if (what.includes("router")) env.push(`${prefix}_ROUTER_ADDRESS=${await deploy("QuietPayRouter")}`);
-  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router.`);
+  if (what.includes("pool")) {
+    if (chainId !== TESTNET_ID) fail("The shielded pool is testnet only.");
+    const token = process.env.NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS;
+    if (!token || !isAddress(token)) fail("Set NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS (the tUSDG mock) before deploying the pool.");
+    const postman = (process.env.POSTMAN_ADDRESS || "").trim();
+    if (!isAddress(postman)) fail("Set POSTMAN_ADDRESS to the relayer's address (not its key).");
+    if (getAddress(postman) === account.address) fail("Use a separate relayer account: the deployer owns the pool and its key must not live on the web host.");
+    console.log("\nDeploying the shielded pool (Privacy Pools by 0xbow, unchanged)…");
+    const d = await deployPool(wallet, client, {
+      token: getAddress(token),
+      owner: account.address,
+      postman: getAddress(postman),
+      minimumDeposit: 1_000_000n, // 1 tUSDG
+      vettingFeeBPS: 0n,
+      maxRelayFeeBPS: 100n, // 1%
+      log: (m) => console.log(`  ${m}`),
+    });
+    console.log(`  ✓ pool scope ${d.scope}`);
+    env.push(`${prefix}_POOL_ENTRYPOINT=${d.entrypoint}`, `${prefix}_POOL_ADDRESS=${d.pool}`, `${prefix}_POOL_FROM_BLOCK=${d.fromBlock}`);
+  }
+  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router, pool.`);
 
   console.log("\nAdd to .env.local (and your hosting provider's env settings):\n");
   for (const l of env) console.log(`  ${l}`);

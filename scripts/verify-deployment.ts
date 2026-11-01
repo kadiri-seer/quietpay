@@ -8,7 +8,9 @@
  *
  * Exits non-zero if anything fails. Run it before enabling a network.
  */
+import "./load-env";
 import { NETWORKS, type NetworkKey } from "../src/config/networks";
+import { verifyPool } from "../src/lib/pool/actions";
 import { assertChainId, createNetworkClient, verifyAnnouncer, verifyRouter, verifyToken } from "../src/lib/chain";
 
 async function main() {
@@ -46,6 +48,16 @@ async function main() {
     line(true, "QuietPay router", r ? `${r.address}, code ${r.codeHash}` : "not configured (two-transaction payments)");
   } catch (e) {
     line(false, "QuietPay router", (e as Error).message);
+  }
+  try {
+    const p = await verifyPool(client, network);
+    line(
+      true,
+      "Shielded pool",
+      p ? `entrypoint ${p.entrypoint}, pool ${p.pool}, min deposit ${p.minimumDeposit}, relay fee max ${p.maxRelayFeeBPS} bps, approvals ${p.aspRoot ? "published" : "none yet"}` : "not configured",
+    );
+  } catch (e) {
+    line(false, "Shielded pool", (e as Error).message);
   }
   console.log(`\nMainnet enabled in this build: ${NETWORKS.mainnet.enabled}`);
   process.exit(ok ? 0 : 1);

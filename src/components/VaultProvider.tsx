@@ -9,6 +9,7 @@ import { useAccount, useSignMessage } from "wagmi";
 import type { Address, Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
 import { browserStore, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
+import { derivePoolMasterKeys } from "@/lib/pool/crypto";
 import { classifyTxError } from "@/lib/tx-errors";
 
 type Status = "locked" | "unlocking" | "unlocked" | "unavailable";
@@ -74,7 +75,16 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         }
       }
       const key = await deriveVaultKey(sig, address);
-      const data = await loadVault(store, key, address);
+      let data = await loadVault(store, key, address);
+      // Pool keys come from the same signature (separate derivation) and are kept in the vault
+      // so backups carry them even if the wallet's signatures ever change.
+      const pk = await derivePoolMasterKeys(sig, address);
+      const pkStr = { masterNullifier: pk.masterNullifier.toString(), masterSecret: pk.masterSecret.toString() };
+      const known = data.poolKeys ?? [];
+      if (!known.some((k) => k.masterNullifier === pkStr.masterNullifier && k.masterSecret === pkStr.masterSecret)) {
+        data = { ...data, poolKeys: [...known, pkStr] };
+        await saveVault(store, key, data);
+      }
       keyRef.current = { key, address };
       setVault(data);
       setIsNew(firstTime);
