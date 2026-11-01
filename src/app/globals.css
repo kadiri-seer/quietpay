@@ -14,8 +14,8 @@
   --color-bad: #ee8a7f;
 
   --font-display: "Montserrat", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
 :root {
@@ -24,17 +24,18 @@
 
 html {
   background: var(--color-abyss);
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
-  background:
-    radial-gradient(120% 60% at 50% 0%, #0f3646 0%, transparent 60%),
-    linear-gradient(180deg, #08212c 0%, var(--color-abyss) 55%, #051720 100%);
-  background-attachment: fixed;
+  /* A single, gentle vertical fade from deep teal into the page colour. */
+  background: linear-gradient(180deg, #0a2430 0, var(--color-abyss) 640px);
+  background-color: var(--color-abyss);
   color: var(--color-mist);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 ::selection {
@@ -48,7 +49,8 @@ body {
   border-radius: 2px;
 }
 
-/* Outlined, uppercase buttons echo the reference design's "LEARN MORE" boxes. */
+/* Outlined, uppercase buttons echo the reference design's "LEARN MORE" boxes.
+   State changes are instant: no hover animation. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -65,9 +67,9 @@ body {
   color: var(--color-snow);
   background: transparent;
   border-radius: 2px;
-  transition: background-color 150ms, color 150ms, border-color 150ms;
   cursor: pointer;
   white-space: nowrap;
+  touch-action: manipulation;
 }
 .btn:hover:not(:disabled) {
   background: var(--color-snow);
@@ -89,36 +91,52 @@ body {
   border-color: color-mix(in oklab, var(--color-mist) 35%, transparent);
   color: var(--color-mist);
 }
+/* Smaller text, same 44px tap target. */
 .btn-sm {
-  min-height: 2.25rem;
   padding: 0 0.875rem;
   font-size: 0.75rem;
 }
 
 .panel {
-  background: color-mix(in oklab, var(--color-deep) 82%, transparent);
+  background: var(--color-deep);
   border: 1px solid color-mix(in oklab, var(--color-harbor) 80%, transparent);
-  border-radius: 4px;
-  backdrop-filter: blur(6px);
+  border-radius: 3px;
 }
 
 .field {
   width: 100%;
-  background: color-mix(in oklab, var(--color-abyss) 70%, transparent);
+  min-height: 2.75rem;
+  background: var(--color-abyss);
   border: 1px solid var(--color-harbor);
   border-radius: 2px;
   color: var(--color-snow);
   padding: 0.75rem 0.875rem;
-  font-size: 1rem;
+  font-size: 1rem; /* 16px stops iOS zooming into inputs */
 }
 .field:focus {
   border-color: var(--color-signal);
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-signal) 25%, transparent);
+  outline: 1px solid var(--color-signal);
+  outline-offset: 0;
 }
 
 .hex {
   clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%);
+}
+
+/* Loading placeholders. */
+.skeleton {
+  background: color-mix(in oklab, var(--color-harbor) 55%, transparent);
+  border-radius: 2px;
+  animation: skeleton-pulse 1.6s ease-in-out infinite;
+}
+@keyframes skeleton-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -129,17 +147,4 @@ body {
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
-}
-
-@keyframes lights {
-  0%,
-  100% {
-    opacity: 0.55;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-.city-glow {
-  animation: lights 9s ease-in-out infinite;
 }

@@ -2,7 +2,7 @@
 
 import { NETWORKS, type NetworkKey } from "@/config/networks";
 import { useNetworkReadiness } from "@/components/hooks";
-import { CheckList, Spinner } from "@/components/ui";
+import { CheckList, LoadingRows, Spinner } from "@/components/ui";
 
 /** Runs the same onchain verification the app uses before allowing payments. */
 export function LiveContractCheck({ networkKey }: { networkKey: NetworkKey }) {
@@ -13,9 +13,7 @@ export function LiveContractCheck({ networkKey }: { networkKey: NetworkKey }) {
     <div className="rounded-[3px] border border-harbor p-4">
       <p className="mb-3 text-sm font-medium text-snow">Checked onchain just now</p>
       {isLoading ? (
-        <p className="text-sm text-haze">
-          <Spinner /> Reading contracts from {network.label}…
-        </p>
+        <LoadingRows label={`Reading contracts from ${network.label}`} rows={2} />
       ) : error ? (
         <p className="text-sm text-bad">Could not reach the network: {error.message.split("\n")[0]}</p>
       ) : (

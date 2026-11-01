@@ -15,7 +15,7 @@ import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { useSelectedNetwork } from "@/components/Providers";
 import { SetupBlocker } from "@/components/SetupBlocker";
-import { CopyButton, Countdown, formatEthCeil, ExplorerLink, Mono, Notice, PageTitle, Spinner, StatusPill, formatDateTime, shorten } from "@/components/ui";
+import { CopyButton, Countdown, formatEthCeil, LoadingRows, ExplorerLink, Mono, Notice, PageTitle, Spinner, StatusPill, formatDateTime, shorten } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 
@@ -82,7 +82,7 @@ function Dashboard({ network }: { network: NetworkConfig }) {
     }
   }, [vault, requests, client, network, save]);
 
-  if (readiness.isLoading) return <Spinner />;
+  if (readiness.isLoading) return <LoadingRows label={`Checking ${network.label} contracts`} rows={4} />;
   if (!readiness.data?.announcer || !readiness.data?.token)
     return <SetupBlocker network={network} readiness={readiness.data} error={readiness.error} />;
 
@@ -109,7 +109,7 @@ function Dashboard({ network }: { network: NetworkConfig }) {
         </div>
         {scanning && (
           <div className="h-1 overflow-hidden rounded bg-harbor" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100}>
-            <div className="h-full bg-signal transition-[width]" style={{ width: `${progress}%` }} />
+            <div className="h-full bg-signal" style={{ width: `${progress}%` }} />
           </div>
         )}
         {scanMsg && <p className="text-sm text-haze" aria-live="polite">{scanMsg}</p>}
@@ -301,7 +301,7 @@ function ClaimPanel({ request, payment, network }: { request: StoredRequest; pay
         </label>
         <input
           id={`dest-${payment.stealthAddress}`}
-          className="field font-mono text-xs"
+          className="field font-mono text-base sm:text-xs"
           value={dest}
           onChange={(e) => {
             setDest(e.target.value);
@@ -320,9 +320,7 @@ function ClaimPanel({ request, payment, network }: { request: StoredRequest; pay
       </div>
 
       {loading ? (
-        <p className="text-sm text-haze">
-          <Spinner /> Checking balances…
-        </p>
+        <LoadingRows label="Checking balances" rows={3} />
       ) : info ? (
         <dl className="grid grid-cols-2 gap-y-1 text-sm">
           <dt className="text-haze">Claimable</dt>
@@ -345,7 +343,7 @@ function ClaimPanel({ request, payment, network }: { request: StoredRequest; pay
           {confirming === "topup" ? (
             <div className="flex flex-wrap gap-2">
               <button type="button" className="btn btn-sm btn-primary" onClick={topUp} disabled={!!busy || !wallet}>
-                {busy === "topup" ? <Spinner /> : null} Confirm: send {formatEthCeil(topUpAmount)} ETH
+                {busy === "topup" ? <Spinner /> : null} Confirm: send <span className="normal-case tracking-[0.02em]">{formatEthCeil(topUpAmount)} ETH</span>
               </button>
               <button type="button" className="btn btn-sm btn-quiet" onClick={() => setConfirming(null)} disabled={!!busy}>
                 Cancel
@@ -382,7 +380,7 @@ function ClaimPanel({ request, payment, network }: { request: StoredRequest; pay
           </div>
         ) : (
           <button type="button" className="btn btn-sm btn-primary" onClick={() => setConfirming("claim")}>
-            Claim {formatAmount(info.token, request.decimals, { group: true })} {request.symbol}
+            Claim <span className="normal-case tracking-[0.02em]">{formatAmount(info.token, request.decimals, { group: true })} {request.symbol}</span>
           </button>
         )
       )}

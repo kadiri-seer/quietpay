@@ -7,7 +7,10 @@ import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { PageTitle } from "@/components/ui";
 import { LiveContractCheck } from "./LiveContractCheck";
 
-export const metadata: Metadata = { title: "Security | QuietPay" };
+export const metadata: Metadata = {
+  title: "Security | QuietPay",
+  description: "What QuietPay keeps unlinkable, what stays public on Robinhood Chain, where your keys live, the risks, and the contracts it uses.",
+};
 
 // Read at build time so the page shows exactly the source that was compiled and deployed.
 const announcerSource = readFileSync(join(process.cwd(), "contracts", "src", "ERC5564Announcer.sol"), "utf8");
@@ -88,9 +91,7 @@ export default function SecurityPage() {
               <ul className="space-y-2 text-sm text-mist">
                 {VISIBLE.map((v) => (
                   <li key={v} className="flex gap-3">
-                    <span className="text-warn" aria-hidden>
-                      ●
-                    </span>
+                    <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 bg-warn" aria-hidden />
                     {v}
                   </li>
                 ))}
@@ -101,9 +102,7 @@ export default function SecurityPage() {
               <ul className="space-y-2 text-sm text-mist">
                 {HIDDEN.map((v) => (
                   <li key={v} className="flex gap-3">
-                    <span className="text-ok" aria-hidden>
-                      ●
-                    </span>
+                    <span className="mt-[0.55em] h-1.5 w-1.5 shrink-0 bg-ok" aria-hidden />
                     {v}
                   </li>
                 ))}
@@ -159,7 +158,7 @@ export default function SecurityPage() {
 
           <details className="group mt-8 rounded-[3px] border border-harbor">
             <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-snow marker:hidden">
-              <span className="mr-2 inline-block text-signal transition-transform group-open:rotate-90" aria-hidden>
+              <span className="mr-2 inline-block text-signal group-open:rotate-90" aria-hidden>
                 ›
               </span>
               Announcer source code

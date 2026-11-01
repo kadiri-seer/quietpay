@@ -25,7 +25,7 @@ import { browserStore } from "@/lib/vault";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { SetupBlocker } from "@/components/SetupBlocker";
-import { CheckList, Countdown, ExplorerLink, Mono, Notice, PageTitle, Spinner, StatusPill, shorten } from "@/components/ui";
+import { CheckList, Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton, Spinner, StatusPill, shorten } from "@/components/ui";
 import { WalletGate } from "@/components/WalletGate";
 
 export function PayFlow() {
@@ -54,7 +54,7 @@ export function PayFlow() {
       </PageTitle>
       <div className="panel p-5 sm:p-7">
         {code === null ? (
-          <Spinner />
+          <LoadingRows label="Reading the payment link" rows={3} />
         ) : !validation ? (
           <PasteLink />
         ) : "error" in validation ? (
@@ -89,7 +89,7 @@ function PasteLink() {
       <label htmlFor="paste" className="block text-sm font-medium text-snow">
         Paste a QuietPay link
       </label>
-      <input id="paste" className="field font-mono text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder="https://…/pay#…" autoComplete="off" />
+      <input id="paste" className="field font-mono text-base sm:text-xs" value={value} onChange={(e) => setValue(e.target.value)} placeholder="https://…/pay#…" autoComplete="off" />
       <button className="btn btn-primary" type="submit" disabled={!value.trim()}>
         Open link
       </button>
@@ -107,17 +107,20 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
       <div className="text-center">
         <p className="text-sm text-haze">Payment request</p>
         <p className="mt-1 font-display text-4xl font-light text-snow">
-          {token ? formatAmount(request.amount, token.decimals, { group: true }) : "…"}{" "}
-          <span className="text-xl text-haze">{token?.symbol ?? ""}</span>
+          {token ? (
+            <>
+              {formatAmount(request.amount, token.decimals, { group: true })} <span className="text-xl text-haze">{token.symbol}</span>
+            </>
+          ) : (
+            <Skeleton className="mx-auto mt-1 h-10 w-44" />
+          )}
         </p>
         <p className="mt-2 text-sm text-haze">
           {network.label} · <Countdown to={request.expiresAt} />
         </p>
       </div>
       {readiness.isLoading ? (
-        <p className="text-center text-sm text-haze">
-          <Spinner /> Verifying token and announcer contracts…
-        </p>
+        <LoadingRows label="Verifying the token and announcer contracts" rows={2} />
       ) : token && readiness.data?.announcer ? (
         <>
           {token.isMock && (
@@ -344,7 +347,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     }
   }, [wallet, request.amount, token, network.chain, client]);
 
-  if (!rec || !address) return <Spinner />;
+  if (!rec || !address) return <LoadingRows label="Preparing your one-time payment address" rows={4} />;
   const m = rec.machine;
   const amountText = `${formatAmount(request.amount, token.decimals, { group: true })} ${token.symbol}`;
 
@@ -383,9 +386,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
 
       <div className="border-t border-harbor pt-5">
         {checking || !pf ? (
-          <p className="text-sm text-haze">
-            <Spinner /> Running checks…
-          </p>
+          <LoadingRows label="Running checks onchain" rows={6} />
         ) : (
           <CheckList checks={pf.checks} />
         )}
@@ -396,7 +397,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
             </button>
             {balanceFail && token.isMock && (
               <button type="button" className="btn btn-sm" onClick={faucet} disabled={!!busy}>
-                {busy === "faucet" ? <Spinner /> : null} Get test {token.symbol}
+                {busy === "faucet" ? <Spinner /> : null} Get test <span className="normal-case tracking-[0.02em]">{token.symbol}</span>
               </button>
             )}
             {pf.checks.find((c) => c.id === "gas")?.status === "fail" && network.chain.testnet && (
@@ -418,7 +419,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
       </label>
 
       <button type="button" className="btn btn-primary w-full" disabled={!ack || !pf?.ok || !!busy || !wallet} onClick={doPay}>
-        {busy === "pay" ? <Spinner /> : null} Send {amountText}
+        {busy === "pay" ? <Spinner /> : null} Send <span className="normal-case tracking-[0.02em]">{amountText}</span>
       </button>
     </div>
   );
@@ -518,7 +519,7 @@ function Progress({
           <Spinner /> Confirm the announcement in your wallet…
         </p>
       )}
-      {announced && <Notice tone="ok" title="Done">The payment and its announcement are confirmed. You can close this page.</Notice>}
+      {announced && <Notice tone="ok" title="Payment complete">The payment and its announcement are confirmed. You can close this page.</Notice>}
     </div>
   );
 }
@@ -527,11 +528,15 @@ function Step({ n, title, done, active, failed, detail }: { n: number; title: st
   const tone = done ? "border-ok text-ok" : failed ? "border-bad text-bad" : active ? "border-warn text-warn" : "border-harbor text-haze";
   return (
     <li className="flex gap-4">
-      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold ${tone}`}>
-        {done ? "✓" : active ? <Spinner className="h-3 w-3" /> : n}
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border text-xs font-semibold ${tone}`}>
+        {active ? <Spinner className="h-3 w-3" /> : n}
       </span>
       <div className="pt-0.5">
-        <p className="font-medium text-snow">{title}</p>
+        <p className="font-medium text-snow">
+          {title}
+          {done && <span className="ml-2 font-display text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-ok">Confirmed</span>}
+          {failed && <span className="ml-2 font-display text-[0.68rem] font-semibold uppercase tracking-[0.08em] text-bad">Not confirmed</span>}
+        </p>
         {detail && <p className="mt-0.5 text-haze">{detail}</p>}
       </div>
     </li>

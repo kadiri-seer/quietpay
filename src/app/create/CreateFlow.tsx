@@ -10,7 +10,7 @@ import type { StoredRequest } from "@/lib/vault";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { useSelectedNetwork } from "@/components/Providers";
-import { CopyButton, Countdown, Notice, PageTitle, QR, Spinner, formatDateTime } from "@/components/ui";
+import { CopyButton, Countdown, Notice, PageTitle, QR, Skeleton, Spinner, formatDateTime } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 import { SetupBlocker } from "@/components/SetupBlocker";
@@ -28,9 +28,7 @@ export function CreateFlow() {
 
       <div className="panel space-y-6 p-5 sm:p-7">
         {readiness.isLoading ? (
-          <p className="text-sm text-haze">
-            <Spinner /> Checking {network.label} contracts…
-          </p>
+          <FormSkeleton label={`Checking ${network.label} contracts`} />
         ) : readiness.data?.token && readiness.data?.announcer ? (
           <WalletGate network={network} purpose="Connect the wallet that will own this link. It only signs to protect your keys; its address is never put in the link.">
             <VaultGate>
@@ -148,7 +146,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           {EXPIRY_OPTIONS.map((o) => (
             <label
               key={o.seconds}
-              className={`cursor-pointer rounded-[2px] border px-3 py-2.5 text-center text-sm transition-colors ${
+              className={`cursor-pointer rounded-[2px] border px-3 py-2.5 text-center text-sm ${
                 expiry === o.seconds ? "border-snow bg-snow/10 text-snow" : "border-harbor text-mist hover:border-mist/60"
               }`}
             >
@@ -189,7 +187,7 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
           Payment link
         </label>
         <div className="flex gap-2">
-          <input id="link" className="field font-mono text-xs" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
+          <input id="link" className="field font-mono text-base sm:text-xs" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
           {url && <CopyButton value={url} className="min-h-[2.9rem]" />}
         </div>
         <p className="mt-2 text-xs text-haze">
@@ -208,6 +206,31 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
           Create another
         </button>
       </div>
+    </div>
+  );
+}
+
+function FormSkeleton({ label }: { label: string }) {
+  return (
+    <div className="space-y-6" role="status" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-20" />
+        <Skeleton className="h-12 w-full" />
+        <Skeleton className="h-3 w-48" />
+      </div>
+      <div className="space-y-2">
+        <Skeleton className="h-4 w-36" />
+        <div className="grid grid-cols-3 gap-2">
+          <Skeleton className="h-11" />
+          <Skeleton className="h-11" />
+          <Skeleton className="h-11" />
+        </div>
+      </div>
+      <Skeleton className="h-11 w-full" />
+      <p className="text-xs text-haze" aria-hidden>
+        {label}
+      </p>
     </div>
   );
 }

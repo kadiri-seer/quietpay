@@ -41,67 +41,64 @@ function towers(seed: number, count: number, baseY: number, minH: number, maxH: 
   return out;
 }
 
+/** Packs many small window rects into one path per opacity band (far fewer DOM nodes). */
+function windowPaths(ts: Tower[], dy: number, w: number, h: number, bands: number[]) {
+  const buckets: string[][] = bands.map(() => []);
+  for (const t of ts)
+    for (const win of t.windows) {
+      const i = Math.min(bands.length - 1, Math.floor(((win.o - 0.35) / 0.65) * bands.length));
+      buckets[i].push(`M${win.x} ${(win.y + dy).toFixed(0)}h${w}v${h}h-${w}z`);
+    }
+  return buckets.map((d, i) => ({ d: d.join(""), o: bands[i] }));
+}
+
+function towerPath(ts: Tower[], top: (t: Tower) => number, bottom: number, spire: number, spireW: number) {
+  return ts
+    .map((t) => {
+      const y = top(t);
+      let d = `M${t.x} ${y}h${t.w}V${bottom}H${t.x}z`;
+      if (t.spire) d += `M${t.x + t.w / 2 - spireW / 2} ${y - spire}h${spireW}v${spire}h-${spireW}z`;
+      return d;
+    })
+    .join("");
+}
+
 export function Skyline({ className = "" }: { className?: string }) {
   const base = 470;
   const far = towers(7, 80, base - 40, 60, 210, 760, 0.02);
   const mid = towers(21, 70, base - 12, 70, 300, 720, 0.07);
   const near = towers(42, 60, base, 40, 380, 700, 0.11);
+  const midWin = windowPaths(mid, -12, 2, 3, [0.25, 0.42, 0.6]);
+  const nearWin = windowPaths(near, 0, 2, 3, [0.45, 0.72, 1]);
   return (
     <svg viewBox="0 0 1440 520" preserveAspectRatio="xMidYMax slice" className={className} aria-hidden>
       <defs>
         <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" stopColor="#0a2533" />
-          <stop offset="0.55" stopColor="#123c4e" />
-          <stop offset="0.8" stopColor="#1a5873" />
+          <stop offset="0.6" stopColor="#11394a" />
+          <stop offset="0.86" stopColor="#174d64" />
           <stop offset="1" stopColor="#0d3141" />
         </linearGradient>
-        <radialGradient id="glow" cx="0.5" cy="0.92" r="0.6">
-          <stop offset="0" stopColor="#5bb8ea" stopOpacity="0.55" />
-          <stop offset="0.5" stopColor="#2f86b8" stopOpacity="0.18" />
-          <stop offset="1" stopColor="#2f86b8" stopOpacity="0" />
-        </radialGradient>
         <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0.55" stopColor="#061a23" stopOpacity="0" />
           <stop offset="1" stopColor="#061a23" stopOpacity="1" />
         </linearGradient>
         <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
           <stop offset="0" stopColor="#5bb8ea" stopOpacity="0" />
-          <stop offset="0.5" stopColor="#9fdcff" stopOpacity="0.9" />
+          <stop offset="0.5" stopColor="#9fdcff" stopOpacity="0.85" />
           <stop offset="1" stopColor="#5bb8ea" stopOpacity="0" />
         </linearGradient>
       </defs>
       <rect width="1440" height="520" fill="url(#sky)" />
-      <rect width="1440" height="520" fill="url(#glow)" className="city-glow" />
-
-      <g fill="#0f3646" opacity="0.85">
-        {far.map((t, i) => (
-          <rect key={i} x={t.x} y={base - 40 - t.h} width={t.w} height={t.h} />
-        ))}
-      </g>
-      <g fill="#0b2b38">
-        {mid.map((t, i) => (
-          <g key={i}>
-            <rect x={t.x} y={base - 12 - t.h} width={t.w} height={t.h} />
-            {t.spire && <rect x={t.x + t.w / 2 - 1} y={base - 12 - t.h - 26} width={2} height={26} />}
-          </g>
-        ))}
-      </g>
-      <g fill="#7cc8f0">
-        {mid.flatMap((t, i) => t.windows.map((w, j) => <rect key={`${i}-${j}`} x={w.x} y={w.y - 12} width={2} height={3} opacity={w.o * 0.6} />))}
-      </g>
-      <g fill="#072029">
-        {near.map((t, i) => (
-          <g key={i}>
-            <rect x={t.x} y={base - t.h} width={t.w} height={t.h + 60} />
-            {t.spire && <rect x={t.x + t.w / 2 - 1.5} y={base - t.h - 38} width={3} height={38} />}
-          </g>
-        ))}
-      </g>
-      <g fill="#bfe6ff">
-        {near.flatMap((t, i) => t.windows.map((w, j) => <rect key={`${i}-${j}`} x={w.x} y={w.y} width={2} height={3} opacity={w.o} />))}
-      </g>
-
-      {/* Light trails along the avenues */}
+      <path fill="#0f3646" opacity="0.85" d={towerPath(far, (t) => base - 40 - t.h, base - 40, 0, 0)} />
+      <path fill="#0b2b38" d={towerPath(mid, (t) => base - 12 - t.h, base - 12, 26, 2)} />
+      {midWin.map((w) => (
+        <path key={`m${w.o}`} fill="#7cc8f0" opacity={w.o} d={w.d} />
+      ))}
+      <path fill="#072029" d={towerPath(near, (t) => base - t.h, base + 60, 38, 3)} />
+      {nearWin.map((w) => (
+        <path key={`n${w.o}`} fill="#bfe6ff" opacity={w.o} d={w.d} />
+      ))}
       <g fill="none" stroke="url(#trail)" strokeLinecap="round">
         <path d="M -40 505 C 300 470, 620 488, 860 478 S 1300 455, 1500 470" strokeWidth="1.6" opacity="0.8" />
         <path d="M -40 515 C 360 492, 700 505, 980 494 S 1320 482, 1500 488" strokeWidth="1" opacity="0.55" />

@@ -57,46 +57,76 @@ const PILL: Record<string, string> = {
 
 export function StatusPill({ state, label }: { state: string; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${PILL[state] ?? PILL.created}`}>
-      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
+    <span className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-0.5 text-xs font-medium ${PILL[state] ?? PILL.created}`}>
+      <span className="h-1.5 w-1.5 bg-current" aria-hidden />
       {label}
     </span>
   );
 }
 
+const NOTICE_TONES = {
+  info: { box: "border-signal/40 bg-signal/[0.06]", tag: "text-signal", word: "Note" },
+  warn: { box: "border-warn/45 bg-warn/[0.06]", tag: "text-warn", word: "Heads up" },
+  bad: { box: "border-bad/50 bg-bad/[0.07]", tag: "text-bad", word: "Problem" },
+  ok: { box: "border-ok/45 bg-ok/[0.06]", tag: "text-ok", word: "Done" },
+};
+
+/** Boxed message. Tone is carried by a full hairline border, a tint and a short label. */
 export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "bad" | "ok"; title?: string; children: ReactNode }) {
-  const tones = {
-    info: "border-signal/40 bg-signal/5",
-    warn: "border-warn/50 bg-warn/5",
-    bad: "border-bad/50 bg-bad/5",
-    ok: "border-ok/50 bg-ok/5",
-  };
+  const t = NOTICE_TONES[tone];
   return (
-    <div className={`rounded-[3px] border-l-2 px-4 py-3 text-sm leading-relaxed ${tones[tone]}`} role={tone === "bad" ? "alert" : undefined}>
-      {title && <p className="mb-0.5 font-semibold text-snow">{title}</p>}
+    <div className={`rounded-[3px] border px-4 py-3 text-sm leading-relaxed ${t.box}`} role={tone === "bad" ? "alert" : undefined}>
+      <p className="mb-0.5">
+        <span className={`mr-2 font-display text-[0.7rem] font-semibold uppercase tracking-[0.08em] ${t.tag}`}>{t.word}</span>
+        {title && <span className="font-semibold text-snow">{title}</span>}
+      </p>
       <div className="text-mist">{children}</div>
     </div>
   );
 }
 
-const CHECK_ICON: Record<CheckStatus | "running", string> = { ok: "✓", warn: "!", fail: "✕", running: "…" };
-const CHECK_TONE: Record<CheckStatus | "running", string> = { ok: "text-ok", warn: "text-warn", fail: "text-bad", running: "text-haze" };
+const CHECK_WORD: Record<CheckStatus, string> = { ok: "Passed", warn: "Note", fail: "Failed" };
+const CHECK_TONE: Record<CheckStatus, string> = { ok: "border-ok/50 text-ok", warn: "border-warn/50 text-warn", fail: "border-bad/60 text-bad" };
 
+/** Results of onchain checks, each labelled with a word rather than a tick. */
 export function CheckList({ checks }: { checks: PreflightCheck[] }) {
   return (
-    <ul className="space-y-2 text-sm">
+    <ul className="divide-y divide-harbor/60 text-sm">
       {checks.map((c) => (
-        <li key={c.id} className="flex gap-3">
-          <span className={`w-4 shrink-0 text-center font-bold ${CHECK_TONE[c.status]}`} aria-label={c.status}>
-            {CHECK_ICON[c.status]}
-          </span>
-          <span>
+        <li key={c.id} className="flex items-start justify-between gap-4 py-2.5 first:pt-0 last:pb-0">
+          <span className="min-w-0">
             <span className="text-snow">{c.label}</span>
-            {c.detail && <span className="block text-haze">{c.detail}</span>}
+            {c.detail && <span className="mt-0.5 block break-words text-haze">{c.detail}</span>}
+          </span>
+          <span className={`shrink-0 rounded-[2px] border px-1.5 py-px font-display text-[0.68rem] font-semibold uppercase tracking-[0.08em] ${CHECK_TONE[c.status]}`}>
+            {CHECK_WORD[c.status]}
           </span>
         </li>
       ))}
     </ul>
+  );
+}
+
+/** Placeholder block shown while content loads; reserves the final size to avoid layout shift. */
+export function Skeleton({ className = "" }: { className?: string }) {
+  return <span className={`skeleton block ${className}`} aria-hidden />;
+}
+
+/** A labelled group of skeleton rows, announced to screen readers as loading. */
+export function LoadingRows({ label, rows = 3, className = "" }: { label: string; rows?: number; className?: string }) {
+  return (
+    <div className={`space-y-3 ${className}`} role="status" aria-live="polite">
+      <span className="sr-only">{label}</span>
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className="flex items-center justify-between gap-4">
+          <Skeleton className={`h-4 ${i % 3 === 0 ? "w-3/5" : i % 3 === 1 ? "w-2/5" : "w-1/2"}`} />
+          <Skeleton className="h-4 w-14" />
+        </div>
+      ))}
+      <p className="text-xs text-haze" aria-hidden>
+        {label}
+      </p>
+    </div>
   );
 }
 

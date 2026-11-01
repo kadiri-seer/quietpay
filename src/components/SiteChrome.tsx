@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useId, useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { enabledNetworks, type NetworkKey } from "@/config/networks";
 import { Wordmark } from "./Logo";
@@ -12,25 +13,30 @@ const NAV = [
   { href: "/create", label: "Create" },
   { href: "/pay", label: "Pay" },
   { href: "/receive", label: "Receive" },
+  { href: "/security", label: "Security" },
 ];
+
+/** Header height, shared with the home hero so the skyline sits behind the header. */
+export const HEADER_HEIGHT = 76;
 
 export function NetworkIndicator() {
   const { network, setNetwork } = useSelectedNetwork();
   const nets = enabledNetworks();
   const dot = network.chain.testnet ? "bg-warn" : "bg-ok";
+  const base = "inline-flex min-h-9 items-center gap-2 rounded-[2px] border border-mist/25 px-3 text-xs text-mist";
   if (nets.length < 2) {
     return (
-      <span className="inline-flex items-center gap-2 rounded-full border border-mist/25 px-3 py-1 text-xs text-mist" title={`Chain ID ${network.chain.id}`}>
-        <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+      <span className={base} title={`Chain ID ${network.chain.id}`}>
+        <span className={`h-1.5 w-1.5 ${dot}`} aria-hidden />
         {network.label}
       </span>
     );
   }
   return (
-    <label className="inline-flex items-center gap-2 rounded-full border border-mist/25 px-3 py-1 text-xs text-mist">
-      <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />
+    <label className={base}>
+      <span className={`h-1.5 w-1.5 ${dot}`} aria-hidden />
       <span className="sr-only">Network</span>
-      <select className="bg-transparent text-mist outline-none" value={network.key} onChange={(e) => setNetwork(e.target.value as NetworkKey)}>
+      <select className="min-h-9 bg-transparent text-mist outline-none" value={network.key} onChange={(e) => setNetwork(e.target.value as NetworkKey)}>
         {nets.map((n) => (
           <option key={n.key} value={n.key} className="bg-abyss">
             {n.label}
@@ -41,30 +47,49 @@ export function NetworkIndicator() {
   );
 }
 
+function isActive(path: string | null, href: string) {
+  return !!path && (path === href || path.startsWith(`${href}/`));
+}
+
 export function SiteHeader() {
   const path = usePathname();
   const { address } = useAccount();
   const { disconnect } = useDisconnect();
+  const [open, setOpen] = useState(false);
+  const menuId = useId();
+
+  // Close the menu on navigation and on Escape.
+  useEffect(() => setOpen(false), [path]);
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
   return (
-    <header className="relative z-20">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-4 py-5 sm:px-6">
-        <Link href="/" aria-label="QuietPay home">
+    <header className="relative z-30">
+      <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 sm:px-6" style={{ height: HEADER_HEIGHT }}>
+        <Link href="/" aria-label="QuietPay home" className="-m-2 p-2">
           <Wordmark />
         </Link>
-        <nav aria-label="Main" className="order-3 flex w-full gap-6 sm:order-none sm:w-auto sm:gap-10">
+
+        <nav aria-label="Main" className="hidden items-center gap-9 md:flex">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
-              className={`font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] transition-colors ${
-                path?.startsWith(n.href) ? "text-snow underline decoration-signal decoration-2 underline-offset-[10px]" : "text-mist/80 hover:text-snow"
+              aria-current={isActive(path, n.href) ? "page" : undefined}
+              className={`-mx-2 inline-flex min-h-11 min-w-11 items-center justify-center px-2 font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] ${
+                isActive(path, n.href) ? "text-snow underline decoration-signal decoration-2 underline-offset-[10px]" : "text-mist/80 hover:text-snow"
               }`}
             >
               {n.label}
             </Link>
           ))}
         </nav>
-        <div className="flex items-center gap-3">
+
+        <div className="hidden items-center gap-3 md:flex">
           <NetworkIndicator />
           {address && (
             <button type="button" onClick={() => disconnect()} className="btn btn-sm btn-quiet normal-case tracking-normal" title="Disconnect wallet">
@@ -72,21 +97,72 @@ export function SiteHeader() {
             </button>
           )}
         </div>
+
+        <button
+          type="button"
+          className="-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-[2px] text-snow md:hidden"
+          aria-expanded={open}
+          aria-controls={menuId}
+          aria-label={open ? "Close menu" : "Open menu"}
+          onClick={() => setOpen((o) => !o)}
+        >
+          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
+            {open ? <path d="M5 5l12 12M17 5L5 17" /> : <path d="M3 6h16M3 11h16M3 16h16" />}
+          </svg>
+        </button>
       </div>
+
+      {open && (
+        <div id={menuId} className="absolute inset-x-0 top-full border-y border-harbor bg-abyss md:hidden">
+          <nav aria-label="Main" className="mx-auto flex max-w-6xl flex-col px-4 py-2 sm:px-6">
+            {NAV.map((n) => (
+              <Link
+                key={n.href}
+                href={n.href}
+                aria-current={isActive(path, n.href) ? "page" : undefined}
+                onClick={() => setOpen(false)}
+                className={`flex min-h-12 items-center border-b border-harbor/60 font-display text-sm font-semibold uppercase tracking-[0.12em] last:border-b-0 ${
+                  isActive(path, n.href) ? "text-snow underline decoration-signal decoration-2 underline-offset-8" : "text-mist/85"
+                }`}
+              >
+                {n.label}
+              </Link>
+            ))}
+          </nav>
+          <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 border-t border-harbor px-4 py-4 sm:px-6">
+            <NetworkIndicator />
+            {address && (
+              <button type="button" onClick={() => disconnect()} className="btn btn-sm btn-quiet normal-case tracking-normal">
+                Disconnect <Mono>{shorten(address)}</Mono>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </header>
   );
 }
 
 export function SiteFooter() {
   const { network } = useSelectedNetwork();
+  const year = new Date().getFullYear();
   return (
     <footer className="relative z-10 mt-24 border-t border-mist/15">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
         <div className="space-y-3">
-          <Wordmark />
+          <Link href="/" aria-label="QuietPay home" className="-m-2 inline-block p-2">
+            <Wordmark />
+          </Link>
           <p className="max-w-[34ch] text-haze">One-time USDG payment links with a fresh receiving address for every payment.</p>
         </div>
-        <FooterCol title="Use QuietPay" links={NAV.map((n) => ({ href: n.href, label: n.label === "Pay" ? "Pay a link" : n.label === "Create" ? "Create a link" : "Receive and claim" }))} />
+        <FooterCol
+          title="Use QuietPay"
+          links={[
+            { href: "/create", label: "Create a link" },
+            { href: "/pay", label: "Pay a link" },
+            { href: "/receive", label: "Receive and claim" },
+          ]}
+        />
         <FooterCol
           title="Network"
           links={[
@@ -103,26 +179,41 @@ export function SiteFooter() {
           ]}
         />
       </div>
-      <p className="border-t border-mist/10 px-4 py-5 text-center text-xs text-haze">
-        QuietPay is experimental software. It provides recipient address unlinkability, not anonymity.
-      </p>
+      <div className="border-t border-mist/10">
+        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-5 text-xs text-haze sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <p>
+            <span suppressHydrationWarning>© {year}</span> QuietPay. Experimental software that provides recipient address unlinkability, not
+            anonymity.
+          </p>
+          <nav aria-label="Legal" className="flex gap-6">
+            <Link href="/terms" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
+              Terms of Service
+            </Link>
+            <Link href="/privacy" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
+              Privacy Policy
+            </Link>
+          </nav>
+        </div>
+      </div>
     </footer>
   );
 }
 
 function FooterCol({ title, links }: { title: string; links: { href: string; label: string; external?: boolean }[] }) {
+  const cls = "inline-flex min-h-11 items-center text-mist/85 underline decoration-mist/30 underline-offset-4 hover:text-snow";
   return (
     <div>
-      <h2 className="mb-3 font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] text-snow">{title}</h2>
-      <ul className="space-y-2">
+      <h2 className="mb-1 font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] text-snow">{title}</h2>
+      <ul>
         {links.map((l) => (
           <li key={l.href}>
             {l.external ? (
-              <a href={l.href} target="_blank" rel="noopener noreferrer" className="text-mist/85 underline decoration-mist/30 underline-offset-4 hover:text-snow">
+              <a href={l.href} target="_blank" rel="noopener noreferrer" className={cls}>
                 {l.label}
+                <span className="sr-only"> (opens in a new tab)</span>
               </a>
             ) : (
-              <Link href={l.href} className="text-mist/85 underline decoration-mist/30 underline-offset-4 hover:text-snow">
+              <Link href={l.href} className={cls}>
                 {l.label}
               </Link>
             )}

@@ -117,15 +117,15 @@ function TileLink({ t, className, children }: { t: Tile; className: string; chil
 }
 
 const HEX_CLASS =
-  "hex group relative flex h-[323px] w-[280px] flex-col items-center justify-center bg-[linear-gradient(170deg,#1b5569_0%,#0e3443_55%,#082430_100%)] px-10 text-center transition-[filter] duration-200 hover:brightness-125 focus-visible:brightness-125";
+  "hex group relative flex h-[323px] w-[280px] flex-col items-center justify-center bg-[linear-gradient(170deg,#1b5569_0%,#0e3443_55%,#082430_100%)] px-10 text-center hover:brightness-115 focus-visible:brightness-125";
 
 export default function Home() {
   return (
     <>
-      <section className="relative -mt-[132px] overflow-hidden pt-[132px] sm:-mt-[84px] sm:pt-[84px]">
+      <section className="relative -mt-[76px] overflow-hidden pt-[76px]">
         <Skyline className="absolute inset-0 h-full w-full" />
         <div className="relative mx-auto flex min-h-[78vh] max-w-6xl flex-col items-center justify-center px-4 pb-28 pt-10 text-center sm:px-6">
-          <p className="font-display text-sm font-semibold tracking-[0.04em] text-mist sm:text-base">
+          <p className="text-balance font-display text-sm font-semibold tracking-[0.04em] text-mist sm:text-base">
             One-time USDG payment links on Robinhood Chain
           </p>
           <h1 className="mt-5 font-display uppercase leading-[0.98] text-snow">
@@ -136,7 +136,7 @@ export default function Home() {
             Create a payment link
           </Link>
           <HeroNetwork />
-          <a href="#how" className="mt-10 text-mist/70 hover:text-snow" aria-label="How QuietPay works">
+          <a href="#how" className="mt-6 inline-flex h-11 w-11 items-center justify-center text-mist/70 hover:text-snow" aria-label="How QuietPay works">
             <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M2 2l12 12L26 2" />
             </svg>
@@ -149,25 +149,20 @@ export default function Home() {
       </section>
 
       <section id="how" className="relative mx-auto mt-20 max-w-6xl scroll-mt-24 px-4 sm:px-6" aria-label="How QuietPay works">
-        {/* Honeycomb on wide screens */}
+        {/* Honeycomb on wider screens: rows of two, one, two. */}
         <div className="hidden flex-col items-center md:flex">
-          <div className="flex gap-3">
-            {TILES.slice(0, 3).map((t) => (
-              <TileLink key={t.title} t={t} className={HEX_CLASS}>
-                <TileBody t={t} />
-              </TileLink>
-            ))}
-          </div>
-          <div className="-mt-[69px] flex gap-3">
-            {TILES.slice(3).map((t) => (
-              <TileLink key={t.title} t={t} className={HEX_CLASS}>
-                <TileBody t={t} />
-              </TileLink>
-            ))}
-          </div>
+          {[TILES.slice(0, 2), TILES.slice(2, 3), TILES.slice(3)].map((row, i) => (
+            <div key={i} className={`flex gap-3 ${i > 0 ? "-mt-[69px]" : ""}`}>
+              {row.map((t) => (
+                <TileLink key={t.title} t={t} className={HEX_CLASS}>
+                  <TileBody t={t} />
+                </TileLink>
+              ))}
+            </div>
+          ))}
         </div>
         {/* Stacked on phones */}
-        <div className="grid gap-3 md:hidden">
+        <div className="grid gap-3 sm:grid-cols-2 md:hidden">
           {TILES.map((t) => (
             <TileLink key={t.title} t={t} className="panel block px-6 py-7 text-center">
               <TileBody t={t} />
