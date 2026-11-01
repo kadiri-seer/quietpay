@@ -10,12 +10,20 @@ import { useVault } from "./VaultProvider";
 
 /** Renders children only when a wallet is connected on `network`. */
 export function WalletGate({ network, children, purpose }: { network: NetworkConfig; children: ReactNode; purpose: string }) {
-  const { isConnected, chainId, isConnecting, isReconnecting } = useAccount();
-  const { connectors, connect, isPending, error } = useConnect();
+  const { isConnected, chainId, isReconnecting } = useAccount();
+  const { connectors, connect, isPending, error, reset } = useConnect();
   const { switchChain, isPending: switching, error: switchError } = useSwitchChain();
   const [hasInjected, setHasInjected] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [slow, setSlow] = useState(false);
   useEffect(() => setHasInjected(typeof window !== "undefined" && !!(window as { ethereum?: unknown }).ethereum), []);
+  // If a wallet never answers, say so after a while and let the user cancel instead of waiting forever.
+  useEffect(() => {
+    setSlow(false);
+    if (!isPending) return;
+    const t = setTimeout(() => setSlow(true), 20_000);
+    return () => clearTimeout(t);
+  }, [isPending]);
 
   // Wallet extensions announced via EIP-6963 (MetaMask, Rabby, Coinbase…) appear by name.
   const announced = connectors.filter((c) => c.type === "injected" && c.id !== "injected");
@@ -24,7 +32,7 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
   const options: { connector: Connector; label: string; hint: string; icon?: string }[] = [
     ...announced.map((c) => ({ connector: c, label: c.name, hint: "Browser extension", icon: c.icon })),
     ...(announced.length === 0 && hasInjected && generic ? [{ connector: generic, label: "Browser wallet", hint: "Extension or in-app browser" }] : []),
-    ...(wc ? [{ connector: wc, label: "WalletConnect", hint: "Mobile wallets: scan a QR code or open your wallet app" }] : []),
+    ...(wc ? [{ connector: wc, label: "WalletConnect", hint: "Mobile wallets: scan a QR code or open your wallet app", icon: "/brand/walletconnect.svg" }] : []),
   ];
 
   if (!isConnected) {
@@ -40,7 +48,7 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
                   className={`group flex w-full items-center gap-4 rounded-lg border px-4 py-3 text-left disabled:opacity-50 ${
                     i === 0 ? "border-snow/80 hover:bg-snow/10" : "border-harbor hover:border-mist/60"
                   }`}
-                  disabled={isPending || isConnecting || isReconnecting}
+                  disabled={isPending || isReconnecting}
                   onClick={() => {
                     setPendingId(o.connector.uid);
                     connect({ connector: o.connector });
@@ -48,10 +56,10 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
                 >
                   {o.icon ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={o.icon} alt="" className="h-7 w-7 shrink-0 rounded" />
+                    <img src={o.icon} alt="" className={`h-7 w-7 shrink-0 ${o.connector.type === "walletConnect" ? "rounded-full" : "rounded"}`} />
                   ) : (
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-mist/30 text-xs text-mist" aria-hidden>
-                      {o.connector.type === "walletConnect" ? "WC" : "◆"}
+                      ◆
                     </span>
                   )}
                   <span className="flex-1">
@@ -70,6 +78,21 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
         )}
         {!wc && !hasInjected && (
           <p className="text-xs text-haze">On a phone, open this page in the MetaMask or Trust Wallet app&apos;s browser.</p>
+        )}
+        {isPending && (
+          <div className="flex flex-wrap items-center gap-3">
+            {slow && <p className="text-sm text-haze">Still waiting for your wallet. Check the wallet app, or cancel and try again.</p>}
+            <button
+              type="button"
+              className="btn btn-sm btn-quiet"
+              onClick={() => {
+                reset();
+                setPendingId(null);
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         )}
         {error && <Notice tone="bad">{classifyTxError(error).message}</Notice>}
       </div>
