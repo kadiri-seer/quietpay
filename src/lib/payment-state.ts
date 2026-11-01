@@ -26,6 +26,8 @@ export type PaymentEvent =
   | { type: "SUBMIT_PAYMENT"; txHash: string }
   | { type: "USER_REJECTED" }
   | { type: "PAYMENT_CONFIRMED"; txHash: string }
+  /** Router mode: transfer and announcement confirmed together in one transaction. */
+  | { type: "ROUTED_PAYMENT_CONFIRMED"; txHash: string }
   | { type: "PAYMENT_FAILED"; reason: string; txSubmitted: boolean }
   | { type: "SUBMIT_ANNOUNCEMENT"; txHash: string }
   | { type: "ANNOUNCEMENT_CONFIRMED"; txHash: string }
@@ -66,6 +68,9 @@ export function transition(m: PaymentMachine, e: PaymentEvent): PaymentMachine {
     case "PAYMENT_CONFIRMED":
       if (m.state !== "pending") fail();
       return { ...m, state: "paid", paymentTx: e.txHash, error: undefined };
+    case "ROUTED_PAYMENT_CONFIRMED":
+      if (m.state !== "pending") fail();
+      return { ...m, state: "claimable", paymentTx: e.txHash, announcementTx: e.txHash, error: undefined };
     case "PAYMENT_FAILED":
       // Before submission: back to an error state that allows another attempt.
       // After submission (reverted/cancelled): terminal error for this attempt; the UI must

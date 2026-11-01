@@ -59,6 +59,14 @@ describe("payment state machine", () => {
     expect(m.state).toBe("claimable");
   });
 
+  it("confirms routed payments (transfer + announcement in one transaction) straight to claimable", () => {
+    const m = run({ type: "SUBMIT_PAYMENT", txHash: "0x1" }, { type: "ROUTED_PAYMENT_CONFIRMED", txHash: "0x1" });
+    expect(m.state).toBe("claimable");
+    expect(m.announcementTx).toBe("0x1");
+    expect(canSendAnnouncement(m)).toBe(false);
+    expect(() => run({ type: "ROUTED_PAYMENT_CONFIRMED", txHash: "0x1" })).toThrow(InvalidTransitionError);
+  });
+
   it("expires only unpaid requests", () => {
     expect(run({ type: "EXPIRE" }).state).toBe("expired");
     const paid = run({ type: "SUBMIT_PAYMENT", txHash: "0x1" }, { type: "PAYMENT_CONFIRMED", txHash: "0x1" });

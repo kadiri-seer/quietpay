@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { EXPIRY_OPTIONS, PAYMENT_LIMITS } from "@/config/networks";
+import { EXPIRY_OPTIONS, OPEN_EXPIRY_OPTIONS, PAYMENT_LIMITS } from "@/config/networks";
+import type { LinkKind } from "@/lib/link";
 import { AmountError, checkLimits, formatAmount, limitsFor, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
 import { createPaymentRequest } from "@/lib/request";
@@ -57,8 +58,15 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const token = data!.token!;
   const client = usePublicClient(network);
   const { vault, save } = useVault();
+  const [kind, setKind] = useState<LinkKind>("fixed");
   const [amount, setAmount] = useState("");
   const [expiry, setExpiry] = useState<number>(EXPIRY_OPTIONS[1].seconds);
+  const expiryOptions: readonly { label: string; seconds: number }[] = kind === "fixed" ? EXPIRY_OPTIONS : OPEN_EXPIRY_OPTIONS;
+  const chooseKind = (k: LinkKind) => {
+    setKind(k);
+    setExpiry(k === "fixed" ? EXPIRY_OPTIONS[1].seconds : OPEN_EXPIRY_OPTIONS[0].seconds);
+    setError(null);
+  };
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,15 +84,17 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
 
   async function create() {
     setTouched(true);
-    if (!("value" in parsed) || parsed.value === undefined || !vault) return;
+    if (!vault) return;
+    if (kind === "fixed" && (!("value" in parsed) || parsed.value === undefined)) return;
     setBusy(true);
     setError(null);
     try {
       const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
       const record = createPaymentRequest({
+        kind,
         chainId: network.chain.id,
         token: token.address,
-        amount: parsed.value,
+        amount: kind === "fixed" && "value" in parsed && parsed.value ? parsed.value : 0n,
         decimals: token.decimals,
         symbol: token.symbol,
         expirySeconds: expiry,
@@ -114,6 +124,30 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           This deployment uses {token.symbol}, a QuietPay test token with no value, because no verified testnet USDG contract exists.
         </Notice>
       )}
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-snow">What should the payer send?</legend>
+        <div className="grid grid-cols-2 gap-2" role="radiogroup">
+          {(
+            [
+              { k: "fixed", title: "Fixed amount", hint: "An invoice. Paid once." },
+              { k: "open", title: "Any amount", hint: "Reusable. Payer chooses." },
+            ] as const
+          ).map((o) => (
+            <label
+              key={o.k}
+              className={`cursor-pointer rounded-[2px] border px-3 py-3 text-left ${
+                kind === o.k ? "border-snow bg-snow/10" : "border-harbor hover:border-mist/60"
+              }`}
+            >
+              <input type="radio" name="kind" value={o.k} checked={kind === o.k} onChange={() => chooseKind(o.k)} className="sr-only" />
+              <span className="block text-sm font-medium text-snow">{o.title}</span>
+              <span className="mt-0.5 block text-xs text-haze">{o.hint}</span>
+            </label>
+          ))}
+        </div>
+      </fieldset>
+
+      {kind === "fixed" ? (
       <div>
         <label htmlFor="amount" className="mb-2 block text-sm font-medium text-snow">
           Amount
@@ -139,11 +173,17 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
             : `Between ${formatAmount(limits.min, token.decimals)} and ${formatAmount(limits.max, token.decimals, { group: true })} ${token.symbol}.`}
         </p>
       </div>
+      ) : (
+        <p className="rounded-[3px] border border-harbor px-4 py-3 text-sm leading-relaxed text-mist">
+          Share one link and get paid any number of times. Every payment still lands at its own one-time address, and payments to this
+          link aren&apos;t grouped together onchain.
+        </p>
+      )}
 
       <fieldset>
-        <legend className="mb-2 text-sm font-medium text-snow">Link expires after</legend>
+        <legend className="mb-2 text-sm font-medium text-snow">{kind === "fixed" ? "Link expires after" : "Link expires"}</legend>
         <div className="grid grid-cols-3 gap-2">
-          {EXPIRY_OPTIONS.map((o) => (
+          {expiryOptions.map((o) => (
             <label
               key={o.seconds}
               className={`cursor-pointer rounded-[2px] border px-3 py-2.5 text-center text-sm ${
@@ -169,17 +209,24 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
   const url = origin ? buildPayUrl(origin, request.link) : "";
+  const open = request.kind === "open";
   const amount = formatAmount(BigInt(request.amount), request.decimals, { group: true });
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col items-center gap-4 text-center">
         <p className="font-display text-3xl font-light text-snow">
-          {amount} <span className="text-lg text-haze">{request.symbol}</span>
+          {open ? "Any amount" : amount} <span className="text-lg text-haze">{request.symbol}</span>
         </p>
         {url && <QR value={url} />}
         <p className="text-sm text-haze">
-          Expires {formatDateTime(request.expiresAt * 1000)} (<Countdown to={request.expiresAt} />)
+          {request.expiresAt === 0 ? (
+            "Reusable. Never expires."
+          ) : (
+            <>
+              Expires {formatDateTime(request.expiresAt * 1000)} (<Countdown to={request.expiresAt} />)
+            </>
+          )}
         </p>
       </div>
       <div>
@@ -191,7 +238,9 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
           {url && <CopyButton value={url} className="min-h-[2.9rem]" />}
         </div>
         <p className="mt-2 text-xs text-haze">
-          The link holds public keys only. Anyone with it can pay it once, so share it with the intended payer.
+          {open
+            ? "The link holds public keys only. Anyone with it can pay you, as many times as they like."
+            : "The link holds public keys only. Anyone with it can pay it once, so share it with the intended payer."}
         </p>
       </div>
       <Notice tone="warn" title="Keep your keys">

@@ -149,22 +149,27 @@ export async function estimateSweepCost(client: PublicClient, token: Address, st
 }
 
 /**
- * Sweeps the full token balance from a stealth address to `to`.
- * The stealth private key is derived locally, used to sign locally, and discarded.
+ * Sends `amount` (default: everything) of the payment's tokens from its one-time address to `to`.
+ * The one-time private key is derived locally, used to sign locally, and discarded. Gas is paid by
+ * the address's own ETH (normally the stipend the payer included), never auto-funded.
  */
-export async function sweepStealthPayment(
+export async function sendFromStealthPayment(
   client: PublicClient,
   network: NetworkConfig,
-  p: { request: StoredRequest; payment: StoredPayment; to: Address },
-): Promise<{ hash: Hash; amount: bigint }> {
+  p: { request: StoredRequest; payment: StoredPayment; to: Address; amount?: bigint },
+): Promise<{ hash: Hash; amount: bigint; remaining: bigint }> {
   const to = getAddress(p.to);
   const key = deriveStealthPrivateKey(p.payment.ephemeralPublicKey, p.payment.stealthAddress, p.request.keys);
   const account = privateKeyToAccount(key);
-  const { token: amount, eth } = await stealthBalances(client, p.request.token, account.address);
-  if (amount === 0n) throw new Error("This stealth address holds no tokens to claim.");
+  if (getAddress(to) === getAddress(account.address)) throw new Error("Choose a different destination address.");
+  const { token: balance, eth } = await stealthBalances(client, p.request.token, account.address);
+  if (balance === 0n) throw new Error("This one-time address holds no tokens.");
+  const amount = p.amount ?? balance;
+  if (amount <= 0n) throw new Error("Enter an amount greater than zero.");
+  if (amount > balance) throw new Error("That is more than this payment holds.");
   const est = await estimateSweepCost(client, p.request.token, account.address, to, amount);
-  if (eth < (est.gas * est.maxFeePerGas)) {
-    throw new Error("This stealth address needs a little ETH for gas before it can be claimed.");
+  if (eth < est.gas * est.maxFeePerGas) {
+    throw new Error("This one-time address needs a little ETH for gas before it can send.");
   }
   const wallet = createWalletClient({ account, chain: network.chain, transport: http(network.rpcUrl, { timeout: 20_000 }) });
   const hash = await wallet.writeContract({
@@ -176,7 +181,31 @@ export async function sweepStealthPayment(
   });
   const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   verifyTransferInReceipt(receipt, { token: p.request.token, to, amount, from: account.address });
-  return { hash: receipt.transactionHash, amount };
+  return { hash: receipt.transactionHash, amount, remaining: balance - amount };
+}
+
+/** Moves the whole balance (a full claim). */
+export function sweepStealthPayment(client: PublicClient, network: NetworkConfig, p: { request: StoredRequest; payment: StoredPayment; to: Address }) {
+  return sendFromStealthPayment(client, network, p);
+}
+
+/** Records a send; marks the payment claimed once its balance reaches zero. */
+export function recordSend(
+  req: StoredRequest,
+  stealth: Address,
+  send: { tx: Hex; to: Address; amount: bigint },
+  remaining: bigint,
+): StoredRequest {
+  return {
+    ...req,
+    payments: req.payments.map((p) => {
+      if (getAddress(p.stealthAddress) !== getAddress(stealth)) return p;
+      const sends = [...(p.sends ?? []), { tx: send.tx, to: getAddress(send.to), amount: send.amount.toString(), at: Date.now() }];
+      return remaining === 0n
+        ? { ...p, sends, claimTx: send.tx, claimedTo: getAddress(send.to), claimedAt: Date.now() }
+        : { ...p, sends };
+    }),
+  };
 }
 
 export function markClaimed(req: StoredRequest, stealth: Address, hash: Hex, to: Address): StoredRequest {
