@@ -57,8 +57,8 @@ const PILL: Record<string, string> = {
 
 export function StatusPill({ state, label }: { state: string; label: string }) {
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-[2px] border px-2 py-0.5 text-xs font-medium ${PILL[state] ?? PILL.created}`}>
-      <span className="h-1.5 w-1.5 bg-current" aria-hidden />
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-medium ${PILL[state] ?? PILL.created}`}>
+      <span className="h-1.5 w-1.5 rounded-full bg-current" aria-hidden />
       {label}
     </span>
   );
@@ -75,7 +75,7 @@ const NOTICE_TONES = {
 export function Notice({ tone = "info", title, children }: { tone?: "info" | "warn" | "bad" | "ok"; title?: string; children: ReactNode }) {
   const t = NOTICE_TONES[tone];
   return (
-    <div className={`rounded-[3px] border px-4 py-3 text-sm leading-relaxed ${t.box}`} role={tone === "bad" ? "alert" : undefined}>
+    <div className={`rounded-xl border px-4 py-3 text-sm leading-relaxed ${t.box}`} role={tone === "bad" ? "alert" : undefined}>
       <p className="mb-0.5">
         <span className={`mr-2 font-display text-[0.7rem] font-semibold uppercase tracking-[0.08em] ${t.tag}`}>{t.word}</span>
         {title && <span className="font-semibold text-snow">{title}</span>}
@@ -98,7 +98,7 @@ export function CheckList({ checks }: { checks: PreflightCheck[] }) {
             <span className="text-snow">{c.label}</span>
             {c.detail && <span className="mt-0.5 block break-words text-haze">{c.detail}</span>}
           </span>
-          <span className={`shrink-0 rounded-[2px] border px-1.5 py-px font-display text-[0.68rem] font-semibold uppercase tracking-[0.08em] ${CHECK_TONE[c.status]}`}>
+          <span className={`shrink-0 rounded-lg border px-1.5 py-px font-display text-[0.68rem] font-semibold uppercase tracking-[0.08em] ${CHECK_TONE[c.status]}`}>
             {CHECK_WORD[c.status]}
           </span>
         </li>
@@ -154,8 +154,8 @@ export function QR({ value, size = 220 }: { value: string; size?: number }) {
     }
   }
   return (
-    <svg viewBox={`0 0 ${dim} ${dim}`} width={size} height={size} role="img" aria-label="QR code for the payment link" className="rounded-[3px] bg-snow">
-      <g fill="#061a23">{rects}</g>
+    <svg viewBox={`0 0 ${dim} ${dim}`} width={size} height={size} role="img" aria-label="QR code for the payment link" className="rounded-xl bg-white">
+      <g fill="#000000">{rects}</g>
     </svg>
   );
 }
@@ -186,9 +186,9 @@ export function formatDateTime(ms: number) {
 export function PageTitle({ light, bold, children }: { light: string; bold: string; children?: ReactNode }) {
   return (
     <header className="mb-8">
-      <h1 className="font-display text-3xl uppercase leading-[1.05] tracking-[0.02em] text-snow sm:text-4xl">
-        <span className="font-extralight">{light} </span>
-        <span className="font-bold">{bold}</span>
+      <h1 className="font-display text-[2rem] font-bold leading-[1.08] tracking-[-0.03em] text-snow sm:text-[2.6rem]">
+        <span className="text-haze">{light} </span>
+        <span>{bold}</span>
       </h1>
       {children && <p className="mt-3 max-w-[60ch] text-[0.95rem] leading-relaxed text-haze">{children}</p>}
     </header>

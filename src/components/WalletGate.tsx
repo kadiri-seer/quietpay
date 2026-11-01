@@ -37,7 +37,7 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
               <li key={o.connector.uid}>
                 <button
                   type="button"
-                  className={`group flex w-full items-center gap-4 rounded-[2px] border px-4 py-3 text-left disabled:opacity-50 ${
+                  className={`group flex w-full items-center gap-4 rounded-lg border px-4 py-3 text-left disabled:opacity-50 ${
                     i === 0 ? "border-snow/80 hover:bg-snow/10" : "border-harbor hover:border-mist/60"
                   }`}
                   disabled={isPending || isConnecting || isReconnecting}

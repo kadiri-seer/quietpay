@@ -42,7 +42,7 @@ export function PoolFlow() {
         )}
       </div>
       <section className="mt-8 space-y-3 text-sm leading-relaxed text-mist" aria-labelledby="pool-how">
-        <h2 id="pool-how" className="font-display text-base font-semibold uppercase tracking-[0.06em] text-snow">
+        <h2 id="pool-how" className="font-display text-base font-semibold tracking-[-0.01em] text-snow">
           What the pool hides, and what it doesn&apos;t
         </h2>
         <p>
@@ -104,13 +104,13 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
   return (
     <div className="space-y-8">
       <div className="grid gap-4 sm:grid-cols-2">
-        <div className="rounded-[3px] border border-harbor p-4">
+        <div className="rounded-xl border border-harbor p-4">
           <p className="text-xs uppercase tracking-[0.12em] text-haze">Ready to withdraw</p>
-          <p className="mt-1 font-display text-2xl font-light text-snow">{snap.isLoading ? "…" : fmt(ready)}</p>
+          <p className="mt-1 font-display text-2xl font-semibold tracking-[-0.02em] text-snow">{snap.isLoading ? "…" : fmt(ready)}</p>
         </div>
-        <div className="rounded-[3px] border border-harbor p-4">
+        <div className="rounded-xl border border-harbor p-4">
           <p className="text-xs uppercase tracking-[0.12em] text-haze">Waiting for approval</p>
-          <p className="mt-1 font-display text-2xl font-light text-snow">{snap.isLoading ? "…" : fmt(waiting)}</p>
+          <p className="mt-1 font-display text-2xl font-semibold tracking-[-0.02em] text-snow">{snap.isLoading ? "…" : fmt(waiting)}</p>
           {waiting > 0n && (
             <div className="mt-3 space-y-2">
               <p className="text-xs text-haze">
@@ -136,8 +136,8 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
 
       <section aria-labelledby="notes-h" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="notes-h" className="font-display text-lg font-semibold uppercase tracking-[0.06em] text-snow">
-            Your deposits <span className="font-light text-haze">({notes.length})</span>
+          <h2 id="notes-h" className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">
+            Your deposits <span className="font-normal text-haze">({notes.length})</span>
           </h2>
           <button
             type="button"
@@ -156,7 +156,7 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
         ) : snap.error ? (
           <Notice tone="bad">{classifyTxError(snap.error).message}</Notice>
         ) : notes.length === 0 ? (
-          <div className="rounded-[3px] border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
+          <div className="rounded-xl border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
             Nothing shielded yet. On the{" "}
             <a href="/receive" className="text-signal underline underline-offset-4">
               Receive page
@@ -189,10 +189,10 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
           ? { state: "claimable", label: "Ready" }
           : { state: "pending", label: "Waiting for approval" };
   return (
-    <li className="rounded-[3px] border border-harbor bg-abyss/40 p-4 sm:p-5">
+    <li className="rounded-xl border border-harbor bg-abyss/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-display text-xl font-light text-snow">{fmt(note.value)}</p>
+          <p className="font-display text-xl font-semibold tracking-[-0.02em] text-snow">{fmt(note.value)}</p>
           <p className="mt-1 text-xs text-haze">
             Deposited {fmt(note.deposit.value)} · <ExplorerLink network={network} tx={note.deposit.txHash} />
           </p>
@@ -312,7 +312,7 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
   }
 
   return (
-    <div className="mt-4 space-y-4 rounded-[3px] border border-harbor p-4">
+    <div className="mt-4 space-y-4 rounded-xl border border-harbor p-4">
       {!terms?.available && (
         <Notice tone="warn" title="Relayer unavailable">
           The relayer is not running right now, so withdrawals can&apos;t be sent. Your funds stay safe in the pool.
@@ -437,7 +437,7 @@ function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) 
   }
 
   return (
-    <div className="mt-4 space-y-3 rounded-[3px] border border-harbor p-4 text-sm">
+    <div className="mt-4 space-y-3 rounded-xl border border-harbor p-4 text-sm">
       <p className="leading-relaxed text-mist">
         Takes the full {fmt(note.value)} back to the one-time address that deposited it (<Mono>{shorten(note.deposit.depositor, 4)}</Mono>).
         This is public and gives up the pool&apos;s privacy for this deposit. Use it if a deposit is never approved.

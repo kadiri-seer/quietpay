@@ -1,25 +1,75 @@
 @import "tailwindcss";
 
+/*
+ * Black and white theme. Every colour utility (bg-abyss, text-snow, border-harbor...) reads a
+ * CSS variable, so the same markup renders in dark or light mode. Dark is the default; light is
+ * applied with <html data-theme="light"> (set before paint by the script in layout.tsx).
+ * Only status colours (ok, warn, bad) keep a hint of hue, because they carry meaning.
+ */
 @theme {
-  --color-abyss: #061a23;
-  --color-deep: #0c2c39;
-  --color-harbor: #164a5c;
-  --color-tide: #1f6278;
-  --color-signal: #5bb8ea;
-  --color-mist: #c9dde5;
-  --color-haze: #8fb1bd;
-  --color-snow: #f4f9fb;
-  --color-ok: #6fd3ad;
-  --color-warn: #e9c46a;
-  --color-bad: #ee8a7f;
+  --color-abyss: var(--qp-abyss);
+  --color-deep: var(--qp-deep);
+  --color-harbor: var(--qp-harbor);
+  --color-tide: var(--qp-tide);
+  --color-signal: var(--qp-signal);
+  --color-mist: var(--qp-mist);
+  --color-haze: var(--qp-haze);
+  --color-snow: var(--qp-snow);
+  --color-ok: var(--qp-ok);
+  --color-warn: var(--qp-warn);
+  --color-bad: var(--qp-bad);
 
-  --font-display: "Montserrat", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-brand: "Montserrat", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 
-:root {
+:root,
+:root[data-theme="dark"] {
   color-scheme: dark;
+  --qp-abyss: #0a0a0a; /* page */
+  --qp-deep: #121212; /* panels */
+  --qp-harbor: #2a2a2a; /* borders */
+  --qp-tide: #3a3a3a;
+  --qp-signal: #ffffff; /* accent: links, focus, active states */
+  --qp-mist: #d4d4d4; /* body text */
+  --qp-haze: #8f8f8f; /* secondary text */
+  --qp-snow: #fafafa; /* headings, primary buttons */
+  --qp-ok: #8fd4ad;
+  --qp-warn: #e6c56e;
+  --qp-bad: #f0948b;
+  --qp-glow: rgba(255, 255, 255, 0.07);
+  --qp-tile-from: #1c1c1c;
+  --qp-tile-to: #0d0d0d;
+  --qp-art-track: #151515;
+  --qp-art-rail: #f2f2f2;
+  --qp-art-cube: #ffffff;
+  --qp-art-edge: rgba(0, 0, 0, 0.35);
+  --qp-art-glow: rgba(255, 255, 255, 0.55);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --qp-abyss: #f5f5f4;
+  --qp-deep: #ffffff;
+  --qp-harbor: #e2e2e2;
+  --qp-tide: #cfcfcf;
+  --qp-signal: #0a0a0a;
+  --qp-mist: #2b2b2b;
+  --qp-haze: #646464;
+  --qp-snow: #0a0a0a;
+  --qp-ok: #1a7346;
+  --qp-warn: #8a5700;
+  --qp-bad: #b42318;
+  --qp-glow: rgba(0, 0, 0, 0.05);
+  --qp-tile-from: #ffffff;
+  --qp-tile-to: #ececeb;
+  --qp-art-track: #ffffff;
+  --qp-art-rail: #1a1a1a;
+  --qp-art-cube: #0a0a0a;
+  --qp-art-edge: rgba(255, 255, 255, 0.45);
+  --qp-art-glow: rgba(0, 0, 0, 0.18);
 }
 
 html {
@@ -28,29 +78,29 @@ html {
 }
 
 body {
-  /* A single, gentle vertical fade from deep teal into the page colour. */
-  background: linear-gradient(180deg, #0a2430 0, var(--color-abyss) 640px);
+  /* A soft light from the top of the page, like the reference's dark stage. */
+  background: radial-gradient(ellipse 90% 520px at 50% -120px, var(--qp-glow), transparent 70%), var(--color-abyss);
   background-color: var(--color-abyss);
   color: var(--color-mist);
   font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   min-height: 100vh;
   overflow-x: hidden;
 }
 
 ::selection {
-  background: color-mix(in oklab, var(--color-signal) 40%, transparent);
+  background: color-mix(in oklab, var(--color-snow) 22%, transparent);
   color: var(--color-snow);
 }
 
 :focus-visible {
   outline: 2px solid var(--color-signal);
   outline-offset: 3px;
-  border-radius: 2px;
+  border-radius: 6px;
 }
 
-/* Outlined, uppercase buttons echo the reference design's "LEARN MORE" boxes.
-   State changes are instant: no hover animation. */
+/* Rounded, sentence-case buttons as in the reference. State changes are instant: no animation. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -58,22 +108,21 @@ body {
   gap: 0.5rem;
   min-height: 2.75rem;
   padding: 0 1.25rem;
-  font-family: var(--font-display);
+  font-family: var(--font-sans);
   font-weight: 600;
-  font-size: 0.8125rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  border: 1.5px solid var(--color-snow);
+  font-size: 0.875rem;
+  letter-spacing: -0.005em;
+  border: 1px solid color-mix(in oklab, var(--color-snow) 55%, transparent);
   color: var(--color-snow);
   background: transparent;
-  border-radius: 2px;
+  border-radius: 10px;
   cursor: pointer;
   white-space: nowrap;
   touch-action: manipulation;
 }
 .btn:hover:not(:disabled) {
-  background: var(--color-snow);
-  color: var(--color-abyss);
+  background: color-mix(in oklab, var(--color-snow) 9%, transparent);
+  border-color: var(--color-snow);
 }
 .btn:disabled {
   opacity: 0.4;
@@ -81,26 +130,27 @@ body {
 }
 .btn-primary {
   background: var(--color-snow);
+  border-color: var(--color-snow);
   color: var(--color-abyss);
 }
 .btn-primary:hover:not(:disabled) {
-  background: var(--color-signal);
-  border-color: var(--color-signal);
+  background: color-mix(in oklab, var(--color-snow) 84%, var(--color-abyss));
+  border-color: transparent;
 }
 .btn-quiet {
-  border-color: color-mix(in oklab, var(--color-mist) 35%, transparent);
+  border-color: var(--color-harbor);
   color: var(--color-mist);
 }
 /* Smaller text, same 44px tap target. */
 .btn-sm {
   padding: 0 0.875rem;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 
 .panel {
   background: var(--color-deep);
-  border: 1px solid color-mix(in oklab, var(--color-harbor) 80%, transparent);
-  border-radius: 3px;
+  border: 1px solid var(--color-harbor);
+  border-radius: 16px;
 }
 
 .field {
@@ -108,10 +158,13 @@ body {
   min-height: 2.75rem;
   background: var(--color-abyss);
   border: 1px solid var(--color-harbor);
-  border-radius: 2px;
+  border-radius: 10px;
   color: var(--color-snow);
   padding: 0.75rem 0.875rem;
   font-size: 1rem; /* 16px stops iOS zooming into inputs */
+}
+.field::placeholder {
+  color: var(--color-haze);
 }
 .field:focus {
   border-color: var(--color-signal);
@@ -125,8 +178,8 @@ body {
 
 /* Loading placeholders. */
 .skeleton {
-  background: color-mix(in oklab, var(--color-harbor) 55%, transparent);
-  border-radius: 2px;
+  background: color-mix(in oklab, var(--color-harbor) 80%, transparent);
+  border-radius: 8px;
   animation: skeleton-pulse 1.6s ease-in-out infinite;
 }
 @keyframes skeleton-pulse {

@@ -6,6 +6,7 @@ import { useEffect, useId, useState } from "react";
 import { useAccount, useDisconnect } from "wagmi";
 import { enabledNetworks, type NetworkKey } from "@/config/networks";
 import { Wordmark } from "./Logo";
+import { ThemeToggle } from "./ThemeToggle";
 import { useSelectedNetwork } from "./Providers";
 import { Mono, shorten } from "./ui";
 
@@ -17,14 +18,37 @@ const NAV = [
   { href: "/security", label: "Security" },
 ];
 
-/** Header height, shared with the home hero so the skyline sits behind the header. */
+/** Header height. */
 export const HEADER_HEIGHT = 76;
+
+export const ETH_FAUCET_URL = "https://faucet.testnet.chain.robinhood.com";
+
+/** Thin bar above the header on testnet, so test money is one tap away on every page. */
+function TestnetBar() {
+  const { network } = useSelectedNetwork();
+  if (!network.chain.testnet) return null;
+  const link = "inline-flex min-h-9 items-center font-medium text-snow underline decoration-snow/30 underline-offset-4 hover:decoration-snow";
+  return (
+    <div className="border-b border-harbor bg-deep/70 text-xs text-haze">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-5 gap-y-0 px-4 sm:px-6">
+        <span className="hidden sm:inline">Testnet: test money has no value.</span>
+        <a href={ETH_FAUCET_URL} target="_blank" rel="noopener noreferrer" className={link}>
+          Get test ETH<span aria-hidden>&nbsp;↗</span>
+          <span className="sr-only"> (opens in a new tab)</span>
+        </a>
+        <Link href="/faucet" className={link}>
+          Get test {network.expectedSymbol}
+        </Link>
+      </div>
+    </div>
+  );
+}
 
 export function NetworkIndicator() {
   const { network, setNetwork } = useSelectedNetwork();
   const nets = enabledNetworks();
-  const dot = network.chain.testnet ? "bg-warn" : "bg-ok";
-  const base = "inline-flex min-h-9 items-center gap-2 rounded-[2px] border border-mist/25 px-3 text-xs text-mist";
+  const dot = `rounded-full ${network.chain.testnet ? "bg-warn" : "bg-ok"}`;
+  const base = "inline-flex min-h-9 items-center gap-2 rounded-lg border border-mist/25 px-3 text-xs text-mist";
   if (nets.length < 2) {
     return (
       <span className={base} title={`Chain ID ${network.chain.id}`}>
@@ -70,19 +94,20 @@ export function SiteHeader() {
 
   return (
     <header className="relative z-30">
+      <TestnetBar />
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 sm:px-6" style={{ height: HEADER_HEIGHT }}>
         <Link href="/" aria-label="QuietPay home" className="-m-2 p-2">
           <Wordmark />
         </Link>
 
-        <nav aria-label="Main" className="hidden items-center gap-9 md:flex">
+        <nav aria-label="Main" className="hidden items-center gap-8 lg:flex">
           {NAV.map((n) => (
             <Link
               key={n.href}
               href={n.href}
               aria-current={isActive(path, n.href) ? "page" : undefined}
-              className={`-mx-2 inline-flex min-h-11 min-w-11 items-center justify-center px-2 font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] ${
-                isActive(path, n.href) ? "text-snow underline decoration-signal decoration-2 underline-offset-[10px]" : "text-mist/80 hover:text-snow"
+              className={`-mx-2 inline-flex min-h-11 min-w-11 items-center justify-center px-2 text-[0.875rem] font-medium ${
+                isActive(path, n.href) ? "text-snow underline decoration-signal decoration-[1.5px] underline-offset-[10px]" : "text-mist/80 hover:text-snow"
               }`}
             >
               {n.label}
@@ -90,7 +115,8 @@ export function SiteHeader() {
           ))}
         </nav>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 lg:flex">
+          <ThemeToggle />
           <NetworkIndicator />
           {address && (
             <button type="button" onClick={() => disconnect()} className="btn btn-sm btn-quiet normal-case tracking-normal" title="Disconnect wallet">
@@ -99,9 +125,11 @@ export function SiteHeader() {
           )}
         </div>
 
+        <div className="-mr-2 flex items-center lg:hidden">
+          <ThemeToggle />
         <button
           type="button"
-          className="-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-[2px] text-snow md:hidden"
+          className="inline-flex h-11 w-11 items-center justify-center rounded-lg text-snow"
           aria-expanded={open}
           aria-controls={menuId}
           aria-label={open ? "Close menu" : "Open menu"}
@@ -111,10 +139,11 @@ export function SiteHeader() {
             {open ? <path d="M5 5l12 12M17 5L5 17" /> : <path d="M3 6h16M3 11h16M3 16h16" />}
           </svg>
         </button>
+        </div>
       </div>
 
       {open && (
-        <div id={menuId} className="absolute inset-x-0 top-full border-y border-harbor bg-abyss md:hidden">
+        <div id={menuId} className="absolute inset-x-0 top-full border-y border-harbor bg-abyss lg:hidden">
           <nav aria-label="Main" className="mx-auto flex max-w-6xl flex-col px-4 py-2 sm:px-6">
             {NAV.map((n) => (
               <Link
@@ -122,7 +151,7 @@ export function SiteHeader() {
                 href={n.href}
                 aria-current={isActive(path, n.href) ? "page" : undefined}
                 onClick={() => setOpen(false)}
-                className={`flex min-h-12 items-center border-b border-harbor/60 font-display text-sm font-semibold uppercase tracking-[0.12em] last:border-b-0 ${
+                className={`flex min-h-12 items-center border-b border-harbor/60 text-base font-medium last:border-b-0 ${
                   isActive(path, n.href) ? "text-snow underline decoration-signal decoration-2 underline-offset-8" : "text-mist/85"
                 }`}
               >
@@ -169,7 +198,12 @@ export function SiteFooter() {
           title="Network"
           links={[
             { href: network.explorerUrl, label: `${network.label} explorer`, external: true },
-            ...(network.chain.testnet ? [{ href: "https://faucet.testnet.chain.robinhood.com", label: "Testnet ETH faucet", external: true }] : []),
+            ...(network.chain.testnet
+              ? [
+                  { href: ETH_FAUCET_URL, label: "Testnet ETH faucet", external: true },
+                  { href: "/faucet", label: `Test ${network.expectedSymbol}` },
+                ]
+              : []),
           ]}
         />
         <FooterCol
@@ -205,7 +239,7 @@ function FooterCol({ title, links }: { title: string; links: { href: string; lab
   const cls = "inline-flex min-h-11 items-center text-mist/85 underline decoration-mist/30 underline-offset-4 hover:text-snow";
   return (
     <div>
-      <h2 className="mb-1 font-display text-[0.8rem] font-semibold uppercase tracking-[0.12em] text-snow">{title}</h2>
+      <h2 className="mb-1 text-[0.875rem] font-semibold text-snow">{title}</h2>
       <ul>
         {links.map((l) => (
           <li key={l.href}>

@@ -10,7 +10,7 @@ export function LiveContractCheck({ networkKey }: { networkKey: NetworkKey }) {
   const { data, isLoading, error, refetch, isFetching } = useNetworkReadiness(network);
 
   return (
-    <div className="rounded-[3px] border border-harbor p-4">
+    <div className="rounded-xl border border-harbor p-4">
       <p className="mb-3 text-sm font-medium text-snow">Checked onchain just now</p>
       {isLoading ? (
         <LoadingRows label={`Reading contracts from ${network.label}`} rows={2} />

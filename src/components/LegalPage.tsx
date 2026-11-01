@@ -29,7 +29,7 @@ export function LegalPage({
       </PageTitle>
       <p className="-mt-4 mb-8 text-sm text-haze">Last updated {updated}</p>
 
-      <nav aria-label="Contents" className="mb-10 rounded-[3px] border border-harbor p-4 sm:p-5">
+      <nav aria-label="Contents" className="mb-10 rounded-xl border border-harbor p-4 sm:p-5">
         <p className="mb-2 text-sm font-medium text-snow">Contents</p>
         <ol className="grid gap-x-6 text-sm sm:grid-cols-2">
           {sections.map((s, i) => (
@@ -46,8 +46,8 @@ export function LegalPage({
       <div className="space-y-10">
         {sections.map((s, i) => (
           <section key={s.id} id={s.id} className="scroll-mt-24">
-            <h2 className="mb-3 font-display text-base font-semibold uppercase tracking-[0.06em] text-snow">
-              <span className="mr-2 font-extralight text-signal">{i + 1}</span>
+            <h2 className="mb-3 font-display text-base font-semibold tracking-[-0.01em] text-snow">
+              <span className="mr-2 font-medium text-haze">{i + 1}</span>
               {s.title}
             </h2>
             <div className="max-w-[68ch] space-y-3 text-[0.95rem] leading-relaxed text-mist [&_a]:text-signal [&_a]:underline [&_a]:underline-offset-4 [&_li]:ml-5 [&_li]:list-disc [&_ul]:space-y-1.5">

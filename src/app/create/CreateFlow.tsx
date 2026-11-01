@@ -135,7 +135,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           ).map((o) => (
             <label
               key={o.k}
-              className={`cursor-pointer rounded-[2px] border px-3 py-3 text-left ${
+              className={`cursor-pointer rounded-lg border px-3 py-3 text-left ${
                 kind === o.k ? "border-snow bg-snow/10" : "border-harbor hover:border-mist/60"
               }`}
             >
@@ -174,7 +174,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         </p>
       </div>
       ) : (
-        <p className="rounded-[3px] border border-harbor px-4 py-3 text-sm leading-relaxed text-mist">
+        <p className="rounded-xl border border-harbor px-4 py-3 text-sm leading-relaxed text-mist">
           Share one link and get paid any number of times. Every payment still lands at its own one-time address, and payments to this
           link aren&apos;t grouped together onchain.
         </p>
@@ -186,7 +186,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           {expiryOptions.map((o) => (
             <label
               key={o.seconds}
-              className={`cursor-pointer rounded-[2px] border px-3 py-2.5 text-center text-sm ${
+              className={`cursor-pointer rounded-lg border px-3 py-2.5 text-center text-sm ${
                 expiry === o.seconds ? "border-snow bg-snow/10 text-snow" : "border-harbor text-mist hover:border-mist/60"
               }`}
             >
@@ -215,7 +215,7 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
   return (
     <div className="space-y-6">
       <div className="flex flex-col items-center gap-4 text-center">
-        <p className="font-display text-3xl font-light text-snow">
+        <p className="font-display text-3xl font-semibold tracking-[-0.02em] text-snow">
           {open ? "Any amount" : amount} <span className="text-lg text-haze">{request.symbol}</span>
         </p>
         {url && <QR value={url} />}

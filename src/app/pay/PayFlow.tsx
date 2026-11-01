@@ -113,7 +113,7 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
     <div className="space-y-6">
       <div className="text-center">
         <p className="text-sm text-haze">{open ? "Reusable payment link" : "Payment request"}</p>
-        <p className="mt-1 font-display text-4xl font-light text-snow">
+        <p className="mt-1 font-display text-4xl font-semibold tracking-[-0.02em] text-snow">
           {open ? (
             <>
               Any amount {token && <span className="text-xl text-haze">{token.symbol}</span>}
@@ -563,7 +563,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
       {notice && <Notice tone="bad">{notice}</Notice>}
 
       <label className="flex cursor-pointer gap-3 text-sm leading-relaxed text-mist">
-        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[#5bb8ea]" checked={ack} onChange={(e) => setAck(e.target.checked)} />
+        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-signal)]" checked={ack} onChange={(e) => setAck(e.target.checked)} />
         <span>
           I understand this is not anonymous: my wallet, the amount, the one-time address and the time will be public.{" "}
           {routed
@@ -731,7 +731,7 @@ function Step({ n, title, done, active, failed, detail }: { n: number; title: st
   const tone = done ? "border-ok text-ok" : failed ? "border-bad text-bad" : active ? "border-warn text-warn" : "border-harbor text-haze";
   return (
     <li className="flex gap-4">
-      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-[2px] border text-xs font-semibold ${tone}`}>
+      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border text-xs font-semibold ${tone}`}>
         {active ? <Spinner className="h-3 w-3" /> : n}
       </span>
       <div className="pt-0.5">

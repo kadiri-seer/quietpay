@@ -89,7 +89,7 @@ const RISKS: { title: string; body: string }[] = [
 function Section({ id, title, children }: { id?: string; title: string; children: React.ReactNode }) {
   return (
     <section id={id} className="scroll-mt-24 border-t border-harbor pt-8">
-      <h2 className="mb-5 font-display text-lg font-semibold uppercase tracking-[0.06em] text-snow">{title}</h2>
+      <h2 className="mb-5 font-display text-lg font-semibold tracking-[-0.01em] text-snow">{title}</h2>
       {children}
     </section>
   );
@@ -206,7 +206,7 @@ export default function SecurityPage() {
             </div>
           ))}
 
-          <details className="group mt-8 rounded-[3px] border border-harbor">
+          <details className="group mt-8 rounded-xl border border-harbor">
             <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-snow marker:hidden">
               <span className="mr-2 inline-block text-signal group-open:rotate-90" aria-hidden>
                 ›

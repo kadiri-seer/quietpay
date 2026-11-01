@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Skyline } from "@/components/Skyline";
+import { PaymentTrack } from "@/components/PaymentTrack";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { HeroNetwork } from "./HeroNetwork";
 
@@ -14,7 +14,7 @@ interface Tile {
   external?: boolean;
 }
 
-const ART_STROKE = { fill: "none", stroke: "#5bb8ea", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+const ART_STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
 const TILES: Tile[] = [
   {
@@ -91,11 +91,11 @@ const TILES: Tile[] = [
 function TileBody({ t }: { t: Tile }) {
   return (
     <>
-      <div className="mx-auto mb-2 h-12 w-20 opacity-80" aria-hidden>
+      <div className="mx-auto mb-2 h-12 w-20 text-snow opacity-70" aria-hidden>
         {t.art}
       </div>
-      <h3 className="font-display whitespace-nowrap text-[1rem] font-semibold uppercase tracking-[0.06em] text-snow">
-        {t.step && <span className="mr-2 font-extralight text-signal">{t.step}</span>}
+      <h3 className="font-display whitespace-nowrap text-[1.05rem] font-semibold tracking-[-0.01em] text-snow">
+        {t.step && <span className="mr-2 font-medium text-haze">{t.step}</span>}
         {t.title}
       </h3>
       <p className="mx-auto mt-2 max-w-[23ch] text-[0.8rem] leading-snug text-mist/85">{t.body}</p>
@@ -117,30 +117,33 @@ function TileLink({ t, className, children }: { t: Tile; className: string; chil
 }
 
 const HEX_CLASS =
-  "hex group relative flex h-[323px] w-[280px] flex-col items-center justify-center bg-[linear-gradient(170deg,#1b5569_0%,#0e3443_55%,#082430_100%)] px-10 text-center hover:brightness-115 focus-visible:brightness-125";
+  "hex group relative flex h-[323px] w-[280px] flex-col items-center justify-center bg-[linear-gradient(170deg,var(--qp-tile-from)_0%,var(--qp-tile-to)_100%)] px-10 text-center hover:brightness-110 focus-visible:brightness-110";
+
+/** Hairline around each hexagon (clip-path removes borders, so the outline is a drop shadow on a wrapper). */
+const HEX_WRAP = "[filter:drop-shadow(0_0_0.6px_var(--qp-tide))_drop-shadow(0_10px_24px_rgba(0,0,0,0.18))]";
 
 export default function Home() {
   return (
     <>
-      <section className="relative -mt-[76px] overflow-hidden pt-[76px]">
-        <Skyline className="absolute inset-0 h-full w-full" />
-        <div className="relative mx-auto flex min-h-[78vh] max-w-6xl flex-col items-center justify-center px-4 pb-28 pt-10 text-center sm:px-6">
-          <p className="text-balance font-display text-sm font-semibold tracking-[0.04em] text-mist sm:text-base">
-            One-time USDG payment links on Robinhood Chain
-          </p>
-          <h1 className="mt-5 font-display uppercase leading-[0.98] text-snow">
-            <span className="block text-[2.6rem] font-extralight tracking-[0.02em] sm:text-6xl lg:text-7xl">A fresh address</span>{" "}
-            <span className="block text-[2.6rem] font-bold tracking-[0.01em] sm:text-6xl lg:text-7xl">for every payment.</span>
-          </h1>
-          <Link href="/create" className="btn btn-primary mt-10 min-h-12 px-7">
-            Create a payment link
-          </Link>
-          <HeroNetwork />
-          <a href="#how" className="mt-6 inline-flex h-11 w-11 items-center justify-center text-mist/70 hover:text-snow" aria-label="How QuietPay works">
-            <svg width="28" height="16" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="2">
-              <path d="M2 2l12 12L26 2" />
-            </svg>
-          </a>
+      <section className="relative overflow-hidden">
+        <div className="relative mx-auto grid min-h-[72vh] max-w-6xl items-center gap-6 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-[1.02fr_1fr] lg:gap-4 lg:pb-24">
+          <div className="flex flex-col items-start">
+            <p className="text-balance text-sm font-medium text-haze sm:text-base">One-time USDG payment links on Robinhood Chain</p>
+            <h1 className="mt-4 font-display font-bold leading-[1.02] tracking-[-0.035em] text-snow">
+              <span className="block text-[2.7rem] sm:text-6xl lg:text-[4.1rem]">A fresh address</span>{" "}
+              <span className="block text-[2.7rem] sm:text-6xl lg:text-[4.1rem]">for every payment.</span>
+            </h1>
+            <Link href="/create" className="btn btn-primary mt-9 min-h-12 px-7">
+              Create a payment link
+            </Link>
+            <HeroNetwork />
+            <a href="#how" className="mt-4 -ml-2 inline-flex h-11 w-11 items-center justify-center text-mist/70 hover:text-snow" aria-label="How QuietPay works">
+              <svg width="24" height="14" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2 2l12 12L26 2" />
+              </svg>
+            </a>
+          </div>
+          <PaymentTrack className="-mx-4 h-auto w-[calc(100%+2rem)] max-w-none sm:mx-0 sm:w-full" />
         </div>
       </section>
 
@@ -154,9 +157,11 @@ export default function Home() {
           {[TILES.slice(0, 2), TILES.slice(2, 3), TILES.slice(3)].map((row, i) => (
             <div key={i} className={`flex gap-3 ${i > 0 ? "-mt-[69px]" : ""}`}>
               {row.map((t) => (
-                <TileLink key={t.title} t={t} className={HEX_CLASS}>
-                  <TileBody t={t} />
-                </TileLink>
+                <div key={t.title} className={HEX_WRAP}>
+                  <TileLink t={t} className={HEX_CLASS}>
+                    <TileBody t={t} />
+                  </TileLink>
+                </div>
               ))}
             </div>
           ))}

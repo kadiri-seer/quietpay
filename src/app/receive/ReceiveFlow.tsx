@@ -96,8 +96,8 @@ function Dashboard({ network }: { network: NetworkConfig }) {
 
       <section aria-labelledby="links-h" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 id="links-h" className="font-display text-lg font-semibold uppercase tracking-[0.06em] text-snow">
-            Your links <span className="font-light text-haze">({requests.length})</span>
+          <h2 id="links-h" className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">
+            Your links <span className="font-normal text-haze">({requests.length})</span>
           </h2>
           {scanning ? (
             <button type="button" className="btn btn-sm btn-quiet" onClick={() => abort.current?.abort()}>
@@ -120,7 +120,7 @@ function Dashboard({ network }: { network: NetworkConfig }) {
           never your keys.
         </p>
         {requests.length === 0 ? (
-          <div className="rounded-[3px] border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
+          <div className="rounded-xl border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
             No links on {network.label} in this browser yet.{" "}
             <a href="/create" className="text-signal underline underline-offset-4">
               Create a payment link
@@ -150,10 +150,10 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
   const total = request.payments.reduce((sum, p) => sum + (p.transferVerified && p.receivedAmount ? BigInt(p.receivedAmount) : 0n), 0n);
   const shareable = !isExpired(request) && (open || status === "created");
   return (
-    <li className="rounded-[3px] border border-harbor bg-abyss/40 p-4 sm:p-5">
+    <li className="rounded-xl border border-harbor bg-abyss/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-display text-xl font-light text-snow">{open ? "Any amount" : fmt(BigInt(request.amount))}</p>
+          <p className="font-display text-xl font-semibold tracking-[-0.02em] text-snow">{open ? "Any amount" : fmt(BigInt(request.amount))}</p>
           <p className="mt-1 text-xs text-haze">
             {open ? "Reusable link" : "One-time link"} · created {formatDateTime(request.createdAt)} ·{" "}
             {request.expiresAt === 0 ? (
@@ -373,7 +373,7 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
         ).map(([value, title, hint]) => (
           <label
             key={value}
-            className={`cursor-pointer rounded-[3px] border p-3 text-sm ${effectiveMode === value ? "border-signal bg-signal/5" : "border-harbor"}`}
+            className={`cursor-pointer rounded-xl border p-3 text-sm ${effectiveMode === value ? "border-signal bg-signal/5" : "border-harbor"}`}
           >
             <input
               type="radio"
@@ -397,7 +397,7 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
 
   if (effectiveMode === "pool" && pool.data) {
     return (
-      <div className="space-y-4 rounded-[3px] border border-harbor p-4">
+      <div className="space-y-4 rounded-xl border border-harbor p-4">
         {chooser}
         <ShieldForm request={request} payment={payment} network={network} info={pool.data} />
       </div>
@@ -405,7 +405,7 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
   }
 
   return (
-    <div className="space-y-4 rounded-[3px] border border-harbor p-4">
+    <div className="space-y-4 rounded-xl border border-harbor p-4">
       {chooser}
       <div>
         <label htmlFor={`dest-${payment.stealthAddress}`} className="mb-2 block text-sm font-medium text-snow">
@@ -591,7 +591,7 @@ function BackupPanel() {
 
   return (
     <section id="backup" aria-labelledby="backup-h" className="scroll-mt-24 space-y-5 border-t border-harbor pt-6">
-      <h2 id="backup-h" className="font-display text-lg font-semibold uppercase tracking-[0.06em] text-snow">
+      <h2 id="backup-h" className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">
         Backup and restore
       </h2>
       <div className="grid gap-6 sm:grid-cols-2">
@@ -620,7 +620,7 @@ function BackupPanel() {
           <input
             type="file"
             accept="application/json,.json"
-            className="block w-full text-sm text-mist file:mr-3 file:rounded-[2px] file:border file:border-mist/40 file:bg-transparent file:px-3 file:py-1.5 file:text-mist"
+            className="block w-full text-sm text-mist file:mr-3 file:rounded-lg file:border file:border-mist/40 file:bg-transparent file:px-3 file:py-1.5 file:text-mist"
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
             aria-label="Backup file"
           />

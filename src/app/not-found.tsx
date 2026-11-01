@@ -11,10 +11,10 @@ export default function NotFound() {
   return (
     <div className="mx-auto flex max-w-xl flex-col items-center px-4 pb-8 pt-16 text-center sm:px-6">
       <LogoMark className="h-10 w-auto text-harbor" />
-      <p className="mt-8 font-display text-sm font-semibold tracking-[0.04em] text-haze">Error 404</p>
-      <h1 className="mt-3 font-display uppercase leading-[1.02] text-snow">
-        <span className="block text-4xl font-extralight sm:text-5xl">No address</span>{" "}
-        <span className="block text-4xl font-bold sm:text-5xl">at this page.</span>
+      <p className="mt-8 text-sm font-medium text-haze">Error 404</p>
+      <h1 className="mt-3 font-display font-bold leading-[1.04] tracking-[-0.03em] text-snow">
+        <span className="block text-4xl text-haze sm:text-5xl">No address</span>{" "}
+        <span className="block text-4xl sm:text-5xl">at this page.</span>
       </h1>
       <p className="mt-5 max-w-[46ch] leading-relaxed text-mist">
         The page you followed doesn&apos;t exist. If you were opening a payment link, ask the sender to share the full link again, including

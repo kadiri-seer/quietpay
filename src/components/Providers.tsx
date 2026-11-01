@@ -31,7 +31,7 @@ export const wagmiConfig = createConfig({
               url: origin,
               icons: [`${origin}/icon.svg`],
             },
-            qrModalOptions: { themeMode: "dark", themeVariables: { "--wcm-accent-color": "#5bb8ea", "--wcm-background-color": "#0c2c39" } },
+            qrModalOptions: { themeMode: "dark", themeVariables: { "--wcm-accent-color": "#fafafa", "--wcm-accent-fill-color": "#0a0a0a", "--wcm-background-color": "#121212" } },
           }),
         ]
       : []),
