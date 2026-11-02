@@ -3,6 +3,8 @@
 **A fresh address for every payment.** One-time USDG payment links on Robinhood Chain using
 [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) stealth addresses.
 
+**Website:** [www.quietpay.sbs](https://www.quietpay.sbs) · **X:** [@quietpay_](https://x.com/quietpay_)
+
 > QuietPay gives each payment a fresh receiving address. Robinhood Chain is public: the payer,
 > amount, destination address, and transaction time can be visible. This is not full anonymity.
 
@@ -69,8 +71,7 @@ They succeed or fail together. Without a router, QuietPay falls back to the two-
 ### Moving funds
 
 From the Receive page you can send all or part of a payment to any address. QuietPay never
-suggests your connected wallet: sending there publicly links the payment to it. Use a fresh account
-or pay someone directly from the payment.
+pre-fills your connected wallet, because sending there shows onchain that the payment went to it.
 
 ### Shielded pool (testnet)
 
@@ -270,6 +271,13 @@ See [SECURITY.md](./SECURITY.md) for the threat model.
 
 ## Licence
 
-Application code: MIT. `contracts/src/ERC5564Announcer.sol`: CC0-1.0 (ScopeLift).
-`contracts/vendor/privacy-pools`: Apache-2.0 (0xbow); its generated verifiers and the browser prover
+Copyright (C) 2026 kadiri-seer.
+
+QuietPay is free software under the [GNU Affero General Public License v3.0 or later](./LICENSE)
+(AGPL-3.0-or-later). If you run a modified version as a network service, you must offer its
+source code to its users.
+
+Third-party code keeps its own licence: `contracts/src/ERC5564Announcer.sol` is CC0-1.0 (ScopeLift);
+`contracts/src/QuietPayRouter.sol` and `contracts/src/QuietPayTestUSDG.sol` are MIT, as deployed;
+`contracts/vendor/privacy-pools` is Apache-2.0 (0xbow); its generated verifiers and the browser prover
 (snarkjs) are GPL-3.0. See [contracts/vendor/NOTICE.md](./contracts/vendor/NOTICE.md).

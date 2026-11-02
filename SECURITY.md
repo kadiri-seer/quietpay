@@ -1,7 +1,14 @@
 # QuietPay security model
 
-QuietPay is an experimental testnet MVP. It has not been audited. Report issues privately to the
-repository owner before disclosing them publicly.
+## Reporting a vulnerability
+
+Please report security issues privately, not in a public issue: use **Report a vulnerability** on
+this repository's Security tab (GitHub private vulnerability reporting), or send a direct message to
+[@quietpay_](https://x.com/quietpay_) on X. Include steps to reproduce. QuietPay is on testnet only;
+test tokens have no value, so please never test against other people's funds.
+
+QuietPay is an experimental testnet MVP. Its own code has not been independently audited yet; the
+shielded pool uses 0xbow's audited Privacy Pools contracts and circuits, unchanged.
 
 ## What QuietPay protects, and what it doesn't
 
@@ -176,9 +183,9 @@ states this on every page and the payer must acknowledge it before paying.
 ### Gas top-up linking
 - With the router, the payer includes the gas, so the recipient never needs to fund the one-time
   address. Without it, a stealth address starts with no ETH and can't pay gas to move tokens.
-  QuietPay never funds it automatically. The recipient must choose to top it up, and the UI warns that funding it from a
-  known wallet publicly links that wallet to the payment. Sending from an unrelated wallet avoids
-  this. Claiming to the connected wallet also links them; the UI suggests a fresh address.
+  QuietPay never funds it automatically. The recipient must choose to top it up, and the UI explains
+  that funding it from a known wallet shows onchain that the wallet is connected to the payment, as
+  does claiming to the connected wallet.
 - Leftover ETH dust stays at the stealth address after a sweep.
 
 ### Shielded pool

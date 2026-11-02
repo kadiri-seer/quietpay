@@ -213,6 +213,14 @@ export function SiteFooter() {
             <Link href="/privacy" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
               Privacy Policy
             </Link>
+            <a
+              href="https://github.com/kadiri-seer/quietpay"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow"
+            >
+              Source code<span className="sr-only"> (opens in a new tab)</span>
+            </a>
           </nav>
         </div>
       </div>

@@ -57,11 +57,16 @@
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "overrides": {
     "@walletconnect/ethereum-provider": "$@walletconnect/ethereum-provider",
     "ws": "^8.22.1",
     "underscore": "^1.13.8",
     "decode-uri-component": "^0.5.1"
+  },
+  "homepage": "https://www.quietpay.sbs",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kadiri-seer/quietpay"
   }
 }
