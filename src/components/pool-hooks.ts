@@ -27,6 +27,8 @@ export interface RelayerTerms {
   gasDrop?: string;
   gasDropEth?: string;
   approvalDelaySeconds?: number;
+  /** Smallest withdrawal the relayer takes right now (token base units), or null if unknown. */
+  minWithdrawal?: string | null;
 }
 
 export function useRelayerTerms(network: NetworkConfig) {

@@ -1,8 +1,8 @@
 /**
  * Client-side encryption for stealth keys (Web Crypto only).
  *
- * Vault key: HKDF-SHA256 over a wallet signature of a domain-separated message
- *   (buildVaultMessage), salt "quietpay/vault/v1", info "aes-256-gcm|<address>".
+ * Vault key: HKDF-SHA256 over a wallet signature of a fixed Sign-In with Ethereum message bound
+ *   to quietpay.sbs (buildVaultMessage), salt "quietpay/vault/v1", info "aes-256-gcm|<address>".
  *   The resulting AES-256-GCM key is non-extractable and lives in memory, or, if the user chooses
  *   to stay signed in, in IndexedDB (src/lib/remember.ts), where it can be used but not read out.
  *   The signature itself is never stored.
@@ -14,6 +14,8 @@
  * between wallets without failing authentication.
  */
 import { getAddress, hexToBytes, type Address, type Hex } from "viem";
+import { createSiweMessage } from "viem/siwe";
+import { ROBINHOOD_MAINNET_ID } from "@/config/networks";
 
 export const VAULT_VERSION = 1;
 
@@ -52,10 +54,40 @@ export function randomBytes(n: number): Uint8Array {
 }
 
 /**
- * The exact message a wallet signs to unlock the vault. Domain-separated by app, purpose,
- * version and address. It authorizes nothing onchain.
+ * The site the vault message is bound to. Changing it changes every user's keys, so it is a
+ * constant, not configuration. Other hosts (the vercel.app address) redirect here.
+ */
+export const VAULT_DOMAIN = "quietpay.sbs";
+
+/**
+ * The exact message a wallet signs to unlock the vault: a Sign-In with Ethereum (EIP-4361)
+ * message bound to VAULT_DOMAIN. Wallets that check SIWE domains (MetaMask, Rabby, Coinbase
+ * Wallet and others) warn when any other site asks for it, which is the main defence against a
+ * phishing site collecting the signature that recreates every QuietPay key.
+ *
+ * Every field is fixed (nonce and issue time included) so the signature is the same each time;
+ * that is what makes the keys reproducible. It authorizes nothing onchain.
  */
 export function buildVaultMessage(address: Address): string {
+  return createSiweMessage({
+    domain: VAULT_DOMAIN,
+    address: getAddress(address),
+    statement:
+      "Unlock QuietPay. This signature recreates your QuietPay payment keys on any device. It does not send a transaction or cost gas. Only sign it on quietpay.sbs.",
+    uri: `https://${VAULT_DOMAIN}`,
+    version: "1",
+    chainId: ROBINHOOD_MAINNET_ID,
+    nonce: "quietpaykeys2",
+    issuedAt: new Date("2026-11-02T00:00:00.000Z"),
+    resources: ["https://quietpay.sbs/security"],
+  });
+}
+
+/**
+ * The message used before 2 November 2026. Only asked for, on QuietPay, to move a name
+ * reservation made with it to the current keys. Never used to derive payment keys.
+ */
+export function buildLegacyVaultMessage(address: Address): string {
   return [
     "QuietPay keys",
     "",
@@ -65,7 +97,7 @@ export function buildVaultMessage(address: Address): string {
     "",
     `Wallet: ${getAddress(address)}`,
     `Purpose: quietpay/vault-encryption`,
-    `Version: ${VAULT_VERSION}`,
+    `Version: 1`,
   ].join("\n");
 }
 

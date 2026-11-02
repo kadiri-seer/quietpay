@@ -4,11 +4,14 @@
  *
  *   RELAYER_PRIVATE_KEY          relayer + approver key (testnet ETH only, never the pool owner)
  *   RELAYER_FEE_BPS              fee taken from each withdrawal, default 50 (0.5%)
- *   RELAYER_GAS_DROP_ETH         ETH topped up at an empty receiving address, default 0.0002
+ *   RELAYER_GAS_DROP_ETH         most ETH topped up at an empty receiving address, default 0.0002
+ *   RELAYER_ETH_PRICE            payment tokens per 1 ETH, default 3000; the fee must cover gas
+ *                                and the top-up at this price, so tiny withdrawals are refused
  *   POOL_APPROVAL_DELAY_SECONDS  how old a deposit must be before it is approved, default 0 (immediately)
  */
 import "server-only";
-import { createWalletClient, http, parseEther, type Hex, type WalletClient } from "viem";
+import { createWalletClient, http, parseEther, parseUnits, type Hex, type WalletClient } from "viem";
+import { erc20Abi } from "@/config/contracts";
 import { privateKeyToAccount } from "viem/accounts";
 import { NETWORKS, type NetworkConfig } from "@/config/networks";
 import { createNetworkClient } from "@/lib/chain";
@@ -18,8 +21,30 @@ export interface RelayerContext {
   network: NetworkConfig;
   client: ReturnType<typeof createNetworkClient>;
   wallet: WalletClient;
-  policy: RelayerPolicy;
+  /** Fee policy without the price (see `withPrice`). */
+  policy: Omit<RelayerPolicy, "tokenUnitsPerEth">;
   approvalDelaySeconds: number;
+  /** Payment tokens per 1 ETH, as a decimal string. */
+  ethPrice: string;
+}
+
+let decimalsCache: { token: string; decimals: number } | null = null;
+
+/** The full policy, with the ETH price converted to token base units (decimals read onchain once). */
+export async function withPrice(ctx: RelayerContext): Promise<RelayerPolicy> {
+  const token = ctx.network.token!;
+  if (decimalsCache?.token !== token) {
+    const decimals = await ctx.client.readContract({ address: token, abi: erc20Abi, functionName: "decimals" });
+    decimalsCache = { token, decimals: Number(decimals) };
+  }
+  let tokenUnitsPerEth: bigint;
+  try {
+    tokenUnitsPerEth = parseUnits(ctx.ethPrice, decimalsCache.decimals);
+  } catch {
+    tokenUnitsPerEth = parseUnits("3000", decimalsCache.decimals);
+  }
+  if (tokenUnitsPerEth <= 0n) tokenUnitsPerEth = parseUnits("3000", decimalsCache.decimals);
+  return { ...ctx.policy, tokenUnitsPerEth };
 }
 
 export function relayerContext(): RelayerContext | null {
@@ -41,5 +66,6 @@ export function relayerContext(): RelayerContext | null {
     wallet: createWalletClient({ account, chain: network.chain, transport: http(network.rpcUrl, { timeout: 20_000 }) }),
     policy: { feeRecipient: account.address, feeBPS, gasDrop },
     approvalDelaySeconds: Math.max(0, Number(process.env.POOL_APPROVAL_DELAY_SECONDS ?? 0) | 0),
+    ethPrice: (process.env.RELAYER_ETH_PRICE ?? "3000").trim() || "3000",
   };
 }

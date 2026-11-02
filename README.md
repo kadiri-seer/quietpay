@@ -157,7 +157,8 @@ explorer `https://explorer.testnet.chain.robinhood.com`, ETH faucet
    `contracts/artifacts/<Contract>.json`).
 
 Deploy the web app anywhere that serves Next.js (`npm run build && npm start`, Vercel, Netlify).
-Security headers, including the Content Security Policy, are set in `next.config.ts`.
+Security headers are set in `next.config.ts`; the per-request Content Security Policy with its
+script nonce is set in `src/proxy.ts`.
 
 ### Wallets
 
@@ -252,7 +253,7 @@ Mainnet must stay disabled until all of these are done:
    RPC range limits over long periods. An indexer that never sees viewing keys may be needed.
 7. **Gas top-up privacy.** Funding a stealth address from a known wallet links them. A safer
    gas-sponsorship design (e.g. ERC-4337 paymaster) is not implemented.
-8. **CSP hardening.** Move to nonce-based scripts to drop `'unsafe-inline'`.
+8. **CSP.** Done: nonce-based scripts, no `'unsafe-inline'` for scripts (`src/proxy.ts`).
 9. **Dependency upgrades.** `npm audit` reports advisories in wagmi 2 / WalletConnect / viem / zod 3
    transitive dependencies whose fixes need major upgrades (wagmi 3, zod 4). Review and upgrade
    before mainnet.

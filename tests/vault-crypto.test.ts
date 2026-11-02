@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
+import { parseSiweMessage, validateSiweMessage } from "viem/siwe";
 import {
   DecryptionError,
+  buildLegacyVaultMessage,
   buildVaultMessage,
   deriveVaultKey,
   open,
@@ -32,13 +34,26 @@ function sampleRequest() {
 }
 
 describe("vault message", () => {
-  it("is domain separated and names the wallet", () => {
-    const m = buildVaultMessage("0x1111111111111111111111111111111111111111");
-    expect(m).toContain("QuietPay keys");
-    expect(m).toContain("quietpay/vault-encryption");
+  it("is a fixed Sign-In with Ethereum message bound to quietpay.sbs", () => {
+    const addr = "0x1111111111111111111111111111111111111111";
+    const m = buildVaultMessage(addr);
+    const parsed = parseSiweMessage(m);
+    expect(parsed.domain).toBe("quietpay.sbs");
+    expect(parsed.uri).toBe("https://quietpay.sbs");
+    expect(parsed.address).toBe(addr);
     expect(m).toContain("does not send a transaction");
-    expect(m).toContain("only sign this message on QuietPay's own website");
-    expect(m).toContain("0x1111111111111111111111111111111111111111");
+    // Wallets that check SIWE domains accept it on quietpay.sbs and flag it anywhere else.
+    expect(validateSiweMessage({ message: parsed, domain: "quietpay.sbs", address: addr })).toBe(true);
+    expect(validateSiweMessage({ message: parsed, domain: "quietpay-phish.example", address: addr })).toBe(false);
+    // Fixed fields: the same wallet always signs the same text.
+    expect(buildVaultMessage(addr)).toBe(m);
+  });
+
+  it("keeps the old message only for moving name reservations", () => {
+    const m = buildLegacyVaultMessage("0x1111111111111111111111111111111111111111");
+    expect(m.startsWith("QuietPay keys\n")).toBe(true);
+    expect(m).toContain("Purpose: quietpay/vault-encryption");
+    expect(m).not.toBe(buildVaultMessage("0x1111111111111111111111111111111111111111"));
   });
 });
 

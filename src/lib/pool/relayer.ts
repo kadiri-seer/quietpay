@@ -34,12 +34,56 @@ export const relayBodySchema = z.object({
 export interface RelayerPolicy {
   feeRecipient: Address;
   feeBPS: bigint;
-  /** ETH sent to the recipient after a withdrawal so it can move the tokens. 0 disables. */
+  /** Most ETH sent to the recipient after a withdrawal so it can move the tokens. 0 disables. */
   gasDrop: bigint;
+  /**
+   * Token base units worth 1 ETH, used to check that a withdrawal's fee pays for the relay gas
+   * and the gas top-up. Without this check, someone could make many tiny withdrawals to addresses
+   * they control and collect the relayer's ETH. 0 turns the check off (tests only).
+   */
+  tokenUnitsPerEth: bigint;
+}
+
+/** Gas a relayed withdrawal uses, with headroom. Only for quoting the minimum in advance. */
+export const RELAY_GAS_QUOTE = 750_000n;
+const TRANSFER_GAS = 21_000n;
+const WEI = 10n ** 18n;
+
+/**
+ * What a withdrawal of `amount` pays the relayer, in ETH terms, and what that allows:
+ * - ok: the fee covers the relay transaction's gas;
+ * - drop: the most ETH the relayer may top up the recipient with, so the fee covers the top-up
+ *   and its transfer too (never above `wantDrop`);
+ * - minWithdrawal: the smallest amount whose fee covers the relay gas.
+ */
+export function relayEconomics(p: { amount: bigint; feeBPS: bigint; tokenUnitsPerEth: bigint; relayCost: bigint; gasPrice: bigint; wantDrop: bigint }) {
+  if (p.tokenUnitsPerEth === 0n) return { ok: true, drop: p.wantDrop, minWithdrawal: 0n };
+  const feeWei = (((p.amount * p.feeBPS) / 10_000n) * WEI) / p.tokenUnitsPerEth;
+  const surplus = feeWei - p.relayCost;
+  let minWithdrawal = 0n;
+  if (p.feeBPS > 0n) {
+    const needFee = (p.relayCost * p.tokenUnitsPerEth + WEI - 1n) / WEI; // token units, rounded up
+    minWithdrawal = (needFee * 10_000n + p.feeBPS - 1n) / p.feeBPS;
+    while (((minWithdrawal * p.feeBPS) / 10_000n) * WEI / p.tokenUnitsPerEth < p.relayCost) minWithdrawal++;
+  }
+  if (p.feeBPS === 0n || surplus < 0n) return { ok: false, drop: 0n, minWithdrawal };
+  const room = surplus - TRANSFER_GAS * p.gasPrice;
+  const drop = room <= 0n ? 0n : room < p.wantDrop ? room : p.wantDrop;
+  return { ok: true, drop, minWithdrawal };
+}
+
+/** The smallest withdrawal this relayer takes at today's gas price (an estimate; the relay call decides). */
+export async function quoteMinWithdrawal(client: PublicClient, policy: RelayerPolicy): Promise<bigint> {
+  const gasPrice = await client.getGasPrice();
+  return relayEconomics({ amount: 0n, feeBPS: policy.feeBPS, tokenUnitsPerEth: policy.tokenUnitsPerEth, relayCost: RELAY_GAS_QUOTE * gasPrice, gasPrice, wantDrop: 0n }).minWithdrawal;
 }
 
 export class RelayRejected extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    /** Set when the amount is below what the relayer can take (token base units). */
+    public minWithdrawal?: bigint,
+  ) {
     super(message);
     this.name = "RelayRejected";
   }
@@ -85,19 +129,34 @@ export async function relayWithdrawal(
     const msg = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
     throw new RelayRejected(/IncorrectASPRoot/.test(msg) ? "The approval list changed. Generate the proof again." : /NullifierAlreadySpent/.test(msg) ? "This note was already spent." : `The pool rejected this withdrawal: ${msg.split("\n")[0]}`);
   }
-  const hash = await wallet.writeContract({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account!, chain: network.chain });
+  // The fee must pay for this transaction (and any gas top-up), or the relayer is being drained.
+  const [gas, gasPrice] = await Promise.all([
+    client.estimateContractGas({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account! }),
+    client.getGasPrice(),
+  ]);
+  const bal = policy.gasDrop > 0n ? await client.getBalance({ address: data.recipient }) : 0n;
+  const econ = relayEconomics({
+    amount,
+    feeBPS: policy.feeBPS,
+    tokenUnitsPerEth: policy.tokenUnitsPerEth,
+    relayCost: ((gas * 6n) / 5n) * gasPrice,
+    gasPrice,
+    wantDrop: bal < policy.gasDrop ? policy.gasDrop - bal : 0n,
+  });
+  if (!econ.ok) {
+    throw new RelayRejected("This amount is too small to send through the relayer right now: its fee wouldn't cover the network fee.", econ.minWithdrawal);
+  }
+
+  const hash = await wallet.writeContract({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account!, chain: network.chain, gas: (gas * 6n) / 5n });
   const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   if (receipt.status !== "success") throw new Error("The withdrawal transaction reverted.");
   const relayed = parseEventLogs({ abi: Entrypoint.abi, logs: receipt.logs, eventName: "WithdrawalRelayed" })[0];
   const fee = relayed ? (relayed.args as { _feeAmount: bigint })._feeAmount : 0n;
 
   let gasDropHash: Hash | null = null;
-  if (policy.gasDrop > 0n) {
-    const bal = await client.getBalance({ address: data.recipient });
-    if (bal < policy.gasDrop) {
-      gasDropHash = await wallet.sendTransaction({ to: data.recipient, value: policy.gasDrop - bal, account: wallet.account!, chain: network.chain });
-      await waitForConfirmedReceipt(client, gasDropHash, { confirmations: network.confirmations });
-    }
+  if (econ.drop > 0n) {
+    gasDropHash = await wallet.sendTransaction({ to: data.recipient, value: econ.drop, account: wallet.account!, chain: network.chain });
+    await waitForConfirmedReceipt(client, gasDropHash, { confirmations: network.confirmations });
   }
   return { hash: receipt.transactionHash, recipient: getAddress(data.recipient), amount, fee, gasDropHash };
 }

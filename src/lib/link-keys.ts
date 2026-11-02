@@ -3,7 +3,7 @@
  *
  * Every link's stealth keys come from one seed, and the seed comes from the deterministic wallet
  * signature that unlocks the vault (HKDF-SHA256, its own salt and label). Link n always gets the
- * same keys, so connecting the same wallet on any device can find every paid link again by
+ * same keys on the same chain, so connecting the same wallet on any device can find every paid link again by
  * scanning public announcements. No backup file is needed.
  *
  * Each link still has its own spending and viewing keys, so two links can't be tied together
@@ -38,11 +38,16 @@ async function scalar(seed: Hex, label: string): Promise<Hex> {
   return `0x${((n % (SECP256K1_N - 1n)) + 1n).toString(16).padStart(64, "0")}`;
 }
 
-/** Spending and viewing keys for link number `index` (0, 1, 2...). */
-export async function deriveLinkKeys(seed: Hex, index: number): Promise<RequestKeys> {
+/**
+ * Spending and viewing keys for link number `index` (0, 1, 2...) on chain `chainId`. The chain is
+ * part of the derivation, so link 3 on testnet and link 3 on mainnet have unrelated keys and can't
+ * be tied together.
+ */
+export async function deriveLinkKeys(seed: Hex, chainId: number, index: number): Promise<RequestKeys> {
   if (!Number.isInteger(index) || index < 0) throw new Error("Invalid link index.");
-  const spendingPrivateKey = await scalar(seed, `spend|${index}`);
-  const viewingPrivateKey = await scalar(seed, `view|${index}`);
+  if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chain.");
+  const spendingPrivateKey = await scalar(seed, `spend|${chainId}|${index}`);
+  const viewingPrivateKey = await scalar(seed, `view|${chainId}|${index}`);
   const spendingPublicKey = bytesToHex(getPublicKey(spendingPrivateKey.slice(2), true));
   const viewingPublicKey = bytesToHex(getPublicKey(viewingPrivateKey.slice(2), true));
   return {

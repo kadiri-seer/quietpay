@@ -287,6 +287,9 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
   }, [amountInput, note.value, decimals]);
   const value = "value" in amount ? amount.value : undefined;
   const fee = value !== undefined && feeBPS !== null ? (value * feeBPS) / 10_000n : null;
+  // The relayer only takes amounts whose fee covers its network fee.
+  const minW = terms?.minWithdrawal ? BigInt(terms.minWithdrawal) : null;
+  const tooSmall = minW !== null && value !== undefined && value < minW;
 
   async function withdraw() {
     if (!destAddr || value === undefined || feeBPS === null || !terms?.feeRecipient) return;
@@ -399,6 +402,12 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
           aria-invalid={"error" in amount && !!amount.error}
         />
         {"error" in amount && amount.error && <p className="mt-1 text-xs text-bad">{amount.error}</p>}
+        {tooSmall && (
+          <p className="mt-1 text-xs text-bad">
+            Too small to withdraw through the relayer right now: it needs at least {fmt(minW!)} so its fee covers the network fee. If you can&apos;t
+            reach that, use Exit to take it back to its one-time address.
+          </p>
+        )}
         {value !== undefined && value === note.deposit.value && (
           <p className="mt-1 text-xs text-haze">Withdrawing exactly what you deposited is easier to match. A different amount is more private.</p>
         )}
@@ -411,7 +420,7 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
           <dd className="text-right text-snow">{fmt(value - fee)}</dd>
           {terms?.gasDropEth && Number(terms.gasDropEth) > 0 && (
             <>
-              <dt className="text-haze">Gas included</dt>
+              <dt className="text-haze">Gas included, up to</dt>
               <dd className="text-right text-snow">{terms.gasDropEth} ETH</dd>
             </>
           )}
@@ -422,7 +431,7 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
           <Spinner /> {STAGES[stage]}…
         </p>
       ) : (
-        <button type="button" className="btn btn-sm btn-primary" onClick={withdraw} disabled={!destAddr || value === undefined || !terms?.available || feeBPS === null}>
+        <button type="button" className="btn btn-sm btn-primary" onClick={withdraw} disabled={!destAddr || value === undefined || tooSmall || !terms?.available || feeBPS === null}>
           Withdraw {value !== undefined ? <span className="normal-case tracking-[0.02em]">{fmt(value)}</span> : null}
         </button>
       )}

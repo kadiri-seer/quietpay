@@ -191,7 +191,7 @@ export async function discoverLinks(
     if (p.signal?.aborted) throw new DOMException("Scan cancelled", "AbortError");
     if (knownIndexes.has(i)) continue;
     p.onChecking?.(i);
-    const keys = await deriveLinkKeys(p.seed, i);
+    const keys = await deriveLinkKeys(p.seed, network.chain.id, i);
     if (knownMeta.has(keys.stealthMetaAddress.toLowerCase())) continue;
     const matches = candidates.filter((a) => announcementMatches(a, keys));
     if (matches.length === 0) continue;

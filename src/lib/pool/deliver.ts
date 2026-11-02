@@ -16,7 +16,9 @@ export type DeliveryOutcome =
   /** Not approved yet; the approver was asked. Try again shortly. */
   | { status: "waiting" }
   /** Nothing left to send: already withdrawn or exited some other way. */
-  | { status: "gone" };
+  | { status: "gone" }
+  /** The relayer won't take this amount: its fee wouldn't cover the network fee. */
+  | { status: "too-small"; minWithdrawal: bigint };
 
 export interface RelayerTermsLite {
   feeRecipient: Address;
@@ -60,8 +62,9 @@ export async function deliverNote(
       headers: { "content-type": "application/json" },
       body: JSON.stringify(serializeWithdrawal(prepared)),
     });
-    const j = (await r.json()) as { hash?: `0x${string}`; amount?: string; fee?: string; error?: string };
+    const j = (await r.json()) as { hash?: `0x${string}`; amount?: string; fee?: string; error?: string; minWithdrawal?: string };
     if (r.ok && j.hash) return { status: "delivered", hash: j.hash, amount: BigInt(j.amount ?? note.value), fee: BigInt(j.fee ?? 0) };
+    if (r.status === 422 && j.minWithdrawal) return { status: "too-small", minWithdrawal: BigInt(j.minWithdrawal) };
     if (attempt === 0 && /approval list changed/i.test(j.error ?? "")) {
       ({ info, events } = await loadState(client, network));
       note = find();

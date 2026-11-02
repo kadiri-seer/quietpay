@@ -56,7 +56,7 @@ const RISKS: { title: string; body: string }[] = [
   },
   {
     title: "Phishing for your vault signature",
-    body: "Your signature of QuietPay's vault message recreates all your QuietPay keys, like a password. A fake site that tricks you into signing it could reach your funds, so only sign that message on this site. Browser storage alone only holds ciphertext.",
+    body: "Your signature of QuietPay's vault message recreates all your QuietPay keys, like a password. A fake site that tricks you into signing it could reach your funds. The message is a standard sign-in bound to quietpay.sbs, so most wallets warn when another site asks for it: if yours does, don't sign. Browser storage alone only holds ciphertext.",
   },
   {
     title: "A compromised browser",

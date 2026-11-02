@@ -71,7 +71,7 @@ a new device the shielded money is still found and can be withdrawn from the Poo
 Note secrets follow the SDK's scheme: two master keys, then
 `Poseidon(master, scope, index)` per deposit and `Poseidon(master, label, index)` per change note.
 QuietPay derives the master keys with HKDF-SHA256 from the same deterministic wallet signature that
-unlocks the vault (separate salt and info), so the same wallet recreates them on any device. Notes are never stored: they are rebuilt from public events by trying deposit indexes
+unlocks the vault (a fixed Sign-In with Ethereum message bound to quietpay.sbs) (separate salt and info), so the same wallet recreates them on any device. Notes are never stored: they are rebuilt from public events by trying deposit indexes
 in order and following each deposit's nullifier chain.
 
 ## Verification before use
@@ -113,8 +113,13 @@ log contract). Excluded deposits can still exit to their one-time address.
   (`RELAYER_FEE_BPS`, default 0.5%, below the pool's 1% cap);
 - simulates the call first (proof, roots and nullifier are all checked by the contracts), then
   submits it;
-- tops up the recipient to `RELAYER_GAS_DROP_ETH` (default 0.0002 ETH) so a fresh address can move
-  its tokens. On mainnet the drop must be priced into the fee.
+- checks that the fee pays for the relay transaction's gas, valuing tokens at
+  `RELAYER_ETH_PRICE` (payment tokens per ETH, default 3000). Smaller withdrawals are refused with
+  the minimum amount, which `GET /api/relay` also quotes so the UI can say so up front. Without
+  this, many tiny withdrawals to addresses an attacker controls would collect the relayer's ETH;
+- tops up the recipient towards `RELAYER_GAS_DROP_ETH` (default at most 0.0002 ETH) so a fresh
+  address can move its tokens, but only with what the fee has left after gas, so the top-up is
+  always paid for.
 
 It stores and logs nothing. It does see the requester's IP address and the withdrawal it submits,
 and it can refuse service, but it cannot steal or redirect funds. The relayer key is separate from
@@ -170,8 +175,9 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 2. Real screening in the approver, with an exclusion list in the published rule.
 3. Legal checks: complete.
 4. Owner as a multisig with a timelock; consider renouncing upgrades once stable.
-5. Relayer hardening: rate limits, a funded balance monitor, fee covering the gas drop, and an
-   option to use any other relayer.
+5. Relayer hardening: rate limits, a funded balance monitor, a live ETH price instead of the
+   configured one, and an option to use any other relayer. (The fee already has to cover the gas
+   and the top-up.)
 6. Licensing: snarkjs (GPL-3.0) runs in the browser bundle. Either publish the web app's source under
    a GPL-compatible licence or isolate the prover as a separately distributed GPL component.
 7. Check Robinhood Chain mainnet supports the BN254 precompiles (it is an Arbitrum Orbit chain, which

@@ -10,8 +10,8 @@ describe("wallet-derived link keys", () => {
   it("gives the same keys for the same wallet signature and link number", async () => {
     const seed = await deriveLinkSeed(SIG, WALLET);
     expect(seed).toBe(await deriveLinkSeed(SIG, WALLET));
-    const a = await deriveLinkKeys(seed, 3);
-    expect(a).toEqual(await deriveLinkKeys(seed, 3));
+    const a = await deriveLinkKeys(seed, 46630, 3);
+    expect(a).toEqual(await deriveLinkKeys(seed, 46630, 3));
     expect(isValidCompressedPoint(a.spendingPublicKey)).toBe(true);
     expect(isValidCompressedPoint(a.viewingPublicKey)).toBe(true);
     expect(a.stealthMetaAddress).toBe(`0x${a.spendingPublicKey.slice(2)}${a.viewingPublicKey.slice(2)}`);
@@ -20,18 +20,27 @@ describe("wallet-derived link keys", () => {
   it("gives every link and every wallet unrelated keys", async () => {
     const seed = await deriveLinkSeed(SIG, WALLET);
     const other = await deriveLinkSeed(SIG, "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
-    const k0 = await deriveLinkKeys(seed, 0);
-    const k1 = await deriveLinkKeys(seed, 1);
-    const o0 = await deriveLinkKeys(other, 0);
+    const k0 = await deriveLinkKeys(seed, 46630, 0);
+    const k1 = await deriveLinkKeys(seed, 46630, 1);
+    const o0 = await deriveLinkKeys(other, 46630, 0);
     const pubs = [k0.spendingPublicKey, k0.viewingPublicKey, k1.spendingPublicKey, k1.viewingPublicKey, o0.spendingPublicKey, o0.viewingPublicKey];
     expect(new Set(pubs).size).toBe(6);
-    await expect(deriveLinkKeys(seed, -1)).rejects.toThrow();
+    await expect(deriveLinkKeys(seed, 46630, -1)).rejects.toThrow();
+  });
+
+  it("gives the same link number unrelated keys on different chains", async () => {
+    const seed = await deriveLinkSeed(SIG, WALLET);
+    const testnet = await deriveLinkKeys(seed, 46630, 3);
+    const mainnet = await deriveLinkKeys(seed, 4663, 3);
+    expect(testnet.spendingPublicKey).not.toBe(mainnet.spendingPublicKey);
+    expect(testnet.viewingPublicKey).not.toBe(mainnet.viewingPublicKey);
+    await expect(deriveLinkKeys(seed, 0, 3)).rejects.toThrow();
   });
 
   it("works with ERC-5564 payments: only the right link matches, and it can spend", async () => {
     const seed = await deriveLinkSeed(SIG, WALLET);
-    const k2 = await deriveLinkKeys(seed, 2);
-    const k5 = await deriveLinkKeys(seed, 5);
+    const k2 = await deriveLinkKeys(seed, 46630, 2);
+    const k5 = await deriveLinkKeys(seed, 46630, 5);
     const d = deriveStealthPayment(k2.stealthMetaAddress);
     const ann = {
       stealthAddress: d.stealthAddress,

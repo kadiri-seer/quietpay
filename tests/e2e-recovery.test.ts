@@ -118,7 +118,7 @@ describe.skipIf(!existsSync(ANVIL))("recovering links from the wallet on a new d
           symbol: "tUSDG",
           expirySeconds: i === 5 ? 0 : 3600,
           fromBlock,
-          keys: await deriveLinkKeys(seed, i),
+          keys: await deriveLinkKeys(seed, 46630, i),
           index: i,
         }),
       );
@@ -159,7 +159,7 @@ describe.skipIf(!existsSync(ANVIL))("recovering links from the wallet on a new d
 
   it("keeps a fixed link's payments to itself when two links share keys", async () => {
     const seed = await deriveLinkSeed(`0x${"6b".repeat(65)}` as Hex, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
-    const keys = await deriveLinkKeys(seed, 0);
+    const keys = await deriveLinkKeys(seed, 46630, 0);
     const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
     // Two devices made link 0 with different settings before either saw the other.
     const a = createPaymentRequest({ chainId: 46630, token: network.token!, amount: 5_000_000n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock, keys, index: 0 });

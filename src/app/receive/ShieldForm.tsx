@@ -93,9 +93,14 @@ export function ShieldForm({ request, payment, network, info }: { request: Store
   const gasShort = !!bal && bal.eth < bal.cost;
   const destAddr = isAddress(dest.trim(), { strict: false }) ? getAddress(dest.trim()) : null;
   const chosenMs = new Date(chosenAt).getTime();
+  // The relayer only takes amounts whose fee covers its network fee.
+  const minDelivery = terms.data?.minWithdrawal ? BigInt(terms.data.minWithdrawal) : null;
+  const tooSmall = deliver && minDelivery !== null && value !== undefined && afterVettingFee(value, info.vettingFeeBPS) < minDelivery;
   const deliveryError = !deliver
     ? null
-    : !destAddr
+    : tooSmall
+      ? `Too small to claim privately right now: the relayer needs at least ${fmt(minDelivery!)} so its fee covers the network fee. Keep it in the pool, or send it directly.`
+      : !destAddr
       ? "Enter the address to send it to."
       : timing === "chosen" && !(chosenMs > Date.now())
         ? "Pick a time in the future."
@@ -253,7 +258,7 @@ export function ShieldForm({ request, payment, network, info }: { request: Store
               )}
               <p className="mt-2 text-xs leading-relaxed text-haze">A random time makes the payment more private.</p>
             </fieldset>
-            {deliveryError && dest && <p className="text-xs text-bad">{deliveryError}</p>}
+            {deliveryError && (dest || tooSmall) && <p className="text-xs text-bad">{deliveryError}</p>}
           </div>
         )}
       </fieldset>

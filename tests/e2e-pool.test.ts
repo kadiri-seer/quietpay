@@ -162,7 +162,14 @@ describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
     const body = JSON.parse(JSON.stringify(serializeWithdrawal(w)));
 
     // The relayer refuses anything it did not agree to.
-    const policy = { feeRecipient: relayer.account!.address, feeBPS: FEE_BPS, gasDrop: GAS_DROP };
+    // tokenUnitsPerEth 1: the fee is worth far more than the gas here, so the full top-up is paid.
+    const policy = { feeRecipient: relayer.account!.address, feeBPS: FEE_BPS, gasDrop: GAS_DROP, tokenUnitsPerEth: 1n };
+    // At a realistic price (3000 tokens per ETH) and this node's gas price, a 30-token
+    // withdrawal's 0.15 fee can't pay for the relay, so it is refused with the minimum amount.
+    const priced = { ...policy, tokenUnitsPerEth: 3000n * 10n ** 6n };
+    const tooSmall = await relayWithdrawal(client, relayer, network, info, priced, body).catch((e) => e);
+    expect(tooSmall).toBeInstanceOf(RelayRejected);
+    expect((tooSmall as RelayRejected).minWithdrawal).toBeGreaterThan(30_000_000n);
     await expect(relayWithdrawal(client, relayer, network, info, { ...policy, feeBPS: 10n }, body)).rejects.toBeInstanceOf(RelayRejected);
     await expect(relayWithdrawal(client, relayer, network, info, policy, { ...body, scope: "1" })).rejects.toBeInstanceOf(RelayRejected);
     const tampered = structuredClone(body);

@@ -18,7 +18,7 @@ states this on every page and the payer must acknowledge it before paying.
 
 | Secret | Where it lives | Protection |
 | --- | --- | --- |
-| Per-link spending + viewing private keys | Derived from the wallet signature and the link number (HKDF-SHA256); cached in the vault | Re-derivable on any device; cache encrypted with AES-256-GCM |
+| Per-link spending + viewing private keys | Derived from the wallet signature, chain ID and link number (HKDF-SHA256); cached in the vault | Re-derivable on any device; cache encrypted with AES-256-GCM |
 | Vault encryption key | Memory, non-extractable `CryptoKey`; in IndexedDB (still non-extractable) only if the user chooses to stay signed in | Gone on reload or wallet change; if kept, after 30 days, or on sign out, disconnect or another wallet connecting |
 | Wallet signature used for the vault key | Never stored | Not applicable |
 | Stealth private key (per payment) | Derived in memory at claim time | Used to sign locally, then discarded |
@@ -34,8 +34,11 @@ states this on every page and the payer must acknowledge it before paying.
   could never be recreated.
 - Every QuietPay key (link keys, pool keys, name key, vault key) is derived from that one signature
   with its own HKDF salt and label. The signature therefore acts like a password: anyone who gets
-  it can recreate the keys. The message says to sign it only on QuietPay. There are no backup
-  files.
+  it can recreate the keys. There are no backup files.
+- The message is a fixed Sign-In with Ethereum (EIP-4361) message bound to `quietpay.sbs` (fixed
+  nonce and issue time, so the signature never changes). Wallets that check SIWE domains warn when
+  any other site asks for it, which is the main defence against phishing for the signature. The
+  old vercel.app address redirects to quietpay.sbs so users never sign there.
 - No key material is ever placed in URLs, sent to a server, written to logs, or sent to analytics
   (there is no server and no analytics). Links contain public keys only.
 
@@ -64,14 +67,15 @@ states this on every page and the payer must acknowledge it before paying.
 
 ### Compromised browser storage
 - Anyone who reads `localStorage` gets ciphertext only. Decrypting needs a signature from the
-  wallet. A malicious site can't get that signature without the user signing the same message, so
-  the message tells users to sign it only on QuietPay. Phishing for this signature is the main
-  residual risk.
+  wallet. A malicious site can't get that signature without the user signing the same message,
+  and wallets that check sign-in domains warn when another site asks for it. Phishing for this
+  signature (in a wallet that doesn't check) is the main residual risk.
 - Malware or a malicious browser extension running in the page can read keys while the vault is
   unlocked. QuietPay cannot defend against a compromised browser.
 
 ### Key loss
-- Link keys are derived from the wallet signature plus a link number, so nothing needs backing up.
+- Link keys are derived from the wallet signature, the chain ID and a link number, so nothing needs
+  backing up, and the same link number on two chains has unrelated keys.
   On a new device (or after clearing site data) the Receive page scans announcements from the
   announcer's deployment and checks link numbers in order until 20 in a row have no payments, then
   rebuilds those links and their payments. Unpaid links can't be found this way, but hold no funds.
@@ -84,13 +88,17 @@ states this on every page and the payer must acknowledge it before paying.
 - Losing the wallet (or its recovery phrase) loses access to QuietPay funds.
 
 ### XSS
-- React escapes all rendered values. There is no `dangerouslySetInnerHTML`; QR codes are rendered
-  as React SVG elements.
-- Content Security Policy: `default-src 'self'`, `connect-src` limited to the configured RPC
+- React escapes all rendered values. The only `dangerouslySetInnerHTML` is the fixed theme script in
+  the root layout (a constant, no user data); QR codes are rendered as React SVG elements.
+- Content Security Policy, built per request in `src/proxy.ts` (`src/lib/csp.ts`):
+  `script-src 'nonce-…' 'strict-dynamic'` with a fresh nonce on every page, no `'unsafe-inline'`
+  for scripts and `script-src-attr 'none'`, so injected scripts and inline handlers don't run.
+  `'wasm-unsafe-eval'` is allowed for the proof generator's WebAssembly (it does not allow
+  `eval`). Inline styles stay allowed. API routes get `default-src 'none'`. Also `default-src
+  'self'`, `connect-src` limited to the configured RPC
   origins, `object-src 'none'`, `frame-ancestors 'none'`, `base-uri 'self'`, `form-action 'self'`,
   plus `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `nosniff`, and a restrictive
-  `Permissions-Policy`. `script-src` still allows `'unsafe-inline'` because Next.js bootstraps with
-  inline scripts without a nonce setup; moving to nonces is a mainnet blocker.
+  `Permissions-Policy`. Every page is rendered per request so it can carry its nonce.
 - Dependencies are pinned by `package-lock.json`. No third-party scripts are loaded at runtime.
 
 ### RPC privacy

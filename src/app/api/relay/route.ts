@@ -6,8 +6,8 @@
 import { NextResponse } from "next/server";
 import { formatEther } from "viem";
 import { verifyPool } from "@/lib/pool/actions";
-import { relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
-import { relayerContext } from "@/lib/pool/server";
+import { quoteMinWithdrawal, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
+import { relayerContext, withPrice } from "@/lib/pool/server";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,9 +19,14 @@ export async function GET() {
   const ctx = relayerContext();
   if (!ctx) return NextResponse.json({ available: false }, { headers: noStore });
   const balance = await ctx.client.getBalance({ address: ctx.policy.feeRecipient }).catch(() => 0n);
+  const minWithdrawal = await withPrice(ctx)
+    .then((p) => quoteMinWithdrawal(ctx.client, p))
+    .catch(() => null);
   return NextResponse.json(
     {
       available: balance > ctx.policy.gasDrop * 2n,
+      // Smallest amount whose fee covers the relay at today's gas price (token base units).
+      minWithdrawal: minWithdrawal?.toString() ?? null,
       feeRecipient: ctx.policy.feeRecipient,
       feeBPS: ctx.policy.feeBPS.toString(),
       gasDrop: ctx.policy.gasDrop.toString(),
@@ -46,13 +51,15 @@ export async function POST(req: Request) {
   try {
     const info = await verifyPool(ctx.client, ctx.network);
     if (!info) return NextResponse.json({ error: "No pool is configured." }, { status: 503, headers: noStore });
-    const r = await relayWithdrawal(ctx.client, ctx.wallet, ctx.network, info, ctx.policy, body);
+    const r = await relayWithdrawal(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body);
     return NextResponse.json(
       { hash: r.hash, recipient: r.recipient, amount: r.amount.toString(), fee: r.fee.toString(), gasDropHash: r.gasDropHash },
       { headers: noStore },
     );
   } catch (e) {
-    if (e instanceof RelayRejected) return NextResponse.json({ error: e.message }, { status: 422, headers: noStore });
+    if (e instanceof RelayRejected) {
+      return NextResponse.json({ error: e.message, minWithdrawal: e.minWithdrawal?.toString() }, { status: 422, headers: noStore });
+    }
     return NextResponse.json({ error: "The relayer could not submit this withdrawal. Try again shortly." }, { status: 502, headers: noStore });
   }
 }

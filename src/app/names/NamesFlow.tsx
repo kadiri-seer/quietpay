@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
-import { checkName, signReservation, NAME_MAX } from "@/lib/names/names";
+import { useAccount, useSignMessage } from "wagmi";
+import { checkName, deriveNameKey, signReservation, NAME_MAX } from "@/lib/names/names";
+import { buildLegacyVaultMessage } from "@/lib/vault-crypto";
+import { classifyTxError } from "@/lib/tx-errors";
 import { useSelectedNetwork } from "@/components/Providers";
 import { XLink } from "@/components/XLink";
 import { LoadingRows, Notice, PageTitle, Spinner } from "@/components/ui";
@@ -220,6 +224,63 @@ function Reserve({ name, onChange }: { name: string | null; onChange: () => void
       </button>
       <p className="text-xs text-haze">One name per person. Signing happens in your browser with your name key; your wallet won&apos;t pop up.</p>
       {error && <Notice tone="bad">{error}</Notice>}
+      <MoveOldName newKey={nameKey} onMoved={async () => {
+        await refresh();
+        onChange();
+      }} />
+    </div>
+  );
+}
+
+/**
+ * Names reserved before 2 November 2026 belong to a name key from the old QuietPay sign-in
+ * message. Signing that message once (here, on QuietPay) recreates the old key, which releases
+ * the name so the current key can reserve it straight away.
+ */
+function MoveOldName({ newKey, onMoved }: { newKey: Hex; onMoved: () => Promise<void> }) {
+  const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const [state, setState] = useState<"idle" | "busy" | "none">("idle");
+  const [error, setError] = useState<string | null>(null);
+  if (!address) return null;
+
+  async function move() {
+    setState("busy");
+    setError(null);
+    try {
+      const sig = (await signMessageAsync({ message: buildLegacyVaultMessage(address!) })) as Hex;
+      const oldKey = await deriveNameKey(sig, address!);
+      const oldAddr = privateKeyToAccount(oldKey).address;
+      const j = await api<{ mine: { name: string; at: number } | null }>(undefined, `?key=${oldAddr}`);
+      if (!j.mine) {
+        setState("none");
+        return;
+      }
+      const post = (body: unknown) => api({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+      await post(await signReservation(oldKey, "release", j.mine.name));
+      await post(await signReservation(newKey, "reserve", j.mine.name));
+      await onMoved();
+      setState("idle");
+    } catch (e) {
+      setError(classifyTxError(e).kind === "unknown" ? (e as Error).message : classifyTxError(e).message);
+      setState("idle");
+    }
+  }
+
+  return (
+    <div className="border-t border-harbor/60 pt-3 text-xs text-haze">
+      {state === "none" ? (
+        <p>No name was reserved with this wallet before the update.</p>
+      ) : (
+        <p>
+          Reserved a name before 2 November?{" "}
+          <button type="button" className="underline underline-offset-2 hover:text-snow disabled:opacity-50" disabled={state === "busy"} onClick={move}>
+            {state === "busy" ? "Moving it…" : "Bring it over"}
+          </button>
+          . Your wallet asks you to sign QuietPay&apos;s old message once.
+        </p>
+      )}
+      {error && <div className="mt-2"><Notice tone="bad">{error}</Notice></div>}
     </div>
   );
 }

@@ -109,7 +109,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         setBusy("Creating link");
       }
       const index = current.nextLinkIndex ?? 0;
-      const keys = await deriveLinkKeys(current.linkSeed!, index);
+      const keys = await deriveLinkKeys(current.linkSeed!, network.chain.id, index);
       const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
       const record = createPaymentRequest({
         kind,

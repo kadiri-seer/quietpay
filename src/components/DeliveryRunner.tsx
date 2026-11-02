@@ -62,6 +62,12 @@ export function DeliveryRunner() {
               await queryClient.invalidateQueries({ queryKey: ["pool-info"] });
             } else if (out.status === "gone") {
               await patch(d.id, { status: "cancelled", lastError: "Already moved out of the pool." });
+            } else if (out.status === "too-small") {
+              // Gas prices can change, so try again later rather than giving up.
+              await patch(d.id, {
+                lastError: "Too small for the relayer at today's network fee. It stays in the pool; QuietPay will try again in an hour.",
+                retryAt: Date.now() + 60 * 60_000,
+              });
             }
           } catch (e) {
             await patch(d.id, { lastError: e instanceof Error ? e.message.split("\n")[0] : "Delivery failed.", retryAt: Date.now() + 2 * 60_000 });
