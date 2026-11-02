@@ -24,6 +24,14 @@ const CONTRACTS = [
   { file: "ERC5564Announcer.sol", name: "ERC5564Announcer" },
   { file: "QuietPayTestUSDG.sol", name: "QuietPayTestUSDG" },
   { file: "QuietPayRouter.sol", name: "QuietPayRouter" },
+  { file: "QuietPayRouterV2.sol", name: "QuietPayRouterV2" },
+] as const;
+
+/** Hostile contracts for the router tests only (contracts/test). Written to contracts/artifacts/test. */
+const TEST_CONTRACTS = [
+  { file: "AdversarialMocks.sol", name: "MockToken" },
+  { file: "AdversarialMocks.sol", name: "RejectingReceiver" },
+  { file: "AdversarialMocks.sol", name: "ReenteringReceiver" },
 ] as const;
 
 // "paris" avoids PUSH0 so the bytecode runs on any EVM-equivalent chain regardless of hardfork.
@@ -35,9 +43,10 @@ const SETTINGS = {
 };
 
 mkdirSync(OUT, { recursive: true });
+mkdirSync(join(OUT, "test"), { recursive: true });
 
-for (const c of CONTRACTS) {
-  const sources = { [c.file]: { content: readFileSync(join(SRC, c.file), "utf8") } };
+for (const c of [...CONTRACTS.map((x) => ({ ...x, dir: SRC, out: OUT })), ...TEST_CONTRACTS.map((x) => ({ ...x, dir: join(ROOT, "contracts", "test"), out: join(OUT, "test") }))]) {
+  const sources = { [c.file]: { content: readFileSync(join(c.dir, c.file), "utf8") } };
   const input = { language: "Solidity", sources, settings: SETTINGS };
   const output = JSON.parse(solc.compile(JSON.stringify(input)));
   const errors = (output.errors ?? []).filter((e: { severity: string }) => e.severity === "error");
@@ -50,7 +59,7 @@ for (const c of CONTRACTS) {
   const deployedBytecode = `0x${compiled.evm.deployedBytecode.object}` as const;
   const artifact = {
     contractName: c.name,
-    sourceFile: `contracts/src/${c.file}`,
+    sourceFile: c.dir === SRC ? `contracts/src/${c.file}` : `contracts/test/${c.file}`,
     compiler: solc.version(),
     settings: { optimizer: SETTINGS.optimizer, evmVersion: SETTINGS.evmVersion },
     abi: compiled.abi,
@@ -60,6 +69,6 @@ for (const c of CONTRACTS) {
     // Standard JSON input for Blockscout "Solidity (Standard JSON input)" verification.
     standardJsonInput: input,
   };
-  writeFileSync(join(OUT, `${c.name}.json`), JSON.stringify(artifact, null, 2) + "\n");
+  writeFileSync(join(c.out, `${c.name}.json`), JSON.stringify(artifact, null, 2) + "\n");
   console.log(`${c.name}: runtimeCodeHash ${artifact.runtimeCodeHash}`);
 }

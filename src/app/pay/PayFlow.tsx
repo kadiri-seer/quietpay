@@ -353,6 +353,8 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
           ephemeralPublicKey: cur.ephemeralPublicKey,
           metadata: cur.metadata,
           stipend: pf.stipend,
+          routerVersion: pf.routerVersion,
+          requestId: request.kind === "fixed" ? request.requestId : null,
         });
         cur = apply(cur, { type: "SUBMIT_PAYMENT", txHash: hash });
         const receipt = await confirmRoutedPayment(client, hash, {

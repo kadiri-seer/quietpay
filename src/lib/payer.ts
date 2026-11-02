@@ -11,7 +11,7 @@
  */
 import { formatEther, getAddress, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { PAYMENT_LIMITS, CLOCK_SKEW_SECONDS, MAX_EXPIRY_SECONDS, type NetworkConfig } from "@/config/networks";
-import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerAbi } from "@/config/contracts";
+import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerAbi, routerV2Abi } from "@/config/contracts";
 import { SHIELD_GAS_BUDGET } from "./pool/constants";
 import { checkLimits, formatAmount, limitsFor } from "./amount";
 import {
@@ -54,6 +54,8 @@ export interface PreflightResult {
   stipend: bigint;
   /** True when an exact token approval for the router is needed first. */
   needsApproval: boolean;
+  /** Router version in router mode (2 enforces one-time links onchain). */
+  routerVersion?: 1 | 2;
 }
 
 /** Router contract's cap on the stipend (0.001 ETH). */
@@ -148,7 +150,8 @@ export async function preflight(
   let mode: PayMode = "direct";
   let stipend = 0n;
   let needsApproval = false;
-  const done = (): PreflightResult => ({ ok: checks.every((c) => c.status !== "fail"), checks, token, existingPayments, mode, stipend, needsApproval });
+  let routerVersion: 1 | 2 | undefined;
+  const done = (): PreflightResult => ({ ok: checks.every((c) => c.status !== "fail"), checks, token, existingPayments, mode, stipend, needsApproval, routerVersion });
 
   try {
     await assertChainId(client, p.network.chain.id);
@@ -181,6 +184,7 @@ export async function preflight(
     const router = await verifyRouter(client, p.network);
     if (router) {
       mode = "router";
+      routerVersion = router.version;
       add({ id: "router", label: "One-transaction payment available", status: "ok", detail: "Includes gas for the recipient to claim." });
     } else {
       add({
@@ -281,9 +285,15 @@ export async function preflight(
 
   if (p.request.kind === "fixed" && p.network.announcer && checks.every((c) => c.id !== "announcer" || c.status === "ok")) {
     try {
+      // With router v2 the contract's own record is authoritative (and also refuses a second
+      // payment onchain). Earlier payments made another way are still found by scanning.
+      const paidOnchain =
+        mode === "router" && routerVersion === 2 && p.network.router
+          ? await client.readContract({ address: p.network.router, abi: routerV2Abi, functionName: "paidOnce", args: [p.request.requestId as Hex] })
+          : false;
       existingPayments = await findExistingPayments(client, p.network, p.request, p.scanFromBlock);
       add(
-        existingPayments.length === 0
+        existingPayments.length === 0 && !paidOnchain
           ? { id: "unpaid", label: "Not paid yet", status: "ok" }
           : { id: "unpaid", label: "This link was already paid", status: "fail", detail: "This link can be paid once." },
       );
@@ -498,11 +508,29 @@ export async function approveRouterIfNeeded(
 
 export async function submitRoutedPayment(
   wallet: WalletClient,
-  p: { network: NetworkConfig; token: Address; stealthAddress: Address; amount: bigint; ephemeralPublicKey: Hex; metadata: Hex; stipend: bigint },
+  p: {
+    network: NetworkConfig;
+    token: Address;
+    stealthAddress: Address;
+    amount: bigint;
+    ephemeralPublicKey: Hex;
+    metadata: Hex;
+    stipend: bigint;
+    /** Router version from verifyRouter. v2 needs `requestId` for one-time links. */
+    routerVersion?: 1 | 2;
+    /** One-time link's request ID (fixed links); null for reusable links. */
+    requestId?: Hex | null;
+  },
 ): Promise<Hash> {
   if (!wallet.account) throw new Error("Wallet not connected.");
   if (!p.network.router || !p.network.announcer) throw new Error("Router or announcer not configured.");
   if (p.stipend > MAX_GAS_STIPEND) throw new Error("Gas stipend is above the router's limit.");
+  if (p.routerVersion === 2) {
+    const common = { chain: p.network.chain, account: wallet.account, address: p.network.router, abi: routerV2Abi, value: p.stipend } as const;
+    return p.requestId
+      ? wallet.writeContract({ ...common, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
+      : wallet.writeContract({ ...common, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
+  }
   return wallet.writeContract({
     chain: p.network.chain,
     account: wallet.account,

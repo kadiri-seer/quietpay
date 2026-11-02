@@ -91,6 +91,10 @@ export function classifyTxError(err: unknown): ClassifiedError {
       message: "The network did not confirm in time. The transaction may still land; check the explorer before trying again.",
     };
   }
+  // Router v2's onchain one-time check: someone else paid this link first.
+  if (text.includes("alreadypaid")) {
+    return { kind: "reverted", message: "This one-time link was already paid. Nothing was sent from your wallet." };
+  }
   if (n.includes("ContractFunctionRevertedError") || text.includes("reverted") || text.includes("execution reverted")) {
     return { kind: "reverted", message: "The transaction reverted onchain. No tokens moved." };
   }

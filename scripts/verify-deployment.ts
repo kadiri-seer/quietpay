@@ -45,7 +45,13 @@ async function main() {
   }
   try {
     const r = await verifyRouter(client, network);
-    line(true, "QuietPay router", r ? `${r.address}, code ${r.codeHash}` : "not configured (two-transaction payments)");
+    line(
+      true,
+      "QuietPay router",
+      r
+        ? `${r.address}, v${r.version}${r.version === 2 ? " (bound to this network's token and announcer; one-time links enforced onchain)" : " (legacy)"}, code ${r.codeHash}`
+        : "not configured (two-transaction payments)",
+    );
   } catch (e) {
     line(false, "QuietPay router", (e as Error).message);
   }

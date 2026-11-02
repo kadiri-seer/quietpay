@@ -29,6 +29,9 @@ import { getAddress, isAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { deployPool } from "./pool-deploy-lib";
 
+/** Official USDG on Robinhood Chain mainnet (same value as src/config/networks.ts). */
+const MAINNET_USDG = "0x5fc5360D0400a0Fd4f2af552ADD042D716F1d168";
+
 const TESTNET_ID = 46630;
 const MAINNET_ID = 4663;
 
@@ -84,10 +87,10 @@ async function main() {
   const env: string[] = [];
   const prefix = chainId === MAINNET_ID ? "NEXT_PUBLIC_MAINNET" : "NEXT_PUBLIC_TESTNET";
 
-  async function deploy(name: string) {
+  async function deploy(name: string, args: unknown[] = []) {
     const a = artifact(name);
     console.log(`\nDeploying ${name} (${a.compiler})…`);
-    const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode });
+    const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode, args });
     console.log(`  tx ${hash}`);
     const receipt = await client.waitForTransactionReceipt({ hash, timeout: 180_000 });
     if (receipt.status !== "success" || !receipt.contractAddress) fail(`${name} deployment failed.`);
@@ -102,7 +105,27 @@ async function main() {
     env.push(`${prefix}_ANNOUNCER_ADDRESS=${await deploy("ERC5564Announcer")}`, `${prefix}_ANNOUNCER_FROM_BLOCK=${at}`);
   }
   if (what.includes("token")) env.push(`${prefix}_TOKEN_ADDRESS=${await deploy("QuietPayTestUSDG")}`);
-  if (what.includes("router")) env.push(`${prefix}_ROUTER_ADDRESS=${await deploy("QuietPayRouter")}`);
+  if (what.includes("router")) {
+    // Router v2 is bound for good to this network's token and announcer, so both must be the
+    // right, verified contracts before it is deployed.
+    const token = process.env[`${prefix}_TOKEN_ADDRESS`] ?? (chainId === MAINNET_ID ? MAINNET_USDG : undefined);
+    const announcer = process.env[`${prefix}_ANNOUNCER_ADDRESS`];
+    if (!token || !isAddress(token)) fail(`Set ${prefix}_TOKEN_ADDRESS before deploying the router.`);
+    if (!announcer || !isAddress(announcer)) fail(`Set ${prefix}_ANNOUNCER_ADDRESS before deploying the router.`);
+    const announcerCode = await client.getCode({ address: getAddress(announcer) });
+    if (!announcerCode || keccak256(announcerCode) !== artifact("ERC5564Announcer").runtimeCodeHash) fail(`${announcer} is not QuietPay's ERC-5564 announcer build.`);
+    const symbol = await client.readContract({ address: getAddress(token), abi: [{ type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] }] as const, functionName: "symbol" }).catch(() => null);
+    const expected = chainId === MAINNET_ID ? "USDG" : "tUSDG";
+    if (symbol !== expected) fail(`${token} reports symbol ${JSON.stringify(symbol)}; expected ${expected}.`);
+    const router = await deploy("QuietPayRouterV2", [getAddress(token), getAddress(announcer)]);
+    const read = (fn: "token" | "announcer") =>
+      client.readContract({ address: router, abi: [{ type: "function", name: fn, stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const, functionName: fn });
+    if (getAddress(await read("token")) !== getAddress(token) || getAddress(await read("announcer")) !== getAddress(announcer)) {
+      fail(`Router ${router} is not bound to the expected token and announcer.`);
+    }
+    console.log(`  ✓ bound to token ${getAddress(token)} and announcer ${getAddress(announcer)}`);
+    env.push(`${prefix}_ROUTER_ADDRESS=${router}`);
+  }
   if (what.includes("pool")) {
     if (chainId !== TESTNET_ID) fail("The shielded pool is testnet only.");
     const token = process.env.NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS;

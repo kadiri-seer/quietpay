@@ -41,3 +41,11 @@ describe("transaction failure classification", () => {
     expect(classifyTxError(undefined).message).toMatch(/explorer/);
   });
 });
+
+describe("router v2 one-time refusal", () => {
+  it("explains that the link was already paid", async () => {
+    const { classifyTxError } = await import("@/lib/tx-errors");
+    const e = Object.assign(new Error('The contract function "payOnce" reverted.\n\nError: AlreadyPaid(bytes16 requestId)'), { name: "ContractFunctionExecutionError" });
+    expect(classifyTxError(e)).toMatchObject({ kind: "reverted", message: expect.stringMatching(/already paid/) });
+  });
+});

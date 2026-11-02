@@ -14,10 +14,52 @@ export const KNOWN_ANNOUNCER_CODE_HASHES: readonly `0x${string}`[] = [
   "0x0af95fb5a29fc215ce3b805393c1f7c0530999f793faeb08f8bae6dd110797c0",
 ];
 
-/** QuietPayRouter build (no constructor args or immutables, so the hash is the same everywhere). */
+/** QuietPayRouter v1 build (no constructor args or immutables, so the hash is the same everywhere). */
 export const KNOWN_ROUTER_CODE_HASHES: readonly `0x${string}`[] = [
   "0xc651ba2cdd6e69e0ff3048a9d2291633ec1476301cc964ea563bdb494066483d",
 ];
+
+/**
+ * QuietPayRouterV2 build. Its token and announcer are stored once in the constructor (not as
+ * immutables), so the runtime code hash is the same for every deployment; clients check the hash,
+ * then read token() and announcer() and compare them with their own configuration.
+ */
+export const KNOWN_ROUTER_V2_CODE_HASHES: readonly `0x${string}`[] = [
+  "0x4a156d5db51b4115a9d541c8ac43e30367b362787feae7a72bbeed05e860f434",
+];
+
+export const routerV2Abi = [
+  {
+    type: "function",
+    name: "pay",
+    stateMutability: "payable",
+    inputs: [
+      { name: "stealthAddress", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "ephemeralPubKey", type: "bytes" },
+      { name: "metadata", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "payOnce",
+    stateMutability: "payable",
+    inputs: [
+      { name: "requestId", type: "bytes16" },
+      { name: "stealthAddress", type: "address" },
+      { name: "amount", type: "uint256" },
+      { name: "ephemeralPubKey", type: "bytes" },
+      { name: "metadata", type: "bytes" },
+    ],
+    outputs: [],
+  },
+  { type: "function", name: "token", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "announcer", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
+  { type: "function", name: "paidOnce", stateMutability: "view", inputs: [{ name: "requestId", type: "bytes16" }], outputs: [{ type: "bool" }] },
+  { type: "function", name: "MAX_GAS_STIPEND", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
+  { type: "error", name: "AlreadyPaid", inputs: [{ name: "requestId", type: "bytes16" }] },
+] as const;
 
 export const routerAbi = [
   {

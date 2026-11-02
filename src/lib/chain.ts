@@ -14,7 +14,15 @@ import {
   type PublicClient,
   type TransactionReceipt,
 } from "viem";
-import { KNOWN_ANNOUNCER_CODE_HASHES, KNOWN_ROUTER_CODE_HASHES, announcerAbi, erc20Abi, ERC5564_SCHEME_ID } from "@/config/contracts";
+import {
+  KNOWN_ANNOUNCER_CODE_HASHES,
+  KNOWN_ROUTER_CODE_HASHES,
+  KNOWN_ROUTER_V2_CODE_HASHES,
+  announcerAbi,
+  erc20Abi,
+  ERC5564_SCHEME_ID,
+  routerV2Abi,
+} from "@/config/contracts";
 import type { NetworkConfig } from "@/config/networks";
 import { TransferNotVerifiedError, TxReplacedError } from "./tx-errors";
 
@@ -94,23 +102,46 @@ export async function verifyAnnouncer(
   return { address: network.announcer, codeHash };
 }
 
+export interface RouterInfo {
+  address: Address;
+  codeHash: Hex;
+  /**
+   * 1: v1 (token and announcer passed by the caller, one-time links checked by the app only).
+   * 2: v2 (token and announcer fixed at deployment, one-time links enforced onchain).
+   */
+  version: 1 | 2;
+}
+
 /**
- * Verifies the optional QuietPayRouter. Returns null when none is configured (the app then uses
- * the two-transaction flow); throws if one is configured but its bytecode is unknown.
+ * Verifies the optional QuietPay router. Returns null when none is configured (the app then uses
+ * the two-transaction flow); throws if one is configured but its bytecode is unknown, or if a v2
+ * router is bound to a different token or announcer than this network's.
  */
 export async function verifyRouter(
   client: PublicClient,
   network: NetworkConfig,
   knownHashes: readonly Hex[] = KNOWN_ROUTER_CODE_HASHES,
-): Promise<{ address: Address; codeHash: Hex } | null> {
+  knownV2Hashes: readonly Hex[] = KNOWN_ROUTER_V2_CODE_HASHES,
+): Promise<RouterInfo | null> {
   if (!network.router) return null;
   const code = await client.getCode({ address: network.router });
   if (!code || code === "0x") throw new VerificationError(`No contract is deployed at the configured router address on ${network.label}.`);
-  const codeHash = keccak256(code);
-  if (!knownHashes.map((h) => h.toLowerCase()).includes(codeHash.toLowerCase())) {
-    throw new VerificationError("The configured router's bytecode does not match QuietPay's router build.");
+  const codeHash = keccak256(code).toLowerCase() as Hex;
+  if (knownV2Hashes.map((h) => h.toLowerCase()).includes(codeHash)) {
+    const [token, announcer] = await Promise.all([
+      client.readContract({ address: network.router, abi: routerV2Abi, functionName: "token" }),
+      client.readContract({ address: network.router, abi: routerV2Abi, functionName: "announcer" }),
+    ]);
+    if (!network.token || getAddress(token) !== getAddress(network.token)) {
+      throw new VerificationError("The configured router is bound to a different token than this network's.");
+    }
+    if (!network.announcer || getAddress(announcer) !== getAddress(network.announcer)) {
+      throw new VerificationError("The configured router is bound to a different announcer than this network's.");
+    }
+    return { address: network.router, codeHash, version: 2 };
   }
-  return { address: network.router, codeHash };
+  if (knownHashes.map((h) => h.toLowerCase()).includes(codeHash)) return { address: network.router, codeHash, version: 1 };
+  throw new VerificationError("The configured router's bytecode does not match QuietPay's router build.");
 }
 
 /**

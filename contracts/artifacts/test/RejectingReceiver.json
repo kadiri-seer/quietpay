@@ -1,0 +1,48 @@
+{
+  "contractName": "RejectingReceiver",
+  "sourceFile": "contracts/test/AdversarialMocks.sol",
+  "compiler": "0.8.23+commit.f704f362.Emscripten.clang",
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "paris"
+  },
+  "abi": [
+    {
+      "stateMutability": "payable",
+      "type": "receive"
+    }
+  ],
+  "bytecode": "0x6080604052348015600f57600080fd5b5060788061001e6000396000f3fe608060405236603d5760405162461bcd60e51b81526020600482015260066024820152650dcde408aa8960d31b604482015260640160405180910390fd5b600080fdfea2646970667358221220ea6b9ebfa13fa3397313678bf75b37e0c3e2ccae8c4cffd04cba4d0710b3268e64736f6c63430008170033",
+  "deployedBytecode": "0x608060405236603d5760405162461bcd60e51b81526020600482015260066024820152650dcde408aa8960d31b604482015260640160405180910390fd5b600080fdfea2646970667358221220ea6b9ebfa13fa3397313678bf75b37e0c3e2ccae8c4cffd04cba4d0710b3268e64736f6c63430008170033",
+  "runtimeCodeHash": "0x27aa4f04363f87e2909a8a20d4f45db9f2b4bae4f5ac7f7e913c1ba27b41df21",
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "AdversarialMocks.sol": {
+        "content": "// SPDX-License-Identifier: AGPL-3.0-or-later\n// Hostile contracts used only by tests (tests/e2e-router-v2.test.ts). Never deployed.\n\npragma solidity 0.8.23;\n\ninterface IRouterV2 {\n  function pay(address stealthAddress, uint256 amount, bytes calldata ephemeralPubKey, bytes calldata metadata) external payable;\n  function payOnce(bytes16 requestId, address stealthAddress, uint256 amount, bytes calldata ephemeralPubKey, bytes calldata metadata) external payable;\n}\n\n/// Minimal ERC-20 whose behaviour can be switched to misbehave in specific ways.\ncontract MockToken {\n  mapping(address => uint256) public balanceOf;\n  mapping(address => mapping(address => uint256)) public allowance;\n  event Transfer(address indexed from, address indexed to, uint256 value);\n\n  // 0 normal, 1 return false, 2 no return value, 3 skim 1% fee, 4 credit nothing, 5 re-enter router\n  uint8 public mode;\n  address public reenterTarget;\n  bytes public reenterCall;\n\n  function setMode(uint8 m) external { mode = m; }\n  function setReenter(address target, bytes calldata data) external { reenterTarget = target; reenterCall = data; }\n  function mint(address to, uint256 amount) external { balanceOf[to] += amount; emit Transfer(address(0), to, amount); }\n  function approve(address spender, uint256 amount) external returns (bool) { allowance[msg.sender][spender] = amount; return true; }\n  function decimals() external pure returns (uint8) { return 6; }\n  function symbol() external pure returns (string memory) { return \"tUSDG\"; }\n  function name() external pure returns (string memory) { return \"Mock\"; }\n\n  fallback() external {\n    // transferFrom(address,address,uint256) with selectable misbehaviour.\n    require(msg.sig == 0x23b872dd, \"unknown\");\n    (address from, address to, uint256 amount) = abi.decode(msg.data[4:], (address, address, uint256));\n    if (mode == 1) assembly { mstore(0, 0) return(0, 32) }\n    require(allowance[from][msg.sender] >= amount, \"allowance\");\n    allowance[from][msg.sender] -= amount;\n    balanceOf[from] -= amount;\n    if (mode == 3) {\n      uint256 fee = amount / 100;\n      balanceOf[to] += amount - fee;\n    } else if (mode != 4) {\n      balanceOf[to] += amount;\n    }\n    emit Transfer(from, to, amount);\n    if (mode == 5) {\n      (bool ok, bytes memory err) = reenterTarget.call(reenterCall);\n      if (!ok) assembly { revert(add(err, 32), mload(err)) }\n    }\n    if (mode == 2) assembly { return(0, 0) }\n    assembly { mstore(0, 1) return(0, 32) }\n  }\n}\n\n/// A \"one-time address\" that refuses ETH.\ncontract RejectingReceiver {\n  receive() external payable { revert(\"no ETH\"); }\n}\n\n/// A \"one-time address\" that tries to pay again while receiving the gas money.\ncontract ReenteringReceiver {\n  address public target;\n  bytes public data;\n  function set(address t, bytes calldata d) external { target = t; data = d; }\n  receive() external payable {\n    (bool ok, bytes memory err) = target.call(data);\n    if (!ok) assembly { revert(add(err, 32), mload(err)) }\n  }\n}\n"
+      }
+    },
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "paris",
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object"
+          ]
+        }
+      }
+    }
+  }
+}
