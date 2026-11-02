@@ -191,6 +191,7 @@ export function SiteFooter() {
         <FooterCol
           title="Trust"
           links={[
+            { href: "/#about", label: "About us" },
             { href: "/security", label: "Security model" },
             { href: "/security#contracts", label: "Contracts" },
             { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
