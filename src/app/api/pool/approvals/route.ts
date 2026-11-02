@@ -1,7 +1,7 @@
 /**
  * Publishes the pool's approval root by its public rule: every deposit at least
- * POOL_APPROVAL_DELAY_SECONDS old. Anyone may call it; it only sends a transaction when the
- * approved set would grow, at most once a minute.
+ * POOL_APPROVAL_DELAY_SECONDS old (0 on testnet: right away). Anyone may call it; it only sends a
+ * transaction when the approved set would grow, at most once every 10 seconds.
  */
 import { NextResponse } from "next/server";
 import { verifyPool } from "@/lib/pool/actions";
@@ -29,7 +29,7 @@ export async function POST() {
     });
     const last = events.rootUpdates.at(-1);
     const now = Math.floor(Date.now() / 1000);
-    if (last && now - Number(last.timestamp) < 60) {
+    if (last && now - Number(last.timestamp) < 10) {
       return NextResponse.json({ updated: false, reason: "recent" }, { headers: noStore });
     }
     const r = await refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, { delaySeconds: ctx.approvalDelaySeconds, nowSeconds: now });

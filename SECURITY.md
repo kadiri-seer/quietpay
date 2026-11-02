@@ -159,7 +159,7 @@ states this on every page and the payer must acknowledge it before paying.
   submits. The proof binds recipient, fee address and fee, so it cannot redirect funds. It sees IP
   addresses and can refuse service; it stores nothing.
 - The approver publishes roots by a public rule encoded onchain, so clients verify the approval set
-  themselves. On testnet it approves everything after a delay. Real screening is a mainnet blocker.
+  themselves. On testnet it approves everything immediately. Real screening is a mainnet blocker.
 - The entrypoint is upgradeable and owned by the deployer. The owner cannot take pool funds, and
   `ragequit` works without the owner, approver or relayer, but the owner could block private
   withdrawals. The relayer key is separate from the owner key and is the only key on the web host.

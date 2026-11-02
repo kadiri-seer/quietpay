@@ -87,8 +87,12 @@ export function ShieldForm({ request, payment, network, info }: { request: Store
       const remaining = bal!.token - value;
       const updated = recordSend(request, payment.stealthAddress, { tx: res.hash, to: info.entrypoint, amount: value }, remaining);
       await save({ ...vault, requests: vault.requests.map((r) => (r.id === updated.id ? updated : r)) });
+      // Ask the approver right away (approvals are immediate on testnet). The Pool page keeps
+      // checking, so a slow or missed request here only delays approval by a few seconds.
+      await fetch("/api/pool/approvals", { method: "POST" }).catch(() => null);
+      await queryClient.invalidateQueries({ queryKey: ["pool-info"] });
       await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
-      setDone(`Shielded ${fmt(res.value)}. It can be withdrawn once the pool approves the deposit.`);
+      setDone(`Shielded ${fmt(res.value)}. It will be ready to withdraw as soon as the pool approves it, usually within seconds.`);
       setAmountInput("");
       await refresh();
     } catch (e) {

@@ -43,7 +43,9 @@ relayer ──relay(proof)──▶ Entrypoint ──▶ pool.withdraw ──▶
    one-time address. Two transactions, both signed locally with the one-time key and paid from the
    stipend. The connected wallet sends nothing. The deposit is public; it reveals the one-time
    address and amount, which were already public.
-3. **Approval.** The approver publishes a new approval root once deposits are old enough.
+3. **Approval.** The approver publishes a new approval root as soon as a deposit lands (testnet
+   default; configurable delay). The site triggers it after each shield and keeps checking while a
+   deposit waits.
 4. **Withdraw.** On the Pool page, pick an amount and a fresh address. The browser rebuilds the
    pool's Merkle tree from events, generates the proof (about 5 to 10 seconds on a laptop after a
    one-time 20 MB download), checks it locally, and posts it to the relayer. The proof fixes the
@@ -83,11 +85,11 @@ QuietPay runs its own on testnet, with a rule that anyone can check:
 The rule is written into the entrypoint's 32 to 64 character "IPFS CID" field as
 `quietpay-asp-v1:upto=<block>`, so clients rebuild the set from chain events and compare roots; no
 off-chain file is needed. The approver (`POST /api/pool/approvals`, also callable by anyone) only
-sends a transaction when deposits older than `POOL_APPROVAL_DELAY_SECONDS` (default 10 minutes) are
-missing, at most once a minute. A root change makes in-flight proofs stale; the relayer reports
-that and the user proves again.
+sends a transaction when deposits older than `POOL_APPROVAL_DELAY_SECONDS` (default 0 on testnet,
+so right away) are missing, at most once every 10 seconds. A root change makes in-flight proofs stale; the relayer reports
+that and the browser proves again automatically, once.
 
-**On testnet this approves everything.** That is fine for worthless test tokens and not fine for
+**On testnet this approves everything, immediately.** That is fine for worthless test tokens and not fine for
 real money. Before mainnet the approver must screen deposits (sanctions lists at minimum), and the
 rule format needs an exclusion list (a v2 descriptor pointing at a published list, or an event
 log contract). Excluded deposits can still exit to their one-time address.

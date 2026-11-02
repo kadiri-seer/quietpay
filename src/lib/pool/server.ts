@@ -5,7 +5,7 @@
  *   RELAYER_PRIVATE_KEY          relayer + approver key (testnet ETH only, never the pool owner)
  *   RELAYER_FEE_BPS              fee taken from each withdrawal, default 50 (0.5%)
  *   RELAYER_GAS_DROP_ETH         ETH topped up at an empty receiving address, default 0.0002
- *   POOL_APPROVAL_DELAY_SECONDS  how old a deposit must be before it is approved, default 600
+ *   POOL_APPROVAL_DELAY_SECONDS  how old a deposit must be before it is approved, default 0 (immediately)
  */
 import "server-only";
 import { createWalletClient, http, parseEther, type Hex, type WalletClient } from "viem";
@@ -40,6 +40,6 @@ export function relayerContext(): RelayerContext | null {
     client: createNetworkClient(network),
     wallet: createWalletClient({ account, chain: network.chain, transport: http(network.rpcUrl, { timeout: 20_000 }) }),
     policy: { feeRecipient: account.address, feeBPS, gasDrop },
-    approvalDelaySeconds: Math.max(0, Number(process.env.POOL_APPROVAL_DELAY_SECONDS ?? 600) | 0),
+    approvalDelaySeconds: Math.max(0, Number(process.env.POOL_APPROVAL_DELAY_SECONDS ?? 0) | 0),
   };
 }

@@ -79,8 +79,8 @@ shielded pool breaks it: *Move funds → Shielded pool* deposits the payment int
 [Privacy Pools by 0xbow](https://github.com/0xbow-io/privacy-pools-core) (audited contracts and
 circuits, used unchanged), and the Pool page withdraws any amount to any fresh address through a
 relayer, with the zero-knowledge proof generated in the browser. Deposits must be approved before
-they can be withdrawn privately; on testnet the approver approves every deposit after a short
-delay. Any deposit can exit back to its one-time address without approval.
+they can be withdrawn privately; on testnet the approver approves every deposit as soon as it
+lands. Any deposit can exit back to its one-time address without approval.
 
 Full design, trust assumptions and mainnet blockers: [docs/shielded-pool.md](./docs/shielded-pool.md).
 

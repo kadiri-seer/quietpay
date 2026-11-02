@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAddress, isAddress } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
-import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, type PoolInfo } from "@/lib/pool/actions";
+import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
+import { fetchPoolEvents } from "@/lib/pool/state";
 import { ArtifactIntegrityError, fetchArtifact } from "@/lib/pool/prover";
 import { stealthAccount } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
@@ -54,8 +55,8 @@ export function PoolFlow() {
           it much harder to connect the two.
         </p>
         <p>
-          Every deposit must be approved before it can be withdrawn privately. On testnet, deposits are approved automatically after a short
-          delay. If a deposit is never approved, its one-time address can always take the funds back.
+          Every deposit must be approved before it can be withdrawn privately. On testnet, deposits are approved automatically as soon as they
+          land. If a deposit is never approved, its one-time address can always take the funds back.
         </p>
       </section>
     </div>
@@ -73,6 +74,48 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
   const decimals = readiness.data?.token?.decimals ?? 6;
   const symbol = readiness.data?.token?.symbol ?? "tUSDG";
   const fmt = (v: bigint) => `${formatAmount(v, decimals, { group: true })} ${symbol}`;
+  const waitingCount = (snap.data?.notes ?? []).filter((n) => n.status === "spendable" && !n.approved).length;
+
+  const runApprovals = useCallback(
+    async (manual: boolean) => {
+      if (manual) {
+        setChecking(true);
+        setCheckMsg(null);
+      }
+      try {
+        const r = await fetch("/api/pool/approvals", { method: "POST" });
+        const j = (await r.json()) as { updated?: boolean; error?: string; reason?: string };
+        if (!r.ok) setCheckMsg(j.error ?? "The approver is not available.");
+        else if (manual) setCheckMsg(j.updated ? "New deposits were approved." : "Nothing new to approve yet.");
+        else setCheckMsg(null);
+        if (j.updated) {
+          await queryClient.invalidateQueries({ queryKey: ["pool-info"] });
+          await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
+        }
+      } catch {
+        setCheckMsg("The approver is not available.");
+      } finally {
+        if (manual) setChecking(false);
+      }
+    },
+    [queryClient],
+  );
+
+  // Approvals are immediate on testnet: ask the approver as soon as a deposit is waiting, then
+  // keep checking every few seconds until it is approved.
+  useEffect(() => {
+    if (!waitingCount) return;
+    let stopped = false;
+    const tick = () => {
+      if (!stopped) void runApprovals(false);
+    };
+    tick();
+    const t = setInterval(tick, 6000);
+    return () => {
+      stopped = true;
+      clearInterval(t);
+    };
+  }, [waitingCount, runApprovals]);
 
   if (info.isLoading || readiness.isLoading) return <LoadingRows label="Checking the pool contracts" rows={4} />;
   if (info.error) return <Notice tone="bad" title="Pool check failed">{(info.error as Error).message.split("\n")[0]}</Notice>;
@@ -82,24 +125,6 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
   const live = notes.filter((n) => n.status === "spendable");
   const ready = live.filter((n) => n.approved).reduce((s, n) => s + n.value, 0n);
   const waiting = live.filter((n) => !n.approved).reduce((s, n) => s + n.value, 0n);
-
-  async function checkApprovals() {
-    setChecking(true);
-    setCheckMsg(null);
-    try {
-      const r = await fetch("/api/pool/approvals", { method: "POST" });
-      const j = (await r.json()) as { updated?: boolean; error?: string; reason?: string };
-      if (!r.ok) setCheckMsg(j.error ?? "The approver is not available.");
-      else if (j.updated) setCheckMsg("New deposits were approved.");
-      else setCheckMsg(j.reason === "recent" ? "Approvals were just updated. Try again in a minute." : "Nothing new to approve yet.");
-      await queryClient.invalidateQueries({ queryKey: ["pool-info"] });
-      await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
-    } catch {
-      setCheckMsg("The approver is not available.");
-    } finally {
-      setChecking(false);
-    }
-  }
 
   return (
     <div className="space-y-8">
@@ -113,12 +138,16 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
           <p className="mt-1 font-display text-2xl font-semibold tracking-[-0.02em] text-snow">{snap.isLoading ? "…" : fmt(waiting)}</p>
           {waiting > 0n && (
             <div className="mt-3 space-y-2">
-              <p className="text-xs text-haze">
-                {terms.data?.approvalDelaySeconds !== undefined
-                  ? `Deposits are approved about ${Math.max(1, Math.round(terms.data.approvalDelaySeconds / 60))} minutes after they land.`
-                  : "Deposits are approved after a short delay."}
+              <p className="flex items-center gap-2 text-xs text-haze" aria-live="polite">
+                {terms.data?.approvalDelaySeconds ? (
+                  `Deposits are approved about ${Math.max(1, Math.round(terms.data.approvalDelaySeconds / 60))} minutes after they land.`
+                ) : (
+                  <>
+                    <Spinner className="h-3 w-3" /> Approving automatically, usually within seconds.
+                  </>
+                )}
               </p>
-              <button type="button" className="btn btn-sm" onClick={checkApprovals} disabled={checking}>
+              <button type="button" className="btn btn-sm btn-quiet" onClick={() => runApprovals(true)} disabled={checking}>
                 {checking ? <Spinner /> : null} Check approval
               </button>
               {checkMsg && <p className="text-xs text-haze" aria-live="polite">{checkMsg}</p>}
@@ -235,6 +264,7 @@ const STAGES = {
 function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onDone }: Parameters<typeof NoteCard>[0] & { onDone: () => void }) {
   const { address } = useAccount();
   const queryClient = useQueryClient();
+  const client = usePublicClient(network);
   const [dest, setDest] = useState("");
   const [amountInput, setAmountInput] = useState("");
   const [stage, setStage] = useState<keyof typeof STAGES | null>(null);
@@ -265,25 +295,41 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
     try {
       setStage("load");
       await Promise.all([loadArtifacts("withdraw.wasm"), loadArtifacts("withdraw.zkey")].map((p) => p.catch(() => null)));
-      setStage("prove");
-      const prepared = await prepareWithdrawal(loadArtifacts, {
-        info,
-        events: snapshot.events,
-        keys: note.keys,
-        note,
-        amount: value,
-        recipient: destAddr,
-        feeRecipient: terms.feeRecipient,
-        feeBPS,
-      });
-      setStage("relay");
-      const r = await fetch(network.pool!.relayerUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(serializeWithdrawal(prepared)),
-      });
-      const j = (await r.json()) as { hash?: `0x${string}`; fee?: string; amount?: string; gasDropHash?: string | null; error?: string };
-      if (!r.ok || !j.hash) throw new Error(j.error ?? "The relayer could not submit this withdrawal.");
+      // Approvals are published as deposits land, so the approval list can change while the proof is
+      // being made. If the relayer reports that, re-read the pool and prove again (once).
+      let poolInfo = info;
+      let events = snapshot.events;
+      let j: { hash?: `0x${string}`; fee?: string; amount?: string; gasDropHash?: string | null; error?: string } = {};
+      for (let attempt = 0; attempt < 2; attempt++) {
+        setStage("prove");
+        const prepared = await prepareWithdrawal(loadArtifacts, {
+          info: poolInfo,
+          events,
+          keys: note.keys,
+          note,
+          amount: value,
+          recipient: destAddr,
+          feeRecipient: terms.feeRecipient,
+          feeBPS,
+        });
+        setStage("relay");
+        const r = await fetch(network.pool!.relayerUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(serializeWithdrawal(prepared)),
+        });
+        j = (await r.json()) as typeof j;
+        if (r.ok && j.hash) break;
+        if (attempt === 0 && /approval list changed/i.test(j.error ?? "")) {
+          const fresh = await verifyPool(client, network);
+          if (!fresh) break;
+          poolInfo = fresh;
+          events = await fetchPoolEvents(client, { entrypoint: fresh.entrypoint, pool: fresh.pool, fromBlock: network.pool!.fromBlock, chunkSize: network.logChunkSize });
+          continue;
+        }
+        break;
+      }
+      if (!j.hash) throw new Error(j.error ?? "The relayer could not submit this withdrawal.");
       setResult({ hash: j.hash, amount: BigInt(j.amount ?? value), fee: BigInt(j.fee ?? 0), to: destAddr, gasDrop: !!j.gasDropHash });
       setDest("");
       setAmountInput("");
