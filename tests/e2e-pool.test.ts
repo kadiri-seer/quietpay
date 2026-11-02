@@ -176,7 +176,26 @@ describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
     tampered.proof.pubSignals[2] = "40000000"; // claim more than proven
     await expect(relayWithdrawal(client, relayer, network, info, policy, tampered)).rejects.toBeInstanceOf(RelayRejected);
 
-    const res = await relayWithdrawal(client, relayer, network, info, policy, body);
+    // The same proof sent twice at once is submitted once: the second copy is turned away
+    // instead of costing the relayer gas for a transaction that would fail.
+    const claimed = new Set<string>();
+    const guard = {
+      claim: async (n: bigint) => {
+        if (claimed.has(n.toString())) return null;
+        claimed.add(n.toString());
+        return async () => void claimed.delete(n.toString());
+      },
+      send: <T,>(fn: () => Promise<T>) => fn(),
+    };
+    const both = await Promise.allSettled([
+      relayWithdrawal(client, relayer, network, info, policy, body, guard),
+      relayWithdrawal(client, relayer, network, info, policy, body, guard),
+    ]);
+    expect(both.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+    const turnedAway = both.find((x) => x.status === "rejected") as PromiseRejectedResult;
+    expect(turnedAway.reason).toBeInstanceOf(RelayRejected);
+    expect(String(turnedAway.reason.message)).toMatch(/already being submitted/);
+    const res = (both.find((x) => x.status === "fulfilled") as PromiseFulfilledResult<Awaited<ReturnType<typeof relayWithdrawal>>>).value;
     expect(res.fee).toBe(150_000n);
     const got = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [recipient] });
     expect(got).toBe(30_000_000n - 150_000n);

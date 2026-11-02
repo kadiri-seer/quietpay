@@ -60,7 +60,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const { data } = useNetworkReadiness(network);
   const token = data!.token!;
   const client = usePublicClient(network);
-  const { vault, save } = useVault();
+  const { vault, update } = useVault();
   const [kind, setKind] = useState<LinkKind>("fixed");
   const [amount, setAmount] = useState("");
   const [expiry, setExpiry] = useState<number>(EXPIRY_OPTIONS[1].seconds);
@@ -93,38 +93,54 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
     setError(null);
     try {
       if (!vault.linkSeed) throw new Error("Unlock your vault again to create links.");
-      let current = vault;
       // The first time on this device, look for links this wallet already made elsewhere, so the
       // new link gets an unused number (and keys nobody else holds).
-      if (!current.linksCheckedAt) {
+      let found: { requests: StoredRequest[]; nextLinkIndex: number } | null = null;
+      if (!vault.linksCheckedAt) {
         setBusy("Checking your existing links");
         const d = await discoverLinks(client, network, {
-          seed: current.linkSeed!,
-          nextLinkIndex: current.nextLinkIndex ?? 0,
-          known: current.requests,
+          seed: vault.linkSeed,
+          nextLinkIndex: vault.nextLinkIndex ?? 0,
+          known: vault.requests,
           token,
           fullHistory: true,
         });
-        current = { ...current, requests: [...d.found, ...current.requests], nextLinkIndex: d.nextLinkIndex, linksCheckedAt: Date.now() };
+        found = { requests: d.found, nextLinkIndex: d.nextLinkIndex };
         setBusy("Creating link");
       }
-      const index = current.nextLinkIndex ?? 0;
-      const keys = await deriveLinkKeys(current.linkSeed!, network.chain.id, index);
       const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
-      const record = createPaymentRequest({
-        kind,
-        chainId: network.chain.id,
-        token: token.address,
-        amount: kind === "fixed" && "value" in parsed && parsed.value ? parsed.value : 0n,
-        decimals: token.decimals,
-        symbol: token.symbol,
-        expirySeconds: expiry,
-        fromBlock,
-        keys,
-        index,
+      // Take the link number from the latest saved vault, inside the update, so two tabs (or a
+      // scan running elsewhere) can never hand out the same number twice.
+      let record: StoredRequest | null = null;
+      await update(async (v) => {
+        let cur = v;
+        if (found) {
+          const ids = new Set(cur.requests.map((r) => r.id));
+          cur = {
+            ...cur,
+            requests: [...found.requests.filter((r) => !ids.has(r.id)), ...cur.requests],
+            nextLinkIndex: Math.max(cur.nextLinkIndex ?? 0, found.nextLinkIndex),
+            linksCheckedAt: Date.now(),
+          };
+        }
+        const index = cur.nextLinkIndex ?? 0;
+        const keys = await deriveLinkKeys(cur.linkSeed!, network.chain.id, index);
+        record = createPaymentRequest({
+          kind,
+          chainId: network.chain.id,
+          token: token.address,
+          amount: kind === "fixed" && "value" in parsed && parsed.value ? parsed.value : 0n,
+          decimals: token.decimals,
+          symbol: token.symbol,
+          expirySeconds: expiry,
+          fromBlock,
+          keys,
+          index,
+        });
+        // The link is shown only after it is saved; its keys can always be re-derived from the wallet.
+        return { ...cur, requests: [record, ...cur.requests], nextLinkIndex: index + 1 };
       });
-      // The link is shown only after it is saved; its keys can always be re-derived from the wallet.
-      await save({ ...current, requests: [record, ...current.requests], nextLinkIndex: index + 1 });
+      if (!record) throw new Error("Could not create the link.");
       onCreated(record);
     } catch (e) {
       setError(e instanceof Error ? e.message.split("\n")[0] : "Could not create the link.");

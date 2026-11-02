@@ -12,14 +12,15 @@ import { join } from "node:path";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { NETWORKS, type NetworkConfig, type NetworkKey } from "@/config/networks";
-import { erc20Abi, mockTokenFaucetAbi, routerAbi } from "@/config/contracts";
+import { announcerAbi, erc20Abi, mockTokenFaucetAbi, routerAbi } from "@/config/contracts";
 import { createPaymentRequest } from "@/lib/request";
 import { validatePaymentLink } from "@/lib/link";
 import { deriveStealthPayment } from "@/lib/stealth";
-import { parsePaymentMetadata } from "@/lib/metadata";
+import { buildPaymentMetadata, parsePaymentMetadata } from "@/lib/metadata";
 import {
   approveRouterIfNeeded,
   confirmRoutedPayment,
+  findUnrecordedPayment,
   newPayerRecord,
   preflight,
   submitRoutedPayment,
@@ -171,6 +172,38 @@ describe.skipIf(!existsSync(ANVIL))("router payments and reusable links on a loc
     const amounts = scanned.request.payments.map((p) => p.receivedAmount).sort();
     expect(amounts).toEqual(["10000000", "2500000"].sort());
     expect(requestStatus(scanned.request)).toBe("claimable");
+  });
+
+  it("a fake announcement can't block a one-time link", async () => {
+    const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
+    const req = createPaymentRequest({ chainId: 46630, token: network.token!, amount: 25_000_000n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock });
+    const request = validatePaymentLink(req.link, { networks }).request;
+    // Someone holding the link announces a "payment" with its ID but sends nothing.
+    const d = deriveStealthPayment(request.stealthMetaAddress);
+    const meta = buildPaymentMetadata({ viewTag: d.viewTag, token: network.token!, amount: request.amount, requestId: request.requestId });
+    const h = await payer.writeContract({ address: network.announcer!, abi: announcerAbi, functionName: "announce", args: [1n, d.stealthAddress, d.ephemeralPublicKey, meta], account: payer.account!, chain: network.chain });
+    await client.waitForTransactionReceipt({ hash: h });
+    // Payers still see it as unpaid...
+    const pf = await preflight(client, { network, request, payer: payer.account!.address, derivation: deriveStealthPayment(request.stealthMetaAddress), scanFromBlock: fromBlock });
+    expect(pf.checks.find((c) => c.id === "unpaid")?.status).toBe("ok");
+    // ...until it is really paid.
+    await routedPay(req.link);
+    const pf2 = await preflight(client, { network, request, payer: payer.account!.address, derivation: deriveStealthPayment(request.stealthMetaAddress), scanFromBlock: fromBlock });
+    expect(pf2.checks.find((c) => c.id === "unpaid")?.status).toBe("fail");
+  });
+
+  it("finds a payment whose transaction the browser never saw, so it isn't paid twice", async () => {
+    const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
+    const req = createPaymentRequest({ chainId: 46630, token: network.token!, amount: 12_000_000n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock });
+    const { rec, request } = await routedPay(req.link);
+    // The record still says "created": the tab closed before the wallet returned the hash.
+    expect(rec.machine.paymentSubmitted).toBe(false);
+    const found = await findUnrecordedPayment(client, network, rec);
+    expect(found?.announced).toBe(true);
+    expect(found?.hash).toMatch(/^0x[0-9a-f]{64}$/);
+    // An attempt that never reached the chain finds nothing.
+    const other = newPayerRecord(request, payer.account!.address, deriveStealthPayment(request.stealthMetaAddress), network.token!, {});
+    expect(await findUnrecordedPayment(client, network, other)).toBeNull();
   });
 
   it("rejects an oversized stipend and refuses payments without approval", async () => {

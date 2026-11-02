@@ -19,7 +19,7 @@ import { findDeployBlock, scanAnnouncements, verifyTransferInReceipt, waitForCon
 import { deriveLinkKeys, RECOVERY_GAP } from "./link-keys";
 import { parsePaymentMetadata } from "./metadata";
 import { announcementMatches, deriveStealthPrivateKey } from "./stealth";
-import type { StoredPayment, StoredRequest } from "./vault";
+import type { StoredPayment, StoredRequest, VaultData } from "./vault";
 
 export interface ScanResult {
   request: StoredRequest;
@@ -37,9 +37,22 @@ export function matchRequestAnnouncements(req: StoredRequest, anns: Announcement
   });
 }
 
-/** Sums verified Transfer events of `token` into `stealth` from `fromBlock`. */
-export async function receivedAmount(client: PublicClient, token: Address, stealth: Address, fromBlock: bigint, chunk: bigint) {
-  const latest = await client.getBlockNumber({ cacheTime: 0 });
+/**
+ * Sums verified Transfer events of `token` into `stealth` from `fromBlock`. Transfers from
+ * `excludeFrom` (the shielded pool, when an exit sends money back) are the payment's own money
+ * returning, not new money received, so they don't count.
+ */
+export async function receivedAmount(
+  client: PublicClient,
+  token: Address,
+  stealth: Address,
+  fromBlock: bigint,
+  chunk: bigint,
+  toBlock?: bigint,
+  excludeFrom: Address[] = [],
+) {
+  const skip = new Set(excludeFrom.map((a) => a.toLowerCase()));
+  const latest = toBlock ?? (await client.getBlockNumber({ cacheTime: 0 }));
   let total = 0n;
   let start = fromBlock;
   let size = chunk;
@@ -55,7 +68,7 @@ export async function receivedAmount(client: PublicClient, token: Address, steal
         toBlock: end,
         strict: true,
       });
-      for (const l of logs) total += l.args.value;
+      for (const l of logs) if (!skip.has(l.args.from.toLowerCase())) total += l.args.value;
       start = end + 1n;
     } catch (e) {
       if (size <= 100n) throw e;
@@ -82,7 +95,8 @@ export async function scanRequest(
   for (const m of matches) {
     const existing = known.get(m.stealthAddress.toLowerCase());
     if (existing?.claimTx) continue;
-    const received = await receivedAmount(client, req.token, m.stealthAddress, BigInt(req.fromBlock), network.logChunkSize);
+    const poolAddrs = network.pool ? [network.pool.pool, network.pool.entrypoint] : [];
+    const received = await receivedAmount(client, req.token, m.stealthAddress, BigInt(req.fromBlock), network.logChunkSize, undefined, poolAddrs);
     const block = await client.getBlock({ blockNumber: m.blockNumber });
     const p: StoredPayment = {
       stealthAddress: m.stealthAddress,
@@ -100,6 +114,45 @@ export async function scanRequest(
     request: { ...req, payments: [...known.values()], lastScannedBlock: scannedTo.toString() },
     newPayments,
     scannedTo,
+  };
+}
+
+/**
+ * Applies what a scan found to the latest saved copy of a request. A scan can take a while and
+ * starts from an older copy, so only the scan's own findings are taken from it (new payments,
+ * received amounts, the scanned block); sends, claims and returns recorded in the meantime stay.
+ */
+export function mergeScannedRequest(fresh: StoredRequest, scanned: StoredRequest): StoredRequest {
+  const byAddr = new Map(fresh.payments.map((p) => [p.stealthAddress.toLowerCase(), p]));
+  for (const sp of scanned.payments) {
+    const k = sp.stealthAddress.toLowerCase();
+    const cur = byAddr.get(k);
+    byAddr.set(
+      k,
+      cur
+        ? { ...cur, receivedAmount: sp.receivedAmount, transferVerified: sp.transferVerified, detectedAt: sp.detectedAt, announcementTx: sp.announcementTx, announcementBlock: sp.announcementBlock }
+        : sp,
+    );
+  }
+  const scannedTo = scanned.lastScannedBlock && (!fresh.lastScannedBlock || BigInt(scanned.lastScannedBlock) > BigInt(fresh.lastScannedBlock)) ? scanned.lastScannedBlock : fresh.lastScannedBlock;
+  return { ...fresh, payments: [...byAddr.values()], ...(scannedTo ? { lastScannedBlock: scannedTo } : {}) };
+}
+
+/** Adds scan results (and links recovered from the chain) to the latest vault without dropping anything. */
+export function applyScan(
+  v: VaultData,
+  p: { scanned: StoredRequest[]; recovered: StoredRequest[]; nextLinkIndex: number; checkedAt: number },
+): VaultData {
+  const scannedById = new Map(p.scanned.map((r) => [r.id, r]));
+  const requests = v.requests.map((r) => (scannedById.has(r.id) ? mergeScannedRequest(r, scannedById.get(r.id)!) : r));
+  const knownIds = new Set(requests.map((r) => r.id));
+  const knownMeta = new Set(requests.map((r) => r.keys.stealthMetaAddress.toLowerCase()));
+  const added = p.recovered.filter((r) => !knownIds.has(r.id) && !knownMeta.has(r.keys.stealthMetaAddress.toLowerCase()));
+  return {
+    ...v,
+    requests: [...added, ...requests].sort((a, b) => b.createdAt - a.createdAt),
+    nextLinkIndex: Math.max(v.nextLinkIndex ?? 0, p.nextLinkIndex),
+    linksCheckedAt: p.checkedAt,
   };
 }
 
@@ -165,7 +218,7 @@ export async function discoverLinks(
   const toBlock = await client.getBlockNumber({ cacheTime: 0 });
   const fromBlock =
     p.fullHistory || knownHere.length === 0
-      ? await findDeployBlock(client, network.announcer)
+      ? (network.announcerFromBlock ?? (await findDeployBlock(client, network.announcer)))
       : knownHere.reduce((min, r) => (BigInt(r.fromBlock) < min ? BigInt(r.fromBlock) : min), BigInt(knownHere[0].fromBlock));
   const anns = await scanAnnouncements(client, {
     announcer: network.announcer,
@@ -278,6 +331,39 @@ export async function sendFromStealthPayment(
   const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   verifyTransferInReceipt(receipt, { token: p.request.token, to, amount, from: account.address });
   return { hash: receipt.transactionHash, amount, remaining: balance - amount };
+}
+
+/** Gas for a plain ETH transfer. */
+const ETH_TRANSFER_GAS = 21_000n;
+
+/** ETH left at a one-time address (the payer's gas money) and what moving it would leave after fees. */
+export async function leftoverEth(client: PublicClient, stealth: Address): Promise<{ eth: bigint; movable: bigint; maxFeePerGas: bigint }> {
+  const [eth, fees] = await Promise.all([client.getBalance({ address: stealth }), client.estimateFeesPerGas()]);
+  const maxFeePerGas = ((fees.maxFeePerGas ?? 0n) * 6n) / 5n;
+  const cost = ETH_TRANSFER_GAS * maxFeePerGas;
+  return { eth, movable: eth > cost ? eth - cost : 0n, maxFeePerGas };
+}
+
+/**
+ * Sends the ETH left at a payment's one-time address to `to`, once its tokens are gone. The fee
+ * is reserved first, so the transfer can't fail for lack of gas; a few wei may stay behind.
+ */
+export async function sweepLeftoverEth(
+  client: PublicClient,
+  network: NetworkConfig,
+  p: { request: StoredRequest; payment: StoredPayment; to: Address },
+): Promise<{ hash: Hash; amount: bigint }> {
+  const account = stealthAccount(p.request, p.payment);
+  const to = getAddress(p.to);
+  if (to === getAddress(account.address)) throw new Error("Choose a different destination address.");
+  const { movable, maxFeePerGas } = await leftoverEth(client, account.address);
+  if (movable <= 0n) throw new Error("There is too little ETH here to cover the fee for moving it.");
+  const wallet = createWalletClient({ account, chain: network.chain, transport: http(network.rpcUrl, { timeout: 20_000 }) });
+  const priority = maxFeePerGas / 10n;
+  const hash = await wallet.sendTransaction({ to, value: movable, gas: ETH_TRANSFER_GAS, maxFeePerGas, maxPriorityFeePerGas: priority });
+  const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
+  if (receipt.status !== "success") throw new Error("The transfer failed.");
+  return { hash: receipt.transactionHash, amount: movable };
 }
 
 /** The payment's one-time address as a local signer. The key is derived in memory only. */

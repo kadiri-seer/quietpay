@@ -6,7 +6,7 @@ import { getAddress, isAddress, type Address } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
-import { discoverLinks, estimateSweepCost, recordSend, scanRequest, sendFromStealthPayment, stealthBalances } from "@/lib/receive";
+import { applyScan, discoverLinks, estimateSweepCost, leftoverEth, recordSend, scanRequest, sendFromStealthPayment, stealthBalances, sweepLeftoverEth } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
 import { isExpired, requestStatus, type StoredPayment, type StoredRequest } from "@/lib/vault";
 import { STATE_LABELS } from "@/lib/payment-state";
@@ -43,7 +43,7 @@ export function ReceiveFlow() {
 }
 
 function Dashboard({ network }: { network: NetworkConfig }) {
-  const { vault, save } = useVault();
+  const { vault, update } = useVault();
   const readiness = useNetworkReadiness(network);
   const client = usePublicClient(network);
   const [scanning, setScanning] = useState(false);
@@ -83,12 +83,15 @@ function Dashboard({ network }: { network: NetworkConfig }) {
           updated.set(r.id, res.request);
         }
         const recovered = d.found.map((r) => updated.get(r.id)!);
-        await save({
-          ...vault,
-          requests: [...recovered, ...vault.requests.map((r) => updated.get(r.id) ?? r)].sort((a, b) => b.createdAt - a.createdAt),
-          nextLinkIndex: d.nextLinkIndex,
-          linksCheckedAt: Date.now(),
-        });
+        const foundIds = new Set(d.found.map((r) => r.id));
+        await update((v) =>
+          applyScan(v, {
+            scanned: [...updated.values()].filter((r) => !foundIds.has(r.id)),
+            recovered,
+            nextLinkIndex: d.nextLinkIndex,
+            checkedAt: Date.now(),
+          }),
+        );
         const parts = [
           d.found.length ? `Recovered ${d.found.length} link${d.found.length === 1 ? "" : "s"} from your wallet.` : "",
           payments ? `Found ${payments} new payment${payments === 1 ? "" : "s"}.` : "",
@@ -100,7 +103,7 @@ function Dashboard({ network }: { network: NetworkConfig }) {
         setScanning(false);
       }
     },
-    [vault, requests, token, client, network, save],
+    [vault, requests, token, client, network, update],
   );
 
   // On a device that hasn't checked yet (new phone, cleared data), recover links automatically.
@@ -298,7 +301,80 @@ function PaymentRow({ request, payment, network }: { request: StoredRequest; pay
       )}
       {mismatch && <Notice tone="warn">The amount received differs from the amount requested.</Notice>}
       {!payment.claimTx && payment.transferVerified && <SendPanel request={request} payment={payment} network={network} />}
+      {payment.claimTx && <LeftoverGas request={request} payment={payment} network={network} />}
     </li>
+  );
+}
+
+/**
+ * The payer's gas money that a one-time address didn't use. It's small, so this stays out of the
+ * way: one link to check it, then an address to send it to.
+ */
+function LeftoverGas({ request, payment, network }: { request: StoredRequest; payment: StoredPayment; network: NetworkConfig }) {
+  const client = usePublicClient(network);
+  const [state, setState] = useState<"idle" | "checking" | "ready" | "sending" | "done">("idle");
+  const [movable, setMovable] = useState(0n);
+  const [dest, setDest] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const destAddr = isAddress(dest.trim(), { strict: false }) ? getAddress(dest.trim()) : null;
+
+  async function check() {
+    setState("checking");
+    setMsg(null);
+    try {
+      const l = await leftoverEth(client, payment.stealthAddress);
+      setMovable(l.movable);
+      setState(l.movable > 0n ? "ready" : "idle");
+      if (l.movable === 0n) setMsg(l.eth > 0n ? "The ETH left here is less than the fee to move it." : "No ETH left at this address.");
+    } catch (e) {
+      setState("idle");
+      setMsg(classifyTxError(e).message);
+    }
+  }
+
+  async function send() {
+    if (!destAddr) return;
+    setState("sending");
+    setMsg(null);
+    try {
+      const r = await sweepLeftoverEth(client, network, { request, payment, to: destAddr });
+      setState("done");
+      setMsg(`Sent ${formatEthCeil(r.amount)} ETH.`);
+    } catch (e) {
+      setState("ready");
+      setMsg(e instanceof Error && !("shortMessage" in e) ? e.message : classifyTxError(e).message);
+    }
+  }
+
+  if (state === "idle" || state === "checking") {
+    return (
+      <p className="text-xs text-haze">
+        <button type="button" className="underline underline-offset-2 hover:text-snow disabled:opacity-50" disabled={state === "checking"} onClick={check}>
+          {state === "checking" ? "Checking…" : "Check for leftover gas ETH"}
+        </button>
+        {msg && <span className="ml-2">{msg}</span>}
+      </p>
+    );
+  }
+  if (state === "done") return <p className="text-xs text-haze">{msg}</p>;
+  return (
+    <div className="space-y-2 rounded-lg border border-harbor p-3 text-xs">
+      <p className="text-snow">{formatEthCeil(movable)} ETH of the payer&apos;s gas money is left at this address.</p>
+      <input
+        className="field font-mono text-sm"
+        placeholder="0x… address to send it to"
+        value={dest}
+        onChange={(e) => setDest(e.target.value)}
+        aria-label="Send leftover ETH to"
+        spellCheck={false}
+        autoComplete="off"
+      />
+      <p className="text-haze">Sending it to a wallet that&apos;s known to be yours links that wallet to this payment.</p>
+      <button type="button" className="btn btn-sm" disabled={!destAddr || state === "sending"} onClick={send}>
+        {state === "sending" ? <Spinner /> : null} Send leftover ETH
+      </button>
+      {msg && <p className="text-bad">{msg}</p>}
+    </div>
   );
 }
 
@@ -307,7 +383,7 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
   const { address } = useAccount();
   const { data: wallet } = useWalletClient({ chainId: network.chain.id });
   const client = usePublicClient(network);
-  const { vault, save } = useVault();
+  const { vault, update } = useVault();
   const [open, setOpen] = useState(false);
   const [dest, setDest] = useState("");
   const [amountInput, setAmountInput] = useState("");
@@ -385,8 +461,10 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
     setError(null);
     try {
       const res = await sendFromStealthPayment(client, network, { request, payment, to: destAddr, amount: amount.value });
-      const updated = recordSend(request, payment.stealthAddress, { tx: res.hash, to: destAddr, amount: res.amount }, res.remaining);
-      await save({ ...vault, requests: vault.requests.map((r) => (r.id === updated.id ? updated : r)) });
+      await update((v) => {
+        const updated = recordSend(v.requests.find((r) => r.id === request.id) ?? request, payment.stealthAddress, { tx: res.hash, to: destAddr, amount: res.amount }, res.remaining);
+        return { ...v, requests: v.requests.map((r) => (r.id === updated.id ? updated : r)) };
+      });
       setDone(`Sent ${fmt(res.amount)}.`);
       setAmountInput("");
       setDest("");

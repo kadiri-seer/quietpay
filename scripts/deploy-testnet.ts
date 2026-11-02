@@ -97,7 +97,10 @@ async function main() {
     return receipt.contractAddress;
   }
 
-  if (what.includes("announcer")) env.push(`${prefix}_ANNOUNCER_ADDRESS=${await deploy("ERC5564Announcer")}`);
+  if (what.includes("announcer")) {
+    const at = await client.getBlockNumber();
+    env.push(`${prefix}_ANNOUNCER_ADDRESS=${await deploy("ERC5564Announcer")}`, `${prefix}_ANNOUNCER_FROM_BLOCK=${at}`);
+  }
   if (what.includes("token")) env.push(`${prefix}_TOKEN_ADDRESS=${await deploy("QuietPayTestUSDG")}`);
   if (what.includes("router")) env.push(`${prefix}_ROUTER_ADDRESS=${await deploy("QuietPayRouter")}`);
   if (what.includes("pool")) {

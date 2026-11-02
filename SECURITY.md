@@ -142,8 +142,13 @@ states this on every page and the payer must acknowledge it before paying.
   After the required confirmations the receipt is re-fetched and, if its block hash changed (reorg),
   waited for again.
 - One-time enforcement: before paying, QuietPay scans announcements for the link's request ID and
-  blocks payment if one exists. Two payers racing can still both pay; the recipient sees and can
-  claim both.
+  blocks payment if one exists *and* its one-time address received at least the link's amount of
+  the token. Anyone holding a link can post an announcement with its ID, so an announcement alone
+  doesn't block the link. Two payers racing can still both pay; the recipient sees and can claim
+  both.
+- Interrupted payments: if the page closes after the derivation is saved but before the wallet
+  returns a transaction hash (common on phones), the next visit looks onchain for a transfer from
+  the payer to that one-time address before offering a new payment, and warns if it can't tell.
 
 ### QuietPay router
 - `QuietPayRouter` has no owner, no storage of funds and no upgrade path. It pulls exactly the
@@ -186,6 +191,21 @@ states this on every page and the payer must acknowledge it before paying.
 - The pool hides which deposit a withdrawal came from. It does not hide deposits, withdrawals,
   amounts or timing, and gives little privacy while few people use it.
 - Details: [docs/shielded-pool.md](./docs/shielded-pool.md).
+
+### Local data consistency
+- Every vault change goes through one `update` function that runs under a Web Lock shared by all
+  QuietPay tabs and re-reads the stored vault before applying the change, so a long scan, another
+  tab or a delivery can't overwrite newer data (lost deliveries, or a reused link number and with
+  it reused keys). Tabs reload the vault when another tab saves it. Only one tab sends scheduled
+  deliveries at a time.
+
+### Server routes
+- `/api/relay` and `/api/pool/approvals` are rate-limited per client (salted IP hash in expiring
+  counters, Upstash Redis, with an in-memory fallback if Redis is unreachable). Request bodies are
+  size-capped after reading, whatever the Content-Length header says.
+- A withdrawal is claimed by its nullifier while it is being submitted, so the same proof sent many
+  times at once costs the relayer one transaction, not one failed transaction per copy. Relayer
+  and approver transactions are sent one at a time (shared lock) so they never collide on a nonce.
 
 ### Other
 - `Number`-free amounts: all token math uses `bigint`, with strict decimal parsing (no exponents,

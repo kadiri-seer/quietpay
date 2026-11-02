@@ -89,6 +89,20 @@ export class RelayRejected extends Error {
   }
 }
 
+/**
+ * Server-side guards for the relayer (src/lib/server/guard.ts). Tests run without them.
+ * - claim: reserves a withdrawal (by its nullifier) while it is being submitted, so the same proof
+ *   sent many times at once is submitted once instead of costing gas for every failed copy;
+ * - send: runs one transaction send at a time across server instances, so they don't collide on
+ *   the relayer's nonce.
+ */
+export interface RelayGuard {
+  claim(nullifierHash: bigint): Promise<(() => Promise<void>) | null>;
+  send<T>(fn: () => Promise<T>): Promise<T>;
+}
+
+const noGuard: RelayGuard = { claim: async () => async () => undefined, send: (fn) => fn() };
+
 export function decodeRelayData(data: `0x${string}`) {
   const [d] = decodeAbiParameters(
     [{ type: "tuple", components: [{ name: "recipient", type: "address" }, { name: "feeRecipient", type: "address" }, { name: "relayFeeBPS", type: "uint256" }] }],
@@ -104,13 +118,14 @@ export async function relayWithdrawal(
   info: PoolInfo,
   policy: RelayerPolicy,
   raw: unknown,
+  guard: RelayGuard = noGuard,
 ): Promise<{ hash: Hash; recipient: Address; amount: bigint; fee: bigint; gasDropHash: Hash | null }> {
   const parsed = relayBodySchema.safeParse(raw);
   if (!parsed.success) throw new RelayRejected("Malformed withdrawal request.");
   const body = parsed.data as SerializedWithdrawal;
   if (getAddress(body.withdrawal.processooor) !== getAddress(info.entrypoint)) throw new RelayRejected("Wrong processor.");
   if (BigInt(body.scope) !== info.scope) throw new RelayRejected("Wrong pool.");
-  let data;
+  let data: ReturnType<typeof decodeRelayData>;
   try {
     data = decodeRelayData(body.withdrawal.data as `0x${string}`);
   } catch {
@@ -121,6 +136,21 @@ export async function relayWithdrawal(
   const args = relayArgs(body);
   const amount = args[1].pubSignals[2];
   if (amount === 0n) throw new RelayRejected("Nothing to withdraw.");
+
+  // One submission per withdrawal at a time. The claim is released if this attempt fails, and
+  // kept (until it expires) once the withdrawal is onchain, when the nullifier is spent anyway.
+  const release = await guard.claim(args[1].pubSignals[1]);
+  if (!release) throw new RelayRejected("This withdrawal is already being submitted. Wait a moment and check again.");
+  let submitted = false;
+  try {
+    const out = await submitRelay();
+    submitted = true;
+    return out;
+  } finally {
+    if (!submitted) await release().catch(() => undefined);
+  }
+
+  async function submitRelay() {
 
   // Simulation runs the full onchain checks (proof, roots, nullifier) at no cost.
   try {
@@ -147,7 +177,9 @@ export async function relayWithdrawal(
     throw new RelayRejected("This amount is too small to send through the relayer right now: its fee wouldn't cover the network fee.", econ.minWithdrawal);
   }
 
-  const hash = await wallet.writeContract({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account!, chain: network.chain, gas: (gas * 6n) / 5n });
+  const hash = await guard.send(() =>
+    wallet.writeContract({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account!, chain: network.chain, gas: (gas * 6n) / 5n }),
+  );
   const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   if (receipt.status !== "success") throw new Error("The withdrawal transaction reverted.");
   const relayed = parseEventLogs({ abi: Entrypoint.abi, logs: receipt.logs, eventName: "WithdrawalRelayed" })[0];
@@ -155,10 +187,11 @@ export async function relayWithdrawal(
 
   let gasDropHash: Hash | null = null;
   if (econ.drop > 0n) {
-    gasDropHash = await wallet.sendTransaction({ to: data.recipient, value: econ.drop, account: wallet.account!, chain: network.chain });
+    gasDropHash = await guard.send(() => wallet.sendTransaction({ to: data.recipient, value: econ.drop, account: wallet.account!, chain: network.chain }));
     await waitForConfirmedReceipt(client, gasDropHash, { confirmations: network.confirmations });
   }
   return { hash: receipt.transactionHash, recipient: getAddress(data.recipient), amount, fee, gasDropHash };
+  }
 }
 
 /**

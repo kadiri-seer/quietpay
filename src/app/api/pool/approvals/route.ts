@@ -8,6 +8,10 @@ import { verifyPool } from "@/lib/pool/actions";
 import { refreshApprovals } from "@/lib/pool/relayer";
 import { relayerContext } from "@/lib/pool/server";
 import { fetchPoolEvents } from "@/lib/pool/state";
+import { rateLimit, withLock } from "@/lib/server/guard";
+
+/** Calls per client per minute. The site asks at most every few seconds while a deposit waits. */
+const CALLS_PER_MIN = 30;
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,9 +19,20 @@ export const maxDuration = 60;
 
 const noStore = { "Cache-Control": "no-store" };
 
-export async function POST() {
+export async function POST(req: Request) {
+  if (!(await rateLimit(req, "approvals", CALLS_PER_MIN, 60))) {
+    return NextResponse.json({ error: "Too many requests. Wait a minute." }, { status: 429, headers: noStore });
+  }
   const ctx = relayerContext();
   if (!ctx) return NextResponse.json({ error: "The approver is not running." }, { status: 503, headers: noStore });
+  // One approval update at a time across all server instances; a call that finds one running
+  // simply returns, since that update will cover its deposit too.
+  const r = await withLock("approver", 60, 0, () => approve(ctx)).catch(() => ({ value: null }));
+  if (!r) return NextResponse.json({ updated: false, reason: "busy" }, { headers: noStore });
+  return r.value ?? NextResponse.json({ error: "Could not update approvals. Try again shortly." }, { status: 502, headers: noStore });
+}
+
+async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
   try {
     const info = await verifyPool(ctx.client, ctx.network);
     if (!info) return NextResponse.json({ error: "No pool is configured." }, { status: 503, headers: noStore });
@@ -32,7 +47,12 @@ export async function POST() {
     if (last && now - Number(last.timestamp) < 10) {
       return NextResponse.json({ updated: false, reason: "recent" }, { headers: noStore });
     }
-    const r = await refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, { delaySeconds: ctx.approvalDelaySeconds, nowSeconds: now });
+    // The approver signs with the relayer's key, so it takes the same send lock as relays.
+    const sent = await withLock("relayer:send", 30, 20_000, () =>
+      refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, { delaySeconds: ctx.approvalDelaySeconds, nowSeconds: now }),
+    );
+    if (!sent) return NextResponse.json({ updated: false, reason: "busy" }, { headers: noStore });
+    const r = sent.value;
     return NextResponse.json({ updated: !!r.hash, hash: r.hash, approved: r.approved, uptoBlock: r.uptoBlock.toString() }, { headers: noStore });
   } catch {
     return NextResponse.json({ error: "Could not update approvals. Try again shortly." }, { status: 502, headers: noStore });

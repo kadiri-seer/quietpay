@@ -6,9 +6,11 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "vercel-build": "npm run lint && npm run test:unit && next build",
     "start": "next start",
     "lint": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --exclude 'tests/e2e-*'",
     "test:watch": "vitest",
     "contracts:compile": "tsx scripts/compile-contracts.ts",
     "contracts:compile:pool": "tsx scripts/compile-pool.ts",
@@ -22,17 +24,17 @@
     "@noble/secp256k1": "^2.3.0",
     "@scopelift/stealth-address-sdk": "^1.0.0-beta.5",
     "@tanstack/react-query": "^5.105.0",
-    "@walletconnect/ethereum-provider": "^2.21.1",
+    "@walletconnect/ethereum-provider": "^2.26.0",
     "@zk-kit/lean-imt": "^2.2.4",
     "next": "^16.4.3",
     "poseidon-lite": "^0.3.0",
     "qrcode": "^1.5.4",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "snarkjs": "^0.7.5",
+    "snarkjs": "^0.7.6",
     "viem": "^2.57.13",
     "wagmi": "^2.19.5",
-    "zod": "^3.25.76"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@fontsource/ibm-plex-mono": "^5.3.0",
@@ -54,5 +56,11 @@
     "typescript": "^5.9.3",
     "vitest": "^5.0.5"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "overrides": {
+    "@walletconnect/ethereum-provider": "$@walletconnect/ethereum-provider",
+    "ws": "^8.22.1",
+    "underscore": "^1.13.8",
+    "decode-uri-component": "^0.5.1"
+  }
 }

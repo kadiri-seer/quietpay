@@ -207,11 +207,16 @@ requires `NEXT_PUBLIC_ENABLE_MAINNET=true` and should wait for the blockers belo
 
 ```bash
 npm test          # unit + end-to-end (anvil) tests
+npm run test:unit # unit tests only (fast)
 npm run lint      # TypeScript type check
 npm run build     # production build
 ```
 
-The suite (94 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
+GitHub Actions runs the type check and the full suite on every push (`.github/workflows/ci.yml`).
+Vercel builds with `npm run vercel-build`, which runs the type check and the unit tests first, so a
+failing build is never deployed.
+
+The suite (116 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
 vault encryption, wallet-derived link keys and recovery on a new device, stealth derivation and matching, metadata,
 network gating and bytecode fingerprints, the payment state machine, and transaction-error
 classification. `tests/e2e-anvil.test.ts` runs the full flow on a real local EVM: deploy, create,

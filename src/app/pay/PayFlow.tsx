@@ -13,6 +13,7 @@ import {
   confirmAnnouncement,
   confirmPayment,
   confirmRoutedPayment,
+  findUnrecordedPayment,
   loadPayerRecord,
   newPayerRecord,
   preflight,
@@ -184,16 +185,54 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     resumed.current = false;
   }, [open, request]);
 
+  // An attempt that was prepared but whose transaction this browser never saw (the tab closed
+  // while the wallet asked). Checked onchain before anything new is offered.
+  const [unconfirmed, setUnconfirmed] = useState<PayerRecord | null>(null);
+  const [lookingUp, setLookingUp] = useState(false);
+
+  const checkUnconfirmed = useCallback(
+    async (existing: PayerRecord) => {
+      setLookingUp(true);
+      try {
+        const found = await findUnrecordedPayment(client, network, existing);
+        if (found) {
+          let m = transition(existing.machine, { type: "SUBMIT_PAYMENT", txHash: found.hash });
+          m = transition(m, found.announced ? { type: "ROUTED_PAYMENT_CONFIRMED", txHash: found.hash } : { type: "PAYMENT_CONFIRMED", txHash: found.hash });
+          const next = { ...existing, machine: m };
+          if (store) savePayerRecord(store, next);
+          setUnconfirmed(null);
+          setRec(next);
+          return;
+        }
+        // Nothing arrived. After half an hour a wallet request can't still be pending.
+        if (Date.now() - existing.updatedAt > 30 * 60_000) {
+          if (store) clearPayerRecord(store, existing.requestId);
+          setUnconfirmed(null);
+          freshStart();
+          return;
+        }
+        setUnconfirmed(existing);
+      } catch {
+        setUnconfirmed(existing);
+      } finally {
+        setLookingUp(false);
+      }
+    },
+    [client, network, store, freshStart],
+  );
+
   // Resume a payment this browser already submitted for this link, otherwise start fresh.
   useEffect(() => {
     if (!address) return;
     const existing = store ? loadPayerRecord(store, request.requestId) : null;
     if (existing && existing.payer.toLowerCase() === address.toLowerCase() && existing.machine.paymentSubmitted) {
       setRec(existing);
+    } else if (existing && existing.payer.toLowerCase() === address.toLowerCase() && existing.machine.state === "created") {
+      void checkUnconfirmed(existing);
     } else {
       freshStart();
     }
-  }, [address, request.requestId, store, freshStart]);
+  }, [address, request.requestId, store, freshStart, checkUnconfirmed]);
 
   const persist = useCallback(
     (next: PayerRecord) => {
@@ -437,6 +476,37 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
       setBusy(null);
     }
   }, [wallet, amountConfirmed, token, network.chain, client]);
+
+  if (lookingUp) return <LoadingRows label="Checking whether your earlier payment went through" rows={3} />;
+
+  if (unconfirmed) {
+    const amountText = `${formatAmount(BigInt(unconfirmed.amount ?? request.amount.toString()), token.decimals, { group: true })} ${token.symbol}`;
+    return (
+      <div className="space-y-4">
+        <Notice tone="warn" title="You may already have paid">
+          You started paying {amountText} to this link from this browser at {new Date(unconfirmed.updatedAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })},
+          and the page closed before it finished. If you approved it in your wallet, it may still arrive. Check your wallet&apos;s activity
+          before paying again.
+        </Notice>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="btn btn-primary" onClick={() => void checkUnconfirmed(unconfirmed)}>
+            Check again
+          </button>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            onClick={() => {
+              if (store) clearPayerRecord(store, request.requestId);
+              setUnconfirmed(null);
+              freshStart();
+            }}
+          >
+            It didn&apos;t go through, start a new payment
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!address || (!rec && !derivation)) return <LoadingRows label="Preparing your one-time payment address" rows={4} />;
 

@@ -121,6 +121,10 @@ log contract). Excluded deposits can still exit to their one-time address.
   address can move its tokens, but only with what the fee has left after gas, so the top-up is
   always paid for.
 
+Each client is rate-limited, a withdrawal is locked by its nullifier while it is being submitted
+(so duplicate copies sent at once cost one transaction, not one failed transaction each), and the
+relayer and approver send one transaction at a time so they never collide on a nonce.
+
 It stores and logs nothing. It does see the requester's IP address and the withdrawal it submits,
 and it can refuse service, but it cannot steal or redirect funds. The relayer key is separate from
 the deployer key, which owns the entrypoint and must never sit on the web host.
@@ -175,7 +179,7 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 2. Real screening in the approver, with an exclusion list in the published rule.
 3. Legal checks: complete.
 4. Owner as a multisig with a timelock; consider renouncing upgrades once stable.
-5. Relayer hardening: rate limits, a funded balance monitor, a live ETH price instead of the
+5. Relayer hardening: a funded balance monitor, a live ETH price instead of the
    configured one, and an option to use any other relayer. (The fee already has to cover the gas
    and the top-up.)
 6. Licensing: snarkjs (GPL-3.0) runs in the browser bundle. Either publish the web app's source under

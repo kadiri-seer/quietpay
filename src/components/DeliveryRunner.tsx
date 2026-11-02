@@ -38,7 +38,16 @@ export function DeliveryRunner() {
     const patch = (id: string, change: Partial<Delivery>) =>
       update((v) => ({ ...v, deliveries: (v.deliveries ?? []).map((d) => (d.id === id ? { ...d, ...change } : d)) }));
 
+    // Only one QuietPay tab sends deliveries at a time; the others skip their turn.
     async function tick() {
+      const locks = (navigator as Navigator & { locks?: LockManager }).locks;
+      if (!locks) return run();
+      await locks.request("quietpay-deliveries", { ifAvailable: true }, async (lock) => {
+        if (lock) await run();
+      });
+    }
+
+    async function run() {
       if (busy.current) return;
       const v = latest.current;
       const now = Date.now();

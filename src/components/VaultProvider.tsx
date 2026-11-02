@@ -8,14 +8,21 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAccount, useAccountEffect, useSignMessage } from "wagmi";
-import type { Address, Hex } from "viem";
+import { getAddress, type Address, type Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
-import { browserStore, emptyVault, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
+import { browserStore, emptyVault, hasVault, loadVault, saveVault, vaultStorageKey, type VaultData } from "@/lib/vault";
 import { derivePoolMasterKeys } from "@/lib/pool/crypto";
 import { deriveNameKey } from "@/lib/names/names";
 import { deriveLinkSeed } from "@/lib/link-keys";
 import { classifyTxError } from "@/lib/tx-errors";
 import { forgetKey, hasDeclined, recallKey, rememberKey, setDeclined } from "@/lib/remember";
+
+/** Runs `fn` while holding a lock shared by every QuietPay tab (Web Locks), or directly where unsupported. */
+export function withVaultLock<T>(address: Address, fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" ? (navigator as Navigator & { locks?: LockManager }).locks : undefined;
+  if (!locks) return fn();
+  return locks.request(`quietpay-vault-${address.toLowerCase()}`, fn) as Promise<T>;
+}
 
 type Status = "locked" | "restoring" | "unlocking" | "unlocked" | "unavailable";
 
@@ -34,10 +41,13 @@ interface VaultContextValue {
   askRemember: boolean;
   /** Answer to "Keep me signed in on this device?" */
   chooseRemember: (yes: boolean) => Promise<void>;
-  /** Encrypts and persists a new vault state. Resolves only after it is written. */
-  save: (next: VaultData) => Promise<void>;
-  /** Applies `fn` to the latest vault and saves it. Updates run one at a time, so none are lost. */
-  update: (fn: (current: VaultData) => VaultData) => Promise<VaultData>;
+  /**
+   * The only way to change the vault: applies `fn` to the latest saved vault and saves the result.
+   * Updates run one at a time across every QuietPay tab (a Web Lock), and each one re-reads what
+   * is stored first, so a change made elsewhere (another tab, a scan finishing, a delivery) is
+   * never overwritten by an older copy.
+   */
+  update: (fn: (current: VaultData) => VaultData | Promise<VaultData>) => Promise<VaultData>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -197,37 +207,59 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     setRememberedUntil(until);
   }, []);
 
-  const save = useCallback(async (next: VaultData) => {
-    const store = browserStore();
-    const k = keyRef.current;
-    if (!store || !k || k.address !== next.address) throw new Error("Vault is locked.");
-    await saveVault(store, k.key, next);
-    vaultRef.current = next;
-    setVault(next);
-  }, []);
-
   const vaultRef = useRef<VaultData | null>(null);
   useEffect(() => {
     vaultRef.current = vault;
   }, [vault]);
+
+  // Another tab saved the vault: load its version so this tab never works from a stale copy.
+  useEffect(() => {
+    if (status !== "unlocked" || !address) return;
+    const key = vaultStorageKey(address);
+    const onStorage = (e: StorageEvent) => {
+      const k = keyRef.current;
+      const store = browserStore();
+      if (e.key !== key || !k || !store) return;
+      void loadVault(store, k.key, k.address)
+        .then((fresh) => {
+          vaultRef.current = fresh;
+          setVault(fresh);
+        })
+        .catch(() => undefined);
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [status, address]);
+
   const queue = useRef<Promise<unknown>>(Promise.resolve());
-  const update = useCallback(
-    (fn: (current: VaultData) => VaultData) => {
-      const run = async () => {
-        const cur = vaultRef.current;
-        if (!cur) throw new Error("Vault is locked.");
-        const next = fn(cur);
-        await save(next);
+  const update = useCallback((fn: (current: VaultData) => VaultData | Promise<VaultData>) => {
+    const run = async () => {
+      const k = keyRef.current;
+      const store = browserStore();
+      if (!k || !store || !vaultRef.current) throw new Error("Vault is locked.");
+      return withVaultLock(k.address, async () => {
+        let cur = vaultRef.current!;
+        try {
+          cur = await loadVault(store, k.key, k.address);
+        } catch {
+          /* unreadable stored copy: keep the one in memory */
+        }
+        const next = await fn(cur);
+        if (getAddress(next.address) !== getAddress(k.address)) throw new Error("Vault is locked.");
+        await saveVault(store, k.key, next);
+        if (keyRef.current === k) {
+          vaultRef.current = next;
+          setVault(next);
+        }
         return next;
-      };
-      const p = queue.current.then(run, run);
-      queue.current = p.catch(() => undefined);
-      return p;
-    },
-    [save],
-  );
+      });
+    };
+    const p = queue.current.then(run, run);
+    queue.current = p.catch(() => undefined);
+    return p;
+  }, []);
 
   return (
-    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, save, update, rememberedUntil, askRemember, chooseRemember }}>{children}</VaultContext.Provider>
+    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, update, rememberedUntil, askRemember, chooseRemember }}>{children}</VaultContext.Provider>
   );
 }

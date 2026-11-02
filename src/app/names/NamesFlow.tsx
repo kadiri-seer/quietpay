@@ -236,13 +236,18 @@ function Reserve({ name, onChange }: { name: string | null; onChange: () => void
  * Names reserved before 2 November 2026 belong to a name key from the old QuietPay sign-in
  * message. Signing that message once (here, on QuietPay) recreates the old key, which releases
  * the name so the current key can reserve it straight away.
+ *
+ * Offered only until MOVE_OLD_NAMES_UNTIL: the old message isn't bound to the site's domain, so
+ * QuietPay shouldn't keep asking people to sign it.
  */
+const MOVE_OLD_NAMES_UNTIL = Date.parse("2027-02-01T00:00:00Z");
+
 function MoveOldName({ newKey, onMoved }: { newKey: Hex; onMoved: () => Promise<void> }) {
   const { address } = useAccount();
   const { signMessageAsync } = useSignMessage();
   const [state, setState] = useState<"idle" | "busy" | "none">("idle");
   const [error, setError] = useState<string | null>(null);
-  if (!address) return null;
+  if (!address || Date.now() >= MOVE_OLD_NAMES_UNTIL) return null;
 
   async function move() {
     setState("busy");
@@ -273,9 +278,9 @@ function MoveOldName({ newKey, onMoved }: { newKey: Hex; onMoved: () => Promise<
         <p>No name was reserved with this wallet before the update.</p>
       ) : (
         <p>
-          Reserved a name before 2 November?{" "}
+          Reserved a name before 2 November? Until 1 February{" "}
           <button type="button" className="underline underline-offset-2 hover:text-snow disabled:opacity-50" disabled={state === "busy"} onClick={move}>
-            {state === "busy" ? "Moving it…" : "Bring it over"}
+            {state === "busy" ? "Moving it…" : "bring it over"}
           </button>
           . Your wallet asks you to sign QuietPay&apos;s old message once.
         </p>

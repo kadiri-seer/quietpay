@@ -56,7 +56,7 @@ if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
 return n`;
 
 /** Finds the Upstash REST credentials Vercel added, whatever prefix the integration used. */
-function upstashEnv(): { url: string; token: string } | null {
+export function upstashEnv(): { url: string; token: string } | null {
   const env = process.env;
   const pick = (suffix: string) => {
     const k = Object.keys(env).find((x) => x === suffix || x.endsWith(`_${suffix}`));

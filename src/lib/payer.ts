@@ -31,6 +31,7 @@ import type { LinkKind, PaymentRequestLink } from "./link";
 import { buildPaymentMetadata, parsePaymentMetadata } from "./metadata";
 import { initialMachine, type PaymentMachine } from "./payment-state";
 import type { StealthDerivation } from "./stealth";
+import { receivedAmount } from "./receive";
 import type { KeyValueStore } from "./vault";
 
 export type CheckStatus = "ok" | "fail" | "warn";
@@ -63,7 +64,11 @@ export function payAmount(request: PaymentRequestLink, chosen?: bigint | null): 
   return request.kind === "fixed" ? request.amount : (chosen ?? 0n);
 }
 
-/** Searches announcements for this request ID (one-time enforcement for fixed links). */
+/**
+ * Searches announcements for this request ID (one-time enforcement for fixed links). Anyone who
+ * has the link can post an announcement with its ID, so one only counts if its one-time address
+ * actually received at least the link's amount of the token. Faking that means paying in full.
+ */
 export async function findExistingPayments(
   client: PublicClient,
   network: NetworkConfig,
@@ -81,7 +86,17 @@ export async function findExistingPayments(
     toBlock: latest,
     chunkSize: network.logChunkSize,
   });
-  return anns.filter((a) => parsePaymentMetadata(a.metadata).requestId?.toLowerCase() === request.requestId.toLowerCase());
+  const claimed = anns.filter((a) => parsePaymentMetadata(a.metadata).requestId?.toLowerCase() === request.requestId.toLowerCase());
+  const real: Announcement[] = [];
+  for (const a of claimed) {
+    // A real payment's transfer comes at or just before its announcement (the same transaction
+    // with the router). Look there first, then back to the link's creation.
+    const near = a.blockNumber > start + 50_000n ? a.blockNumber - 50_000n : start;
+    let got = await receivedAmount(client, getAddress(request.token), a.stealthAddress, near, network.logChunkSize, a.blockNumber);
+    if (got < request.amount && near > start) got = await receivedAmount(client, getAddress(request.token), a.stealthAddress, start, network.logChunkSize, a.blockNumber);
+    if (got >= request.amount) real.push(a);
+  }
+  return real;
 }
 
 /**
@@ -349,6 +364,58 @@ export function newPayerRecord(
     machine: initialMachine(),
     updatedAt: Date.now(),
   };
+}
+
+/**
+ * A payment this browser prepared but never saw a transaction hash for: the tab was closed or
+ * reloaded while the wallet was asking (common on phones). Looks onchain for a token transfer
+ * from the payer to that one-time address since the attempt started, so it is never paid twice.
+ * Returns the transaction and whether it also carried the announcement (router payments).
+ */
+export async function findUnrecordedPayment(
+  client: PublicClient,
+  network: NetworkConfig,
+  rec: PayerRecord,
+): Promise<{ hash: Hash; announced: boolean } | null> {
+  if (!network.token) return null;
+  const since = BigInt(Math.max(0, Math.floor(rec.updatedAt / 1000) - 300));
+  const fromBlock = await findBlockAtOrBefore(client, since);
+  const latest = await client.getBlockNumber({ cacheTime: 0 });
+  let start = fromBlock;
+  let size = network.logChunkSize > 0n ? network.logChunkSize : 10_000n;
+  while (start <= latest) {
+    const end = start + size - 1n > latest ? latest : start + size - 1n;
+    try {
+      const logs = await client.getContractEvents({
+        address: network.token,
+        abi: erc20Abi,
+        eventName: "Transfer",
+        args: { from: rec.payer, to: rec.stealthAddress },
+        fromBlock: start,
+        toBlock: end,
+        strict: true,
+      });
+      if (logs.length > 0) {
+        const hash = logs[0].transactionHash;
+        const receipt = await client.getTransactionReceipt({ hash });
+        let announced = false;
+        try {
+          if (network.announcer) {
+            verifyAnnouncementInReceipt(receipt, { announcer: network.announcer, stealthAddress: rec.stealthAddress });
+            announced = true;
+          }
+        } catch {
+          announced = false;
+        }
+        return { hash, announced };
+      }
+      start = end + 1n;
+    } catch (e) {
+      if (size <= 100n) throw e;
+      size /= 2n;
+    }
+  }
+  return null;
 }
 
 /* ---------------- Transactions ---------------- */

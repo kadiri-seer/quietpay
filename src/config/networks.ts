@@ -30,6 +30,11 @@ export interface NetworkConfig {
   expectedSymbol: string;
   /** ERC-5564 announcer address. Null if not deployed/configured. */
   announcer: Address | null;
+  /**
+   * Block the announcer was deployed at: where "search full history" starts. Null to find it
+   * onchain, which needs an RPC that serves old state.
+   */
+  announcerFromBlock: bigint | null;
   /** QuietPayRouter: one-transaction payment + gas stipend + announcement. Null falls back to two transactions. */
   router: Address | null;
   /** Shielded pool (Privacy Pools by 0xbow) for this network's token. Null when not deployed. */
@@ -50,6 +55,10 @@ export interface PoolConfig {
   fromBlock: bigint;
   /** Relayer endpoint that submits withdrawals so the receiving address needs no gas. */
   relayerUrl: string;
+}
+
+function optionalBlock(v: string | undefined): bigint | null {
+  return v && /^\d+$/.test(v.trim()) ? BigInt(v.trim()) : null;
 }
 
 function poolConfig(entrypoint: string | undefined, pool: string | undefined, fromBlock: string | undefined, relayerUrl: string | undefined): PoolConfig | null {
@@ -115,6 +124,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     tokenIsMock: true,
     expectedSymbol: "tUSDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ANNOUNCER_ADDRESS),
+    announcerFromBlock: optionalBlock(process.env.NEXT_PUBLIC_TESTNET_ANNOUNCER_FROM_BLOCK),
     router: optionalAddress(process.env.NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS),
     pool: poolConfig(
       process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT,
@@ -136,6 +146,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
     tokenIsMock: false,
     expectedSymbol: "USDG",
     announcer: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ANNOUNCER_ADDRESS),
+    announcerFromBlock: optionalBlock(process.env.NEXT_PUBLIC_MAINNET_ANNOUNCER_FROM_BLOCK),
     router: optionalAddress(process.env.NEXT_PUBLIC_MAINNET_ROUTER_ADDRESS),
     // The shielded pool is testnet only until it has been reviewed for this deployment.
     pool: null,

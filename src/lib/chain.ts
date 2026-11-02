@@ -113,11 +113,20 @@ export async function verifyRouter(
   return { address: network.router, codeHash };
 }
 
-/** First block at which `address` has code (binary search over historical state). */
+/**
+ * First block at which `address` has code (binary search over historical state). Needs an RPC
+ * that serves old state; if it doesn't, this throws instead of quietly returning a late block
+ * (which would make a history search find nothing). Networks can set the block in config.
+ */
 export async function findDeployBlock(client: PublicClient, address: Address): Promise<bigint> {
   const latest = await client.getBlockNumber({ cacheTime: 0 });
   const has = async (b: bigint) => {
-    const code = await client.getCode({ address, blockNumber: b }).catch(() => undefined);
+    let code: Hex | undefined;
+    try {
+      code = await client.getCode({ address, blockNumber: b });
+    } catch {
+      throw new Error("This network's RPC can't read old blocks, so QuietPay can't find where to start searching. Try again later.");
+    }
     return !!code && code !== "0x";
   };
   if (!(await has(latest))) throw new Error("No contract at that address.");

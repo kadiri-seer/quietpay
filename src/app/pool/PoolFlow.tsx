@@ -445,7 +445,7 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
 }
 
 function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) {
-  const { vault, save } = useVault();
+  const { vault, update } = useVault();
   const client = usePublicClient(network);
   const queryClient = useQueryClient();
   const [busy, setBusy] = useState(false);
@@ -467,9 +467,9 @@ function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) 
       // The funds are back at the one-time address: reopen that payment on the Receive page.
       if (vault) {
         const back = { tx: hash, amount: note.value.toString(), at: Date.now() };
-        await save({
-          ...vault,
-          requests: vault.requests.map((r) =>
+        await update((v) => ({
+          ...v,
+          requests: v.requests.map((r) =>
             r.id !== source.request.id
               ? r
               : {
@@ -481,7 +481,7 @@ function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) 
                   ),
                 },
           ),
-        });
+        }));
       }
       await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
     } catch (e) {
