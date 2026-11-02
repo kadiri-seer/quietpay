@@ -7,7 +7,7 @@
  * the next visit without a signature.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { useAccount, useAccountEffect, useSignMessage } from "wagmi";
+import { useAccount, useAccountEffect, usePublicClient, useSignMessage } from "wagmi";
 import { getAddress, type Address, type Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
 import { browserStore, emptyVault, hasVault, loadVault, saveVault, vaultStorageKey, type VaultData } from "@/lib/vault";
@@ -16,6 +16,7 @@ import { deriveNameKey } from "@/lib/names/names";
 import { deriveLinkSeed } from "@/lib/link-keys";
 import { classifyTxError } from "@/lib/tx-errors";
 import { forgetKey, hasDeclined, recallKey, rememberKey, setDeclined } from "@/lib/remember";
+import { signsOnce, type WalletFacts } from "@/lib/wallet-kind";
 
 /** Runs `fn` while holding a lock shared by every QuietPay tab (Web Locks), or directly where unsupported. */
 export function withVaultLock<T>(address: Address, fn: () => Promise<T>): Promise<T> {
@@ -24,7 +25,13 @@ export function withVaultLock<T>(address: Address, fn: () => Promise<T>): Promis
   return locks.request(`quietpay-vault-${address.toLowerCase()}`, fn) as Promise<T>;
 }
 
-type Status = "locked" | "restoring" | "unlocking" | "unlocked" | "unavailable";
+type Status = "locked" | "restoring" | "unlocking" | "confirming" | "unlocked" | "unavailable";
+
+/**
+ * Why a second signature is needed: "first" when setting up with a wallet QuietPay doesn't
+ * recognise as an ordinary one, "check" when the saved vault didn't open with this signature.
+ */
+export type ConfirmReason = "first" | "check";
 
 interface VaultContextValue {
   status: Status;
@@ -41,6 +48,9 @@ interface VaultContextValue {
   askRemember: boolean;
   /** Answer to "Keep me signed in on this device?" */
   chooseRemember: (yes: boolean) => Promise<void>;
+  /** While status is "confirming": why, and the tap that asks the wallet for the second signature. */
+  confirmReason: ConfirmReason | null;
+  confirmAgain: () => void;
   /**
    * The only way to change the vault: applies `fn` to the latest saved vault and saves the result.
    * Updates run one at a time across every QuietPay tab (a Web Lock), and each one re-reads what
@@ -59,8 +69,47 @@ export function useVault() {
 }
 
 export function VaultProvider({ children }: { children: ReactNode }) {
-  const { address } = useAccount();
+  const { address, connector } = useAccount();
+  const client = usePublicClient();
   const { signMessageAsync } = useSignMessage();
+  const [confirmReason, setConfirmReason] = useState<ConfirmReason | null>(null);
+  // The second signature waits for a tap, so on a phone the wallet app opens for it properly.
+  const tapRef = useRef<{ resolve: () => void; reject: (e: Error) => void } | null>(null);
+  const waitForTap = useCallback((reason: ConfirmReason) => {
+    setConfirmReason(reason);
+    setStatus("confirming");
+    return new Promise<void>((resolve, reject) => {
+      tapRef.current = { resolve, reject };
+    }).finally(() => {
+      tapRef.current = null;
+      setConfirmReason(null);
+      setStatus("unlocking");
+    });
+  }, []);
+  const confirmAgain = useCallback(() => tapRef.current?.resolve(), []);
+
+  /** What QuietPay can tell about the connected wallet (see src/lib/wallet-kind.ts). */
+  const walletFacts = useCallback(async (): Promise<WalletFacts> => {
+    const facts: WalletFacts = { connectorId: connector?.id };
+    try {
+      if (connector?.type === "walletConnect") {
+        const provider = (await connector.getProvider()) as { session?: { peer?: { metadata?: { name?: string } } } };
+        facts.peerName = provider?.session?.peer?.metadata?.name ?? null;
+      } else if (connector?.id === "injected" && typeof window !== "undefined") {
+        const eth = (window as { ethereum?: Record<string, unknown> }).ethereum ?? {};
+        const flag = ["isRabby", "isCoinbaseWallet", "isTrust", "isTrustWallet", "isBraveWallet", "isRainbow", "isPhantom", "isOkxWallet", "isMetaMask"].find((f) => eth[f] === true);
+        facts.peerName = flag ? flag.slice(2).replace(/Wallet$/, " wallet").replace("MetaMask", "metamask") : null;
+      }
+    } catch {
+      facts.peerName = null;
+    }
+    try {
+      facts.code = address && client ? ((await client.getCode({ address })) ?? "0x") : null;
+    } catch {
+      facts.code = null;
+    }
+    return facts;
+  }, [connector, client, address]);
   const [status, setStatus] = useState<Status>("locked");
   const [vault, setVault] = useState<VaultData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +124,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
 
   // Lock whenever the connected wallet changes, then reopen from a remembered key if there is one.
   useEffect(() => {
+    tapRef.current?.reject(new Error("Wallet changed."));
     // Another wallet connected in place of the remembered one: sign this device out of the old one.
     // (While the page loads, the address is briefly undefined; that is not a switch.)
     if (prevAddress.current && address && prevAddress.current !== address) void forgetKey();
@@ -125,14 +175,17 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       const message = buildVaultMessage(address);
       const sig = (await signMessageAsync({ message })) as Hex;
       const firstTime = !hasVault(store, address);
-      if (firstTime) {
-        // The vault key is derived from this signature, so it must be reproducible.
+      const signsSame = async (reason: ConfirmReason) => {
+        await waitForTap(reason);
         const again = (await signMessageAsync({ message })) as Hex;
-        if (again.toLowerCase() !== sig.toLowerCase()) {
-          throw new Error(
-            "Your wallet produced two different signatures for the same message, so QuietPay cannot derive a stable encryption key from it. Use a wallet with deterministic signatures (most browser wallets are).",
-          );
-        }
+        return again.toLowerCase() === sig.toLowerCase();
+      };
+      // The vault key is derived from this signature, so it must be reproducible. Ordinary wallets
+      // always sign the same way; anything QuietPay can't vouch for signs a second time to compare.
+      if (firstTime && !signsOnce(await walletFacts(), sig) && !(await signsSame("first"))) {
+        throw new Error(
+          "Your wallet produced two different signatures for the same message, so QuietPay can't recreate your keys from it. Use an ordinary wallet account (MetaMask, Rabby, Coinbase Wallet, Trust and most others work), not a smart-contract or passkey wallet.",
+        );
       }
       const key = await deriveVaultKey(sig, address);
       let data: VaultData;
@@ -140,9 +193,15 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         data = await loadVault(store, key, address);
       } catch (e) {
         if (!(e instanceof DecryptionError)) throw e;
-        // This browser holds a vault this signature can't open (an older version of the QuietPay
-        // message, or a wallet that now signs differently). Every key is re-derived from the
-        // signature, so start a fresh local cache; the Receive page recovers links from the chain.
+        // This browser holds a vault this signature can't open. Either it was made with an older
+        // QuietPay message (then start a fresh local cache: every key is re-derived from the
+        // signature, and the Receive page recovers links from the chain), or the wallet now signs
+        // differently, which a second signature shows. In that case keep the saved vault and stop.
+        if (!(await signsSame("check"))) {
+          throw new Error(
+            "Your wallet signed differently from when you set up QuietPay here, so your saved keys can't be opened with it. Nothing was changed. If you switched to a smart or passkey account, switch back to the account you used before.",
+          );
+        }
         data = emptyVault(address);
         await saveVault(store, key, data);
       }
@@ -182,9 +241,10 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         setError(c.kind === "unknown" && e instanceof Error ? e.message : c.message);
       }
     }
-  }, [address, signMessageAsync]);
+  }, [address, signMessageAsync, walletFacts, waitForTap]);
 
   const lock = useCallback(() => {
+    tapRef.current?.reject(new Error("Locked."));
     void forgetKey();
     keyRef.current = null;
     setVault(null);
@@ -260,6 +320,6 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, update, rememberedUntil, askRemember, chooseRemember }}>{children}</VaultContext.Provider>
+    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, update, rememberedUntil, askRemember, chooseRemember, confirmReason, confirmAgain }}>{children}</VaultContext.Provider>
   );
 }

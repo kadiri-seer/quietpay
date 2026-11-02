@@ -29,9 +29,16 @@ states this on every page and the payer must acknowledge it before paying.
   transaction. The HKDF salt and info bind the key to QuietPay and to the wallet address.
 - Ciphertexts bind associated data (purpose and wallet address), so a vault cannot be swapped
   between wallets or contexts without failing authentication.
-- The first time a vault is created, the wallet is asked to sign twice and the signatures must be
-  identical. Wallets with non-deterministic signatures are refused rather than producing keys that
-  could never be recreated.
+- Every key depends on the wallet signing the same message the same way each time. Ordinary
+  wallets do (RFC 6979). The first time, a wallet signs once if QuietPay recognises it as an
+  ordinary wallet (by its EIP-6963 id or WalletConnect name), the signature has the plain 65-byte
+  shape and the address has no contract code (EIP-7702 delegation allowed). Anything else signs a
+  second time, after a tap so mobile wallets open properly, and must give the identical signature;
+  wallets that don't are refused rather than producing keys that could never be recreated
+  (`src/lib/wallet-kind.ts`).
+- If a later signature can't open the vault saved in the browser, the wallet signs once more. Same
+  signature: the vault came from an older QuietPay message and is recreated. Different signature:
+  the wallet signs inconsistently; QuietPay stops and leaves the saved vault untouched.
 - Every QuietPay key (link keys, pool keys, name key, vault key) is derived from that one signature
   with its own HKDF salt and label. The signature therefore acts like a password: anyone who gets
   it can recreate the keys. There are no backup files.

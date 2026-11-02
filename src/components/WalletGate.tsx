@@ -119,12 +119,29 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
 
 /** Renders children only when the encrypted key vault is unlocked. */
 export function VaultGate({ children }: { children: ReactNode }) {
-  const { status, unlock, error, isNew, askRemember, chooseRemember, rememberedUntil, lock } = useVault();
+  const { status, unlock, error, isNew, askRemember, chooseRemember, rememberedUntil, lock, confirmReason, confirmAgain } = useVault();
   const { address } = useAccount();
   const [declined, setDeclinedState] = useState(false);
   const [remember, setRemember] = useState(false);
   // People who once answered "No" get a checkbox instead of the question, so they can change their mind.
   useEffect(() => setDeclinedState(!!address && hasDeclined(address)), [address, status]);
+  if (status === "confirming") {
+    return (
+      <div className="space-y-4">
+        <div className="space-y-2 text-sm leading-relaxed text-haze">
+          <p className="text-snow">{confirmReason === "check" ? "Sign once more to check your wallet" : "One more signature"}</p>
+          <p>
+            {confirmReason === "check"
+              ? "The keys saved in this browser didn't open with that signature. Signing once more shows whether they're from an older version of QuietPay (then they're simply recreated) or your wallet now signs differently."
+              : "QuietPay doesn't recognise this wallet as an ordinary one, so it signs once more to check it gives the same signature every time. Your keys depend on that. It's free and sends nothing."}
+          </p>
+        </div>
+        <button type="button" className="btn btn-primary" onClick={confirmAgain}>
+          Sign again
+        </button>
+      </div>
+    );
+  }
   if (status === "restoring") {
     return (
       <p className="flex items-center gap-2 text-sm text-haze">
@@ -163,7 +180,6 @@ export function VaultGate({ children }: { children: ReactNode }) {
           Your wallet signs a message that QuietPay uses to work out your receiving keys, so the same wallet always gets them back. It is
           not a transaction and costs nothing. It is a sign-in for quietpay.sbs: if your wallet warns that the site doesn&apos;t match,
           don&apos;t sign.
-          {isNew && " Your wallet will ask twice the first time, to confirm it signs consistently."}
         </p>
       </div>
       {declined && !isNew && (
