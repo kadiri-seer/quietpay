@@ -42,7 +42,7 @@ export function NetworkIndicator() {
     <label className={base}>
       <span className={`h-1.5 w-1.5 ${dot}`} aria-hidden />
       <span className="sr-only">Network</span>
-      <select className="min-h-9 bg-transparent text-mist outline-none" value={network.key} onChange={(e) => setNetwork(e.target.value as NetworkKey)}>
+      <select className="field-bare min-h-9 bg-transparent text-mist" value={network.key} onChange={(e) => setNetwork(e.target.value as NetworkKey)}>
         {nets.map((n) => (
           <option key={n.key} value={n.key} className="bg-abyss">
             {n.label}

@@ -77,7 +77,7 @@ export function NamesFlow() {
               </span>
               <input
                 id="name-input"
-                className="min-h-11 w-full bg-transparent py-3 pr-3.5 pl-1 text-base text-snow outline-none placeholder:text-haze"
+                className="field-bare min-h-11 w-full bg-transparent py-3 pr-3.5 pl-1 text-base text-snow placeholder:text-haze"
                 placeholder="yourname"
                 value={input}
                 maxLength={NAME_MAX + 1}

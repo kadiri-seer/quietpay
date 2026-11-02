@@ -163,6 +163,12 @@ body {
   padding: 0.75rem 0.875rem;
   font-size: 1rem; /* 16px stops iOS zooming into inputs */
 }
+/* An input inside a field-like wrapper (e.g. the @ prefix on Names): the wrapper shows the focus ring. */
+.field-bare:focus,
+.field-bare:focus-visible {
+  outline: none;
+}
+
 .field::placeholder {
   color: var(--color-haze);
 }
