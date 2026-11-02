@@ -54,6 +54,18 @@ relayer ──relay(proof)──▶ Entrypoint ──▶ pool.withdraw ──▶
    deposited can `ragequit` the remaining value back to itself, with a proof of the note. This
    needs neither the approver nor the relayer.
 
+## Claiming privately to a wallet
+
+On Receive, *Move funds → Shielded pool* defaults to *Send it to my wallet*: the payment is
+deposited, and a delivery is saved in the vault with a destination (the connected wallet by
+default, editable) and a time: as soon as it's approved, a time the user picks, or a random time
+within 24 hours (the UI notes that random is more private). `DeliveryRunner` checks due deliveries
+every 15 seconds while the site is open and the vault is unlocked, proves the withdrawal locally
+and hands it to the relayer. There is no server-side scheduler and no key leaves the browser, so a
+delivery that comes due while the site is closed goes out on the next visit. Deliveries can be
+sent early or cancelled (the money then stays in the pool). They live in the local vault only; on
+a new device the shielded money is still found and can be withdrawn from the Pool page.
+
 ## Keys
 
 Note secrets follow the SDK's scheme: two master keys, then

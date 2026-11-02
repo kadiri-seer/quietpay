@@ -25,6 +25,8 @@ interface VaultContextValue {
   lock: () => void;
   /** Encrypts and persists a new vault state. Resolves only after it is written. */
   save: (next: VaultData) => Promise<void>;
+  /** Applies `fn` to the latest vault and saves it. Updates run one at a time, so none are lost. */
+  update: (fn: (current: VaultData) => VaultData) => Promise<VaultData>;
 }
 
 const VaultContext = createContext<VaultContextValue | null>(null);
@@ -129,10 +131,32 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     const k = keyRef.current;
     if (!store || !k || k.address !== next.address) throw new Error("Vault is locked.");
     await saveVault(store, k.key, next);
+    vaultRef.current = next;
     setVault(next);
   }, []);
 
+  const vaultRef = useRef<VaultData | null>(null);
+  useEffect(() => {
+    vaultRef.current = vault;
+  }, [vault]);
+  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const update = useCallback(
+    (fn: (current: VaultData) => VaultData) => {
+      const run = async () => {
+        const cur = vaultRef.current;
+        if (!cur) throw new Error("Vault is locked.");
+        const next = fn(cur);
+        await save(next);
+        return next;
+      };
+      const p = queue.current.then(run, run);
+      queue.current = p.catch(() => undefined);
+      return p;
+    },
+    [save],
+  );
+
   return (
-    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, save }}>{children}</VaultContext.Provider>
+    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, save, update }}>{children}</VaultContext.Provider>
   );
 }

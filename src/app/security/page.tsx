@@ -83,6 +83,10 @@ const RISKS: { title: string; body: string }[] = [
     body: "Pool withdrawals hide which deposit they came from, not that someone withdrew. Privacy depends on how many others use the pool, and matching amounts or quick withdrawals can still be connected. The pool contracts and circuits are 0xbow's audited Privacy Pools, unchanged, with their ceremony keys.",
   },
   {
+    title: "Claiming privately to your wallet",
+    body: "Claim privately shields a payment, then sends it from the pool to the address you pick, right away or at a time you choose. Sending to your own wallet shows that it used the pool, not which payment it came from; a random time and a fresh address make it more private. Deliveries run in your browser, so one that comes due while QuietPay is closed goes out the next time you open it.",
+  },
+  {
     title: "The relayer and approver",
     body: "QuietPay runs a small relayer so withdrawals can go to an empty address. It sees your IP address and the withdrawal, can refuse to submit, but cannot change the recipient or fee because the proof fixes them. The approver publishes approvals by a public rule anyone can check. If either stops, deposits can always exit to their one-time address.",
   },

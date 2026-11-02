@@ -11,6 +11,7 @@ import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { ServiceWorker } from "@/components/ServiceWorker";
+import { DeliveryRunner } from "@/components/DeliveryRunner";
 
 export const metadata: Metadata = {
   title: "QuietPay | A fresh address for every payment",
@@ -55,6 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <SiteHeader />
           <main className="relative flex-1">{children}</main>
           <SiteFooter />
+          <DeliveryRunner />
         </Providers>
         <ServiceWorker />
       </body>

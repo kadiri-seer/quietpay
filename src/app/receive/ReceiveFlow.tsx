@@ -291,6 +291,7 @@ function PaymentRow({ request, payment, network }: { request: StoredRequest; pay
                 </>
               )}{" "}
               · <ExplorerLink network={network} tx={x.tx} />
+              <DeliveryStatus depositTx={x.tx} network={network} fmt={fmt} />
             </li>
           ))}
         </ul>
@@ -412,7 +413,7 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
       <div className="grid gap-2 sm:grid-cols-2">
         {(
           [
-            ["pool", "Shielded pool", "Withdraw later to any address, unlinkable."],
+            ["pool", "Shielded pool", "Private. Through the pool to your wallet."],
             ["address", "An address", "Direct. Linked to this payment onchain."],
           ] as const
         ).map(([value, title, hint]) => (
@@ -577,5 +578,48 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
       {done && <Notice tone="ok">{done}</Notice>}
       {error && <Notice tone="bad">{error}</Notice>}
     </div>
+  );
+}
+
+/** Status of a private claim (shielded, then sent on to an address) for a shielded payment. */
+function DeliveryStatus({ depositTx, network, fmt }: { depositTx: string; network: NetworkConfig; fmt: (v: bigint) => string }) {
+  const { vault, update } = useVault();
+  const d = vault?.deliveries?.find((x) => x.depositTx.toLowerCase() === depositTx.toLowerCase());
+  if (!d) return null;
+  const set = (change: Partial<NonNullable<typeof d>>) =>
+    update((v) => ({ ...v, deliveries: (v.deliveries ?? []).map((x) => (x.id === d.id ? { ...x, ...change } : x)) }));
+  const time = new Date(d.notBefore).toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" });
+  return (
+    <span className="mt-1 block text-haze">
+      {d.status === "delivered" ? (
+        <>
+          Delivered {d.amount ? fmt(BigInt(d.amount) - BigInt(d.fee ?? "0")) : ""} to <Mono>{shorten(d.to, 4)}</Mono> privately
+          {d.tx ? (
+            <>
+              {" "}
+              · <ExplorerLink network={network} tx={d.tx} />
+            </>
+          ) : null}
+        </>
+      ) : d.status === "cancelled" ? (
+        <>Delivery to <Mono>{shorten(d.to, 4)}</Mono> stopped. {d.lastError ?? "It stays in the pool."}</>
+      ) : (
+        <>
+          On its way to <Mono>{shorten(d.to, 4)}</Mono>
+          {d.notBefore > Date.now() ? (d.timing === "random" ? `, at a random time (around ${time})` : `, around ${time}`) : ", as soon as it's approved"}
+          {d.lastError ? `. Last try: ${d.lastError}` : ""}
+          <span className="ml-2 inline-flex gap-3">
+            {d.notBefore > Date.now() && (
+              <button type="button" className="underline underline-offset-4 hover:text-snow" onClick={() => set({ notBefore: Date.now(), retryAt: undefined })}>
+                Send now
+              </button>
+            )}
+            <button type="button" className="underline underline-offset-4 hover:text-snow" onClick={() => set({ status: "cancelled", lastError: "It stays in the pool." })}>
+              Cancel
+            </button>
+          </span>
+        </>
+      )}
+    </span>
   );
 }

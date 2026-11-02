@@ -73,6 +73,29 @@ export interface VaultData {
   nextLinkIndex?: number;
   /** When this browser last checked the chain for links made elsewhere (ms). */
   linksCheckedAt?: number;
+  /** Private claims: payments shielded in the pool, then sent on to an address at a chosen time. */
+  deliveries?: Delivery[];
+}
+
+export interface Delivery {
+  id: string;
+  /** Pool deposit label of the shielded payment. */
+  label: string;
+  /** Which of `poolKeys` made the deposit. */
+  poolKeyIndex: number;
+  depositTx: Hex;
+  to: Address;
+  /** Not before this time (ms). Equal to the deposit time for "as soon as it's approved". */
+  notBefore: number;
+  timing: "asap" | "chosen" | "random";
+  status: "scheduled" | "delivered" | "cancelled";
+  tx?: Hex;
+  amount?: string;
+  fee?: string;
+  deliveredAt?: number;
+  lastError?: string;
+  /** Next attempt after a failure (ms). */
+  retryAt?: number;
 }
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -112,6 +135,7 @@ const vaultSchema = z.object({
   linkSeed: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
   nextLinkIndex: z.number().int().min(0).optional(),
   linksCheckedAt: z.number().optional(),
+  deliveries: z.array(z.any()).max(500).optional(),
 });
 
 export function emptyVault(address: Address): VaultData {
