@@ -125,8 +125,8 @@ export function VaultGate({ children }: { children: ReactNode }) {
       <div className="space-y-2 text-sm leading-relaxed text-haze">
         <p className="text-snow">{isNew ? "Set up your key vault" : "Unlock your key vault"}</p>
         <p>
-          QuietPay keeps each link&apos;s receiving keys encrypted in this browser. Your wallet signs a message to derive the encryption
-          key. It is not a transaction and costs nothing.
+          Your wallet signs a message that QuietPay uses to work out your receiving keys, so the same wallet always gets them back. It is
+          not a transaction and costs nothing. Only sign it on this site.
           {isNew && " Your wallet will ask twice the first time, to confirm it signs consistently."}
         </p>
       </div>

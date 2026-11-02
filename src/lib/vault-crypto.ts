@@ -6,18 +6,15 @@
  *   The resulting AES-256-GCM key is non-extractable and lives only in memory.
  *   The signature itself is never stored.
  *
- * Backups: AES-256-GCM with a key from PBKDF2-SHA256 (600,000 iterations) over a user
- *   passphrase, so a backup can be restored even if the wallet's signatures change.
+ * There are no backup files: every key in the vault can be re-derived from the same wallet
+ * signature (see src/lib/link-keys.ts), so the vault is only a local, encrypted cache.
  *
  * Every ciphertext binds associated data (purpose + address), so a blob cannot be swapped
- * between wallets or between vault/backup contexts without failing authentication.
+ * between wallets without failing authentication.
  */
 import { getAddress, hexToBytes, type Address, type Hex } from "viem";
 
 export const VAULT_VERSION = 1;
-export const BACKUP_FORMAT = "quietpay-backup";
-export const PBKDF2_ITERATIONS = 600_000;
-export const MIN_PASSPHRASE_LENGTH = 12;
 
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -59,11 +56,11 @@ export function randomBytes(n: number): Uint8Array {
  */
 export function buildVaultMessage(address: Address): string {
   return [
-    "QuietPay vault key",
+    "QuietPay keys",
     "",
-    "Sign to unlock the encrypted payment keys QuietPay stores in this browser.",
-    "This signature does not send a transaction or cost gas.",
-    "Only sign this message on the QuietPay app you trust.",
+    "Sign to unlock QuietPay. This signature recreates your QuietPay payment keys on any device.",
+    "It does not send a transaction or cost gas.",
+    "Treat it like a password: only sign this message on QuietPay's own website.",
     "",
     `Wallet: ${getAddress(address)}`,
     `Purpose: quietpay/vault-encryption`,
@@ -106,7 +103,7 @@ export async function seal(key: CryptoKey, data: unknown, aad: string): Promise<
 }
 
 export class DecryptionError extends Error {
-  constructor(message = "Could not decrypt. The key, passphrase or file is wrong, or the data was altered.") {
+  constructor(message = "Could not decrypt. The key is wrong or the data was altered.") {
     super(message);
     this.name = "DecryptionError";
   }
@@ -128,58 +125,4 @@ export async function open<T = unknown>(key: CryptoKey, sealed: Sealed, aad: str
 
 export function vaultAad(address: Address) {
   return `quietpay/vault/v${VAULT_VERSION}|${getAddress(address).toLowerCase()}`;
-}
-
-/* ---------------- Backups ---------------- */
-
-export interface BackupFile {
-  format: typeof BACKUP_FORMAT;
-  v: number;
-  createdAt: string;
-  kdf: { name: "PBKDF2-SHA256"; iterations: number; salt: string };
-  sealed: Sealed;
-}
-
-async function passphraseKey(passphrase: string, salt: Uint8Array, iterations: number): Promise<CryptoKey> {
-  const base = await subtle().importKey("raw", buf(te.encode(passphrase.normalize("NFKC"))), "PBKDF2", false, ["deriveKey"]);
-  return subtle().deriveKey(
-    { name: "PBKDF2", hash: "SHA-256", salt: buf(salt), iterations },
-    base,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"],
-  );
-}
-
-export function checkPassphrase(passphrase: string): string | null {
-  if (passphrase.length < MIN_PASSPHRASE_LENGTH) return `Use at least ${MIN_PASSPHRASE_LENGTH} characters.`;
-  return null;
-}
-
-const BACKUP_AAD = "quietpay/backup/v1";
-
-export async function createBackup(data: unknown, passphrase: string, iterations = PBKDF2_ITERATIONS): Promise<BackupFile> {
-  const err = checkPassphrase(passphrase);
-  if (err) throw new Error(err);
-  const salt = randomBytes(16);
-  const key = await passphraseKey(passphrase, salt, iterations);
-  return {
-    format: BACKUP_FORMAT,
-    v: 1,
-    createdAt: new Date().toISOString(),
-    kdf: { name: "PBKDF2-SHA256", iterations, salt: b64(salt) },
-    sealed: await seal(key, data, BACKUP_AAD),
-  };
-}
-
-export async function restoreBackup<T = unknown>(file: unknown, passphrase: string): Promise<T> {
-  const f = file as BackupFile;
-  if (!f || f.format !== BACKUP_FORMAT || f.v !== 1 || f.kdf?.name !== "PBKDF2-SHA256") {
-    throw new DecryptionError("This is not a QuietPay backup file.");
-  }
-  if (!Number.isInteger(f.kdf.iterations) || f.kdf.iterations < 100_000 || f.kdf.iterations > 10_000_000) {
-    throw new DecryptionError("Backup uses unsupported key-derivation settings.");
-  }
-  const key = await passphraseKey(passphrase, unb64(f.kdf.salt), f.kdf.iterations);
-  return open<T>(key, f.sealed, BACKUP_AAD);
 }

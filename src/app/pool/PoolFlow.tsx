@@ -489,7 +489,7 @@ function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) 
         This is public and gives up the pool&apos;s privacy for this deposit. Use it if a deposit is never approved.
       </p>
       {!source ? (
-        <Notice tone="warn">The one-time address that made this deposit is not in this browser&apos;s vault. Restore your backup first.</Notice>
+        <Notice tone="warn">The one-time address that made this deposit isn&apos;t loaded in this browser yet. Open the Receive page and scan to recover it.</Notice>
       ) : done ? (
         <Notice tone="ok">
           Returned to the one-time address · <ExplorerLink network={network} tx={done} />. Move it from the Receive page.

@@ -24,14 +24,16 @@ const HIDDEN = [
 ];
 
 const KEYS: { what: string; where: string }[] = [
-  { what: "Each link's receiving keys", where: "Encrypted in this browser (AES-256-GCM). The key comes from a message your wallet signs and only lives in memory." },
-  { what: "The message signature", where: "Never stored. Re-signed each time you unlock." },
+  {
+    what: "Each link's receiving keys",
+    where: "Worked out from your wallet's signature of QuietPay's message plus the link's number, so the same wallet recreates them on any device. Cached in this browser, encrypted (AES-256-GCM).",
+  },
+  { what: "The message signature", where: "Never stored. Re-signed each time you unlock. It can recreate all your QuietPay keys, so only sign it on this site." },
   { what: "The key that moves a payment", where: "Worked out in your browser at claim time, used once to sign, then discarded." },
-  { what: "Backup files", where: "Encrypted with your passphrase (PBKDF2, 600,000 rounds). Keep the file and passphrase apart." },
   { what: "Payment links", where: "Public keys only, kept after the # in the URL so they never reach a web server." },
   {
     what: "Pool keys",
-    where: "Derived in this browser from the same signature (separate derivation) and kept in the encrypted vault, so backups include them. Pool proofs are generated on this device.",
+    where: "Derived in this browser from the same signature (separate derivation), so the same wallet recreates them. Pool proofs are generated on this device.",
   },
   {
     what: "Name key",
@@ -50,11 +52,11 @@ const RISKS: { title: string; body: string }[] = [
   },
   {
     title: "Losing your keys",
-    body: "Clearing browser data, private windows or a lost device lose the keys, and any unclaimed funds with them. Export an encrypted backup from the Receive page.",
+    body: "There's nothing to back up. Your links, payments, pool funds and name all come back when you connect the same wallet on any device. Keep your wallet's recovery phrase safe: losing the wallet means losing access.",
   },
   {
     title: "Phishing for your vault signature",
-    body: "Anyone who reads this browser's storage only sees ciphertext. Unlocking it needs your wallet's signature of QuietPay's vault message, so only sign that message on this site.",
+    body: "Your signature of QuietPay's vault message recreates all your QuietPay keys, like a password. A fake site that tricks you into signing it could reach your funds, so only sign that message on this site. Browser storage alone only holds ciphertext.",
   },
   {
     title: "A compromised browser",

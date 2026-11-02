@@ -3,18 +3,15 @@ import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import {
   DecryptionError,
   buildVaultMessage,
-  createBackup,
   deriveVaultKey,
   open,
-  restoreBackup,
   seal,
   vaultAad,
 } from "@/lib/vault-crypto";
-import { emptyVault, hasVault, loadVault, mergeVaults, requestStatus, saveVault, vaultStorageKey } from "@/lib/vault";
+import { emptyVault, hasVault, loadVault, saveVault, vaultStorageKey } from "@/lib/vault";
 import { createPaymentRequest } from "@/lib/request";
 import { TEST_TOKEN, MemoryStore } from "./helpers";
 
-const ITER = 100_000; // minimum accepted; production uses 600k
 
 async function walletKey() {
   const acct = privateKeyToAccount(generatePrivateKey());
@@ -37,9 +34,10 @@ function sampleRequest() {
 describe("vault message", () => {
   it("is domain separated and names the wallet", () => {
     const m = buildVaultMessage("0x1111111111111111111111111111111111111111");
-    expect(m).toContain("QuietPay vault key");
+    expect(m).toContain("QuietPay keys");
     expect(m).toContain("quietpay/vault-encryption");
     expect(m).toContain("does not send a transaction");
+    expect(m).toContain("only sign this message on QuietPay's own website");
     expect(m).toContain("0x1111111111111111111111111111111111111111");
   });
 });
@@ -109,61 +107,5 @@ describe("vault storage", () => {
   it("returns an empty vault when none exists", async () => {
     const { acct, key } = await walletKey();
     expect((await loadVault(new MemoryStore(), key, acct.address)).requests).toEqual([]);
-  });
-});
-
-describe("backup and recovery", () => {
-  it("restores keys from a passphrase-encrypted backup into a fresh browser", async () => {
-    const { acct } = await walletKey();
-    const req = sampleRequest();
-    const vault = { ...emptyVault(acct.address), requests: [req] };
-    const backup = await createBackup(vault, "correct horse battery staple", ITER);
-    const json = JSON.stringify(backup);
-    expect(json).not.toContain(req.keys.spendingPrivateKey.slice(2));
-    const restored = await restoreBackup<typeof vault>(JSON.parse(json), "correct horse battery staple");
-    expect(restored.requests[0].keys.viewingPrivateKey).toBe(req.keys.viewingPrivateKey);
-
-    // Recovery: merge into a new device's empty vault, then re-encrypt with that wallet's key.
-    const { key } = await walletKey();
-    const store = new MemoryStore();
-    const merged = mergeVaults(emptyVault(acct.address), restored);
-    expect(merged.added).toBe(1);
-    await saveVault(store, key, merged.vault);
-    expect((await loadVault(store, key, acct.address)).requests[0].id).toBe(req.id);
-  });
-
-  it("rejects a wrong passphrase", async () => {
-    const backup = await createBackup({ a: 1 }, "correct horse battery staple", ITER);
-    await expect(restoreBackup(backup, "wrong passphrase!!")).rejects.toBeInstanceOf(DecryptionError);
-  });
-
-  it("rejects short passphrases and foreign files", async () => {
-    await expect(createBackup({ a: 1 }, "short", ITER)).rejects.toThrow(/at least 12/);
-    await expect(restoreBackup({ format: "other" }, "whatever whatever")).rejects.toThrow(/not a QuietPay backup/);
-    const backup = await createBackup({ a: 1 }, "correct horse battery staple", ITER);
-    await expect(restoreBackup({ ...backup, kdf: { ...backup.kdf, iterations: 1 } }, "correct horse battery staple")).rejects.toThrow(
-      /unsupported/,
-    );
-  });
-
-  it("merging keeps claimed payments and does not duplicate requests", () => {
-    const req = sampleRequest();
-    const pay = {
-      stealthAddress: "0x3333333333333333333333333333333333333333" as const,
-      ephemeralPublicKey: "0x02" as const,
-      announcementTx: "0xaa" as const,
-      announcementBlock: "11",
-      detectedAt: 0,
-      receivedAmount: "5000000",
-      transferVerified: true,
-    };
-    const a = { ...emptyVault("0x1111111111111111111111111111111111111111"), requests: [{ ...req, payments: [pay] }] };
-    const b = { ...a, requests: [{ ...req, payments: [{ ...pay, claimTx: "0xbb" as const }] }] };
-    const { vault, added } = mergeVaults(a, b);
-    expect(added).toBe(0);
-    expect(vault.requests).toHaveLength(1);
-    expect(vault.requests[0].payments[0].claimTx).toBe("0xbb");
-    expect(requestStatus(vault.requests[0])).toBe("claimed");
-    expect(requestStatus(a.requests[0])).toBe("claimable");
   });
 });

@@ -9,8 +9,8 @@
  * Privacy Pools SDK does, so every note can be rebuilt from the chain after a reinstall.
  *
  * QuietPay derives the master keys from the same deterministic wallet signature that unlocks
- * the key vault (HKDF-SHA256 with a separate salt), so pool funds survive a lost browser even
- * without a backup file, as long as the wallet still produces the same signature.
+ * the key vault (HKDF-SHA256 with a separate salt), so pool funds survive a lost browser as
+ * long as the wallet still produces the same signature.
  */
 import { LeanIMT } from "@zk-kit/lean-imt";
 import { poseidon1, poseidon2, poseidon3 } from "poseidon-lite";

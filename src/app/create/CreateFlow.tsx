@@ -7,6 +7,8 @@ import type { LinkKind } from "@/lib/link";
 import { AmountError, checkLimits, formatAmount, limitsFor, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
 import { createPaymentRequest } from "@/lib/request";
+import { deriveLinkKeys } from "@/lib/link-keys";
+import { discoverLinks } from "@/lib/receive";
 import type { StoredRequest } from "@/lib/vault";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
@@ -24,7 +26,8 @@ export function CreateFlow() {
   return (
     <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
       <PageTitle light="Create a" bold="payment link">
-        Each link gets its own receiving keys. Share it with one payer; the payment lands at an address nobody else can tie to you.
+        Each link gets its own receiving keys, worked out from your wallet. Share it with one payer; the payment lands at an address nobody
+        else can tie to you.
       </PageTitle>
 
       <div className="panel space-y-6 p-5 sm:p-7">
@@ -68,7 +71,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
     setError(null);
   };
   const [touched, setTouched] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | false>(false);
   const [error, setError] = useState<string | null>(null);
 
   const limits = useMemo(() => limitsFor(token.decimals, PAYMENT_LIMITS), [token.decimals]);
@@ -86,9 +89,27 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
     setTouched(true);
     if (!vault) return;
     if (kind === "fixed" && (!("value" in parsed) || parsed.value === undefined)) return;
-    setBusy(true);
+    setBusy("Creating link");
     setError(null);
     try {
+      if (!vault.linkSeed) throw new Error("Unlock your vault again to create links.");
+      let current = vault;
+      // The first time on this device, look for links this wallet already made elsewhere, so the
+      // new link gets an unused number (and keys nobody else holds).
+      if (!current.linksCheckedAt) {
+        setBusy("Checking your existing links");
+        const d = await discoverLinks(client, network, {
+          seed: current.linkSeed!,
+          nextLinkIndex: current.nextLinkIndex ?? 0,
+          known: current.requests,
+          token,
+          fullHistory: true,
+        });
+        current = { ...current, requests: [...d.found, ...current.requests], nextLinkIndex: d.nextLinkIndex, linksCheckedAt: Date.now() };
+        setBusy("Creating link");
+      }
+      const index = current.nextLinkIndex ?? 0;
+      const keys = await deriveLinkKeys(current.linkSeed!, index);
       const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
       const record = createPaymentRequest({
         kind,
@@ -99,9 +120,11 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         symbol: token.symbol,
         expirySeconds: expiry,
         fromBlock,
+        keys,
+        index,
       });
-      // The link is shown only after its keys are safely encrypted and stored.
-      await save({ ...vault, requests: [record, ...vault.requests] });
+      // The link is shown only after it is saved; its keys can always be re-derived from the wallet.
+      await save({ ...current, requests: [record, ...current.requests], nextLinkIndex: index + 1 });
       onCreated(record);
     } catch (e) {
       setError(e instanceof Error ? e.message.split("\n")[0] : "Could not create the link.");
@@ -197,8 +220,14 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         </div>
       </fieldset>
 
-      <button type="submit" className="btn btn-primary w-full" disabled={busy}>
-        {busy ? <Spinner /> : null} Create payment link
+      <button type="submit" className="btn btn-primary w-full" disabled={!!busy}>
+        {busy ? (
+          <>
+            <Spinner /> {busy}…
+          </>
+        ) : (
+          "Create payment link"
+        )}
       </button>
       {error && <Notice tone="bad">{error}</Notice>}
     </form>
@@ -243,9 +272,8 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
             : "The link holds public keys only. Anyone with it can pay it once, so share it with the intended payer."}
         </p>
       </div>
-      <Notice tone="warn" title="Keep your keys">
-        Only this browser can claim the payment. Clearing site data loses the keys. <Link href="/receive#backup" className="underline">Export an encrypted backup</Link>{" "}
-        after creating links.
+      <Notice tone="info" title="Recoverable from your wallet">
+        This link&apos;s keys come from your wallet. On any device, connect the same wallet and QuietPay finds its payments again.
       </Notice>
       <div className="flex flex-wrap gap-3">
         <Link href="/receive" className="btn btn-quiet">

@@ -59,8 +59,7 @@ relayer ──relay(proof)──▶ Entrypoint ──▶ pool.withdraw ──▶
 Note secrets follow the SDK's scheme: two master keys, then
 `Poseidon(master, scope, index)` per deposit and `Poseidon(master, label, index)` per change note.
 QuietPay derives the master keys with HKDF-SHA256 from the same deterministic wallet signature that
-unlocks the vault (separate salt and info), and also stores them in the encrypted vault so backups
-carry them. Notes are never stored: they are rebuilt from public events by trying deposit indexes
+unlocks the vault (separate salt and info), so the same wallet recreates them on any device. Notes are never stored: they are rebuilt from public events by trying deposit indexes
 in order and following each deposit's nullifier chain.
 
 ## Verification before use

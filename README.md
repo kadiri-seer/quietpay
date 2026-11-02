@@ -211,7 +211,7 @@ npm run build     # production build
 ```
 
 The suite (94 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
-vault encryption, passphrase backups and recovery, stealth derivation and matching, metadata,
+vault encryption, wallet-derived link keys and recovery on a new device, stealth derivation and matching, metadata,
 network gating and bytecode fingerprints, the payment state machine, and transaction-error
 classification. `tests/e2e-anvil.test.ts` runs the full flow on a real local EVM: deploy, create,
 validate, preflight, pay, announce, duplicate-payment blocking, scan, match, gas top-up, sweep.
@@ -246,8 +246,8 @@ Mainnet must stay disabled until all of these are done:
 3. **Real testnet validation.** Run the full flow on Robinhood Chain Testnet with real wallets
    (MetaMask, Rabby, hardware wallets) including replacement, timeout and reorg paths.
 4. **Independent security review** of key handling, the vault, link parsing and the sweep logic.
-5. **Key recovery UX.** Vault keys depend on the browser plus wallet signature; backups are manual.
-   Losing both the browser data and the backup loses unclaimed funds.
+5. **Key recovery.** All keys are derived from one wallet signature, so recovery needs only the wallet,
+   but that signature must be protected like a password, and recovery scans full chain history.
 6. **Scanning at scale.** Client-side `eth_getLogs` scanning has not been load-tested against public
    RPC range limits over long periods. An indexer that never sees viewing keys may be needed.
 7. **Gas top-up privacy.** Funding a stealth address from a known wallet links them. A safer

@@ -5,6 +5,7 @@
 import {
   createWalletClient,
   getAddress,
+  keccak256,
   http,
   type Address,
   type Hash,
@@ -14,7 +15,8 @@ import {
 import { privateKeyToAccount } from "viem/accounts";
 import { erc20Abi } from "@/config/contracts";
 import type { NetworkConfig } from "@/config/networks";
-import { scanAnnouncements, verifyTransferInReceipt, waitForConfirmedReceipt, type Announcement } from "./chain";
+import { findDeployBlock, scanAnnouncements, verifyTransferInReceipt, waitForConfirmedReceipt, type Announcement } from "./chain";
+import { deriveLinkKeys, RECOVERY_GAP } from "./link-keys";
 import { parsePaymentMetadata } from "./metadata";
 import { announcementMatches, deriveStealthPrivateKey } from "./stealth";
 import type { StoredPayment, StoredRequest } from "./vault";
@@ -29,6 +31,8 @@ export function matchRequestAnnouncements(req: StoredRequest, anns: Announcement
   return anns.filter((a) => {
     const meta = parsePaymentMetadata(a.metadata);
     if (meta.token && getAddress(meta.token) !== getAddress(req.token)) return false;
+    // A fixed link's payments carry its request ID; skip payments marked for a different link.
+    if (req.kind !== "open" && !req.recovered && meta.requestId && meta.requestId.toLowerCase() !== req.id.toLowerCase()) return false;
     return announcementMatches(a, req.keys);
   });
 }
@@ -123,6 +127,98 @@ export async function fetchAnnouncementsForRequests(
     onProgress: onProgress ? (to) => onProgress(to - fromBlock, toBlock - fromBlock) : undefined,
   });
   return { anns, toBlock };
+}
+
+export interface DiscoveryResult {
+  /** Links found on the chain that this browser didn't know about. */
+  found: StoredRequest[];
+  /** Next unused link number, at least as high as before. */
+  nextLinkIndex: number;
+  anns: Announcement[];
+  toBlock: bigint;
+}
+
+/**
+ * Finds wallet-derived links that have received payments but aren't in this browser yet: on a new
+ * device, after clearing site data, or when links were made on another device. Checks link
+ * numbers in order and keeps going until RECOVERY_GAP numbers in a row have no payments.
+ *
+ * `fullHistory` scans from the announcer's deployment; otherwise from the oldest known link.
+ * All matching is local; the RPC only sees which blocks are read.
+ */
+export async function discoverLinks(
+  client: PublicClient,
+  network: NetworkConfig,
+  p: {
+    seed: Hex;
+    nextLinkIndex: number;
+    known: StoredRequest[];
+    token: { address: Address; decimals: number; symbol: string };
+    fullHistory: boolean;
+    onProgress?: (done: bigint, total: bigint) => void;
+    onChecking?: (index: number) => void;
+    signal?: AbortSignal;
+  },
+): Promise<DiscoveryResult> {
+  if (!network.announcer) throw new Error("No announcer configured.");
+  const knownHere = p.known.filter((r) => r.chainId === network.chain.id);
+  const toBlock = await client.getBlockNumber({ cacheTime: 0 });
+  const fromBlock =
+    p.fullHistory || knownHere.length === 0
+      ? await findDeployBlock(client, network.announcer)
+      : knownHere.reduce((min, r) => (BigInt(r.fromBlock) < min ? BigInt(r.fromBlock) : min), BigInt(knownHere[0].fromBlock));
+  const anns = await scanAnnouncements(client, {
+    announcer: network.announcer,
+    fromBlock,
+    toBlock,
+    chunkSize: network.logChunkSize,
+    signal: p.signal,
+    onProgress: p.onProgress ? (to) => p.onProgress!(to - fromBlock, toBlock - fromBlock) : undefined,
+  });
+
+  const knownIndexes = new Set(knownHere.filter((r) => r.index !== undefined).map((r) => r.index!));
+  const knownMeta = new Set(p.known.map((r) => r.keys.stealthMetaAddress.toLowerCase()));
+  const highestKnown = Math.max(p.nextLinkIndex - 1, ...[...knownIndexes], -1);
+  let upper = highestKnown + 1 + RECOVERY_GAP;
+  let next = p.nextLinkIndex;
+  const found: StoredRequest[] = [];
+  const candidates = anns.filter((a) => {
+    const meta = parsePaymentMetadata(a.metadata);
+    return !meta.token || getAddress(meta.token) === getAddress(p.token.address);
+  });
+
+  for (let i = 0; i < upper; i++) {
+    if (p.signal?.aborted) throw new DOMException("Scan cancelled", "AbortError");
+    if (knownIndexes.has(i)) continue;
+    p.onChecking?.(i);
+    const keys = await deriveLinkKeys(p.seed, i);
+    if (knownMeta.has(keys.stealthMetaAddress.toLowerCase())) continue;
+    const matches = candidates.filter((a) => announcementMatches(a, keys));
+    if (matches.length === 0) continue;
+    upper = Math.max(upper, i + 1 + RECOVERY_GAP);
+    next = Math.max(next, i + 1);
+    const requestId = matches.map((m) => parsePaymentMetadata(m.metadata).requestId).find((x) => !!x) ?? null;
+    const first = matches.reduce((a, b) => (a.blockNumber <= b.blockNumber ? a : b));
+    const block = await client.getBlock({ blockNumber: first.blockNumber });
+    found.push({
+      id: (requestId ?? (`0x${keccak256(keys.stealthMetaAddress).slice(2, 34)}` as Hex)).toLowerCase() as Hex,
+      kind: requestId ? "fixed" : "open",
+      chainId: network.chain.id,
+      token: p.token.address,
+      amount: "0",
+      decimals: p.token.decimals,
+      symbol: p.token.symbol,
+      expiresAt: 0,
+      createdAt: Number(block.timestamp) * 1000,
+      fromBlock: first.blockNumber.toString(),
+      link: "",
+      keys,
+      index: i,
+      recovered: true,
+      payments: [],
+    });
+  }
+  return { found, nextLinkIndex: next, anns, toBlock };
 }
 
 export interface StealthBalances {

@@ -113,6 +113,24 @@ export async function verifyRouter(
   return { address: network.router, codeHash };
 }
 
+/** First block at which `address` has code (binary search over historical state). */
+export async function findDeployBlock(client: PublicClient, address: Address): Promise<bigint> {
+  const latest = await client.getBlockNumber({ cacheTime: 0 });
+  const has = async (b: bigint) => {
+    const code = await client.getCode({ address, blockNumber: b }).catch(() => undefined);
+    return !!code && code !== "0x";
+  };
+  if (!(await has(latest))) throw new Error("No contract at that address.");
+  let lo = 0n;
+  let hi = latest;
+  while (lo < hi) {
+    const mid = (lo + hi) / 2n;
+    if (await has(mid)) hi = mid;
+    else lo = mid + 1n;
+  }
+  return lo;
+}
+
 /** Finds the latest block with timestamp <= ts (binary search). */
 export async function findBlockAtOrBefore(client: PublicClient, timestamp: bigint, fromBlock = 0n): Promise<bigint> {
   const latest = await client.getBlock({ blockTag: "latest" });

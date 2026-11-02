@@ -6,10 +6,9 @@ import { getAddress, isAddress, type Address } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
-import { estimateSweepCost, fetchAnnouncementsForRequests, recordSend, scanRequest, sendFromStealthPayment, stealthBalances } from "@/lib/receive";
+import { discoverLinks, estimateSweepCost, recordSend, scanRequest, sendFromStealthPayment, stealthBalances } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
-import { isExpired, mergeVaults, parseVault, requestStatus, type StoredPayment, type StoredRequest } from "@/lib/vault";
-import { checkPassphrase, createBackup, restoreBackup } from "@/lib/vault-crypto";
+import { isExpired, requestStatus, type StoredPayment, type StoredRequest } from "@/lib/vault";
 import { STATE_LABELS } from "@/lib/payment-state";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
@@ -54,35 +53,63 @@ function Dashboard({ network }: { network: NetworkConfig }) {
 
   const requests = useMemo(() => (vault?.requests ?? []).filter((r) => r.chainId === network.chain.id), [vault, network.chain.id]);
 
-  const scan = useCallback(async () => {
-    if (!vault || requests.length === 0) return;
-    abort.current = new AbortController();
-    setScanning(true);
-    setScanMsg(null);
-    setProgress(0);
-    try {
-      const { anns, toBlock } = await fetchAnnouncementsForRequests(
-        client,
-        network,
-        requests,
-        (done, total) => setProgress(total > 0n ? Number((done * 100n) / total) : 100),
-        abort.current.signal,
-      );
-      let found = 0;
-      const updated = new Map<string, StoredRequest>();
-      for (const r of requests) {
-        const res = await scanRequest(client, network, r, anns, toBlock);
-        found += res.newPayments;
-        updated.set(r.id, res.request);
+  const token = readiness.data?.token;
+  /**
+   * Finds payments to known links, and links this wallet made that this browser doesn't have yet
+   * (new device, cleared data, or another device). Everything is matched locally.
+   */
+  const scan = useCallback(
+    async (fullHistory: boolean) => {
+      if (!vault || !vault.linkSeed || !token) return;
+      abort.current = new AbortController();
+      setScanning(true);
+      setScanMsg(null);
+      setProgress(0);
+      try {
+        const d = await discoverLinks(client, network, {
+          seed: vault.linkSeed,
+          nextLinkIndex: vault.nextLinkIndex ?? 0,
+          known: vault.requests,
+          token: { address: token.address, decimals: token.decimals, symbol: token.symbol },
+          fullHistory: fullHistory || !vault.linksCheckedAt,
+          onProgress: (done, total) => setProgress(total > 0n ? Number((done * 100n) / total) : 100),
+          signal: abort.current.signal,
+        });
+        let payments = 0;
+        const updated = new Map<string, StoredRequest>();
+        for (const r of [...d.found, ...requests]) {
+          const res = await scanRequest(client, network, r, d.anns, d.toBlock);
+          payments += res.newPayments;
+          updated.set(r.id, res.request);
+        }
+        const recovered = d.found.map((r) => updated.get(r.id)!);
+        await save({
+          ...vault,
+          requests: [...recovered, ...vault.requests.map((r) => updated.get(r.id) ?? r)].sort((a, b) => b.createdAt - a.createdAt),
+          nextLinkIndex: d.nextLinkIndex,
+          linksCheckedAt: Date.now(),
+        });
+        const parts = [
+          d.found.length ? `Recovered ${d.found.length} link${d.found.length === 1 ? "" : "s"} from your wallet.` : "",
+          payments ? `Found ${payments} new payment${payments === 1 ? "" : "s"}.` : "",
+        ].filter(Boolean);
+        setScanMsg(parts.length ? parts.join(" ") : `No new payments. Scanned up to block ${d.toBlock.toString()}.`);
+      } catch (e) {
+        setScanMsg((e as Error).name === "AbortError" ? "Scan cancelled." : classifyTxError(e).message);
+      } finally {
+        setScanning(false);
       }
-      await save({ ...vault, requests: vault.requests.map((r) => updated.get(r.id) ?? r) });
-      setScanMsg(found ? `Found ${found} new payment${found === 1 ? "" : "s"}.` : "No new payments. Scanned up to block " + toBlock.toString() + ".");
-    } catch (e) {
-      setScanMsg((e as Error).name === "AbortError" ? "Scan cancelled." : classifyTxError(e).message);
-    } finally {
-      setScanning(false);
-    }
-  }, [vault, requests, client, network, save]);
+    },
+    [vault, requests, token, client, network, save],
+  );
+
+  // On a device that hasn't checked yet (new phone, cleared data), recover links automatically.
+  const autoRan = useRef(false);
+  useEffect(() => {
+    if (autoRan.current || !vault || vault.linksCheckedAt || !token || !network.announcer) return;
+    autoRan.current = true;
+    void scan(true);
+  }, [vault, token, network.announcer, scan]);
 
   if (readiness.isLoading) return <LoadingRows label={`Checking ${network.label} contracts`} rows={4} />;
   if (!readiness.data?.announcer || !readiness.data?.token)
@@ -90,8 +117,9 @@ function Dashboard({ network }: { network: NetworkConfig }) {
 
   return (
     <div className="space-y-8">
-      <Notice tone="warn" title="Your keys live only in this browser">
-        Clearing browser data, private windows, or a lost device will lose them, and with them any unclaimed funds. Keep an encrypted backup.
+      <Notice tone="info" title="Recoverable from your wallet">
+        Your links&apos; keys come from your wallet. Connect the same wallet on any device and QuietPay finds your links and payments again.
+        Only sign the QuietPay message on this site.
       </Notice>
 
       <section aria-labelledby="links-h" className="space-y-4">
@@ -104,9 +132,14 @@ function Dashboard({ network }: { network: NetworkConfig }) {
               <Spinner /> {progress}% · Cancel
             </button>
           ) : (
-            <button type="button" className="btn btn-sm" onClick={scan} disabled={requests.length === 0}>
-              Scan for payments
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="btn btn-sm btn-quiet" onClick={() => scan(true)} title="Look through the whole chain history for links this wallet made on other devices">
+                Search full history
+              </button>
+              <button type="button" className="btn btn-sm" onClick={() => scan(false)}>
+                Scan for payments
+              </button>
+            </div>
           )}
         </div>
         {scanning && (
@@ -121,11 +154,17 @@ function Dashboard({ network }: { network: NetworkConfig }) {
         </p>
         {requests.length === 0 ? (
           <div className="rounded-xl border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
-            No links on {network.label} in this browser yet.{" "}
-            <a href="/create" className="text-signal underline underline-offset-4">
-              Create a payment link
-            </a>{" "}
-            or restore a backup below.
+            {scanning ? (
+              "Looking for links this wallet already made…"
+            ) : (
+              <>
+                No links on {network.label} for this wallet yet.{" "}
+                <a href="/create" className="text-signal underline underline-offset-4">
+                  Create a payment link
+                </a>
+                .
+              </>
+            )}
           </div>
         ) : (
           <ul className="space-y-4">
@@ -135,8 +174,6 @@ function Dashboard({ network }: { network: NetworkConfig }) {
           </ul>
         )}
       </section>
-
-      <BackupPanel />
     </div>
   );
 }
@@ -148,15 +185,23 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
   useEffect(() => setOrigin(window.location.origin), []);
   const fmt = (v: bigint) => `${formatAmount(v, request.decimals, { group: true })} ${request.symbol}`;
   const total = request.payments.reduce((sum, p) => sum + (p.transferVerified && p.receivedAmount ? BigInt(p.receivedAmount) : 0n), 0n);
-  const shareable = !isExpired(request) && (open || status === "created");
+  const shareable = !!request.link && !request.recovered && !isExpired(request) && (open || status === "created");
   return (
     <li className="rounded-xl border border-harbor bg-abyss/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-display text-xl font-semibold tracking-[-0.02em] text-snow">{open ? "Any amount" : fmt(BigInt(request.amount))}</p>
+          <p className="font-display text-xl font-semibold tracking-[-0.02em] text-snow">
+            {request.recovered ? (open ? "Recovered reusable link" : "Recovered one-time link") : open ? "Any amount" : fmt(BigInt(request.amount))}
+          </p>
           <p className="mt-1 text-xs text-haze">
-            {open ? "Reusable link" : "One-time link"} · created {formatDateTime(request.createdAt)} ·{" "}
-            {request.expiresAt === 0 ? (
+            {request.recovered ? (
+              `Found from your wallet · first paid ${formatDateTime(request.createdAt)}`
+            ) : (
+              <>
+                {open ? "Reusable link" : "One-time link"} · created {formatDateTime(request.createdAt)} ·{" "}
+              </>
+            )}
+            {request.recovered ? null : request.expiresAt === 0 ? (
               "never expires"
             ) : isExpired(request) ? (
               `expired ${formatDateTime(request.expiresAt * 1000)}`
@@ -192,7 +237,7 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
 
 function PaymentRow({ request, payment, network }: { request: StoredRequest; payment: StoredPayment; network: NetworkConfig }) {
   const received = payment.receivedAmount ? BigInt(payment.receivedAmount) : 0n;
-  const mismatch = request.kind !== "open" && payment.transferVerified && received !== BigInt(request.amount);
+  const mismatch = request.kind !== "open" && !request.recovered && payment.transferVerified && received !== BigInt(request.amount);
   const sent =
     (payment.sends ?? []).reduce((s, x) => s + BigInt(x.amount), 0n) - (payment.returns ?? []).reduce((s, x) => s + BigInt(x.amount), 0n);
   const fmt = (v: bigint) => `${formatAmount(v, request.decimals, { group: true })} ${request.symbol}`;
@@ -532,105 +577,5 @@ function SendPanel({ request, payment, network }: { request: StoredRequest; paym
       {done && <Notice tone="ok">{done}</Notice>}
       {error && <Notice tone="bad">{error}</Notice>}
     </div>
-  );
-}
-
-function BackupPanel() {
-  const { vault, save } = useVault();
-  const [pass, setPass] = useState("");
-  const [pass2, setPass2] = useState("");
-  const [busy, setBusy] = useState<"export" | "restore" | null>(null);
-  const [msg, setMsg] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
-  const [file, setFile] = useState<File | null>(null);
-  const [restorePass, setRestorePass] = useState("");
-
-  async function doExport() {
-    if (!vault) return;
-    const err = checkPassphrase(pass) ?? (pass !== pass2 ? "Passphrases don't match." : null);
-    if (err) return setMsg({ tone: "bad", text: err });
-    setBusy("export");
-    setMsg(null);
-    try {
-      const backup = await createBackup(vault, pass);
-      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `quietpay-backup-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-      setPass("");
-      setPass2("");
-      setMsg({ tone: "ok", text: `Backup saved with ${vault.requests.length} link${vault.requests.length === 1 ? "" : "s"}. Store it and the passphrase separately.` });
-    } catch (e) {
-      setMsg({ tone: "bad", text: (e as Error).message });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function doRestore() {
-    if (!vault || !file) return;
-    setBusy("restore");
-    setMsg(null);
-    try {
-      if (file.size > 5_000_000) throw new Error("That file is too large to be a QuietPay backup.");
-      const json = JSON.parse(await file.text());
-      const data = parseVault(await restoreBackup(json, restorePass));
-      const { vault: merged, added } = mergeVaults(vault, { ...data, address: vault.address as Address });
-      await save(merged);
-      setRestorePass("");
-      setFile(null);
-      setMsg({ tone: "ok", text: `Restored. ${added} new link${added === 1 ? "" : "s"} added; existing links were kept.` });
-    } catch (e) {
-      setMsg({ tone: "bad", text: e instanceof SyntaxError ? "That file is not valid JSON." : (e as Error).message });
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  return (
-    <section id="backup" aria-labelledby="backup-h" className="scroll-mt-24 space-y-5 border-t border-harbor pt-6">
-      <h2 id="backup-h" className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">
-        Backup and restore
-      </h2>
-      <div className="grid gap-6 sm:grid-cols-2">
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void doExport();
-          }}
-        >
-          <p className="text-sm text-haze">Download every link&apos;s keys, encrypted with a passphrase you choose (12+ characters).</p>
-          <input type="password" className="field" placeholder="Passphrase" value={pass} onChange={(e) => setPass(e.target.value)} autoComplete="new-password" aria-label="Backup passphrase" />
-          <input type="password" className="field" placeholder="Repeat passphrase" value={pass2} onChange={(e) => setPass2(e.target.value)} autoComplete="new-password" aria-label="Repeat backup passphrase" />
-          <button type="submit" className="btn btn-sm" disabled={!!busy || !vault?.requests.length}>
-            {busy === "export" ? <Spinner /> : null} Export backup
-          </button>
-        </form>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void doRestore();
-          }}
-        >
-          <p className="text-sm text-haze">Restore links from a QuietPay backup file into this browser.</p>
-          <input
-            type="file"
-            accept="application/json,.json"
-            className="block w-full text-sm text-mist file:mr-3 file:rounded-lg file:border file:border-mist/40 file:bg-transparent file:px-3 file:py-1.5 file:text-mist"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            aria-label="Backup file"
-          />
-          <input type="password" className="field" placeholder="Backup passphrase" value={restorePass} onChange={(e) => setRestorePass(e.target.value)} autoComplete="current-password" aria-label="Passphrase for the backup file" />
-          <button type="submit" className="btn btn-sm" disabled={!!busy || !file || !restorePass}>
-            {busy === "restore" ? <Spinner /> : null} Restore backup
-          </button>
-        </form>
-      </div>
-      {msg && <Notice tone={msg.tone}>{msg.text}</Notice>}
-    </section>
   );
 }

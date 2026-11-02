@@ -18,11 +18,10 @@ states this on every page and the payer must acknowledge it before paying.
 
 | Secret | Where it lives | Protection |
 | --- | --- | --- |
-| Per-request spending + viewing private keys | Browser `localStorage`, inside the vault | AES-256-GCM, key from HKDF-SHA256 over a wallet signature |
+| Per-link spending + viewing private keys | Derived from the wallet signature and the link number (HKDF-SHA256); cached in the vault | Re-derivable on any device; cache encrypted with AES-256-GCM |
 | Vault encryption key | Memory only, non-extractable `CryptoKey` | Gone on reload or wallet change |
 | Wallet signature used for the vault key | Never stored | Not applicable |
 | Stealth private key (per payment) | Derived in memory at claim time | Used to sign locally, then discarded |
-| Backup file | Downloaded by the user | AES-256-GCM, PBKDF2-SHA256 600,000 iterations, 12+ character passphrase |
 | Payer record (stealth address, ephemeral **public** key, tx hashes) | Payer's `localStorage`, plaintext | Not secret; lets announcements be retried |
 
 - The signed message is domain-separated (`QuietPay vault key`, purpose
@@ -31,8 +30,12 @@ states this on every page and the payer must acknowledge it before paying.
 - Ciphertexts bind associated data (purpose and wallet address), so a vault cannot be swapped
   between wallets or contexts without failing authentication.
 - The first time a vault is created, the wallet is asked to sign twice and the signatures must be
-  identical. Wallets with non-deterministic signatures are refused rather than producing a vault
-  that could never be reopened.
+  identical. Wallets with non-deterministic signatures are refused rather than producing keys that
+  could never be recreated.
+- Every QuietPay key (link keys, pool keys, name key, vault key) is derived from that one signature
+  with its own HKDF salt and label. The signature therefore acts like a password: anyone who gets
+  it can recreate the keys. The message says to sign it only on QuietPay. There are no backup
+  files.
 - No key material is ever placed in URLs, sent to a server, written to logs, or sent to analytics
   (there is no server and no analytics). Links contain public keys only.
 
@@ -68,10 +71,17 @@ states this on every page and the payer must acknowledge it before paying.
   unlocked. QuietPay cannot defend against a compromised browser.
 
 ### Key loss
-- Keys exist only in this browser's storage and in backups the user makes. Clearing site data,
-  private windows, or losing the device loses them, and with them any unclaimed funds. The UI warns
-  on creation and on the Receive page, and offers encrypted export/restore.
-- Restore merges into the current vault without dropping existing requests or claim records.
+- Link keys are derived from the wallet signature plus a link number, so nothing needs backing up.
+  On a new device (or after clearing site data) the Receive page scans announcements from the
+  announcer's deployment and checks link numbers in order until 20 in a row have no payments, then
+  rebuilds those links and their payments. Unpaid links can't be found this way, but hold no funds.
+- Recovered links lose what only lived in the link itself (amount, expiry, shareable code); their
+  payments and funds are fully recovered. Fixed links are recognised by their request ID.
+- The first time a device creates a link, it checks the chain first so the new link gets an unused
+  number. Two devices creating links offline at the same moment can still pick the same number;
+  the links then share keys. Funds stay recoverable, and fixed links only show payments carrying
+  their own request ID.
+- Losing the wallet (or its recovery phrase) loses access to QuietPay funds.
 
 ### XSS
 - React escapes all rendered values. There is no `dangerouslySetInnerHTML`; QR codes are rendered

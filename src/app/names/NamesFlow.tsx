@@ -130,7 +130,7 @@ export function NamesFlow() {
           so the list never shows which wallet owns which name. QuietPay does not store your wallet address, email or IP address with it.
         </p>
         <p>
-          Your name stays tied to this vault. Export a backup on the Receive page so you can keep it on a new device. Reserved names are
+          Your name comes back when you connect the same wallet on any device. Reserved names are
           held for the launch of pay-by-username; QuietPay may remove names that impersonate others.
         </p>
       </section>

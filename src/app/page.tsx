@@ -74,10 +74,10 @@ const TILES: Tile[] = [
     ),
   },
   {
-    href: "/receive#backup",
-    title: "Back up keys",
-    body: "Keys live encrypted in this browser. Export a passphrase backup.",
-    action: "Back up",
+    href: "/receive",
+    title: "Recover anywhere",
+    body: "Connect the same wallet on any device and your links come back.",
+    action: "Receive",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
         <rect x="44" y="36" width="32" height="26" rx="3" />

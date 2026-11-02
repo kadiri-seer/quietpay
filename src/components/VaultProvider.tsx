@@ -8,9 +8,10 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useAccount, useSignMessage } from "wagmi";
 import type { Address, Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
-import { browserStore, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
+import { browserStore, emptyVault, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
 import { derivePoolMasterKeys } from "@/lib/pool/crypto";
 import { deriveNameKey } from "@/lib/names/names";
+import { deriveLinkSeed } from "@/lib/link-keys";
 import { classifyTxError } from "@/lib/tx-errors";
 
 type Status = "locked" | "unlocking" | "unlocked" | "unavailable";
@@ -76,9 +77,19 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         }
       }
       const key = await deriveVaultKey(sig, address);
-      let data = await loadVault(store, key, address);
-      // Pool keys come from the same signature (separate derivation) and are kept in the vault
-      // so backups carry them even if the wallet's signatures ever change.
+      let data: VaultData;
+      try {
+        data = await loadVault(store, key, address);
+      } catch (e) {
+        if (!(e instanceof DecryptionError)) throw e;
+        // This browser holds a vault this signature can't open (an older version of the QuietPay
+        // message, or a wallet that now signs differently). Every key is re-derived from the
+        // signature, so start a fresh local cache; the Receive page recovers links from the chain.
+        data = emptyVault(address);
+        await saveVault(store, key, data);
+      }
+      // Pool keys, the name key and the link seed all come from this one signature (each with its
+      // own derivation), so connecting the same wallet on any device recreates them.
       const pk = await derivePoolMasterKeys(sig, address);
       const pkStr = { masterNullifier: pk.masterNullifier.toString(), masterSecret: pk.masterSecret.toString() };
       const known = data.poolKeys ?? [];
@@ -86,9 +97,10 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         data = { ...data, poolKeys: [...known, pkStr] };
         await saveVault(store, key, data);
       }
-      // The name key for username reservations: kept once created, so a backup restores the same name.
-      if (!data.nameKey) {
-        data = { ...data, nameKey: await deriveNameKey(sig, address) };
+      const nameKey = await deriveNameKey(sig, address);
+      const linkSeed = await deriveLinkSeed(sig, address);
+      if (data.nameKey !== nameKey || data.linkSeed !== linkSeed) {
+        data = { ...data, nameKey, linkSeed };
         await saveVault(store, key, data);
       }
       keyRef.current = { key, address };
@@ -98,7 +110,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       setStatus("locked");
       if (e instanceof DecryptionError) {
-        setError("The signature did not unlock this browser's vault. If your wallet changed how it signs, restore from your backup file.");
+        setError("The signature did not unlock this browser's vault. Make sure you connected the same wallet you used before.");
       } else {
         const c = classifyTxError(e);
         setError(c.kind === "unknown" && e instanceof Error ? e.message : c.message);

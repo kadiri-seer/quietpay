@@ -1,13 +1,14 @@
 import { bytesToHex, type Address } from "viem";
 import { EXPIRY_OPTIONS, OPEN_EXPIRY_OPTIONS } from "@/config/networks";
 import { encodePaymentLink, type LinkKind } from "./link";
-import { createRequestKeys } from "./stealth";
+import { createRequestKeys, type RequestKeys } from "./stealth";
 import { randomBytes } from "./vault-crypto";
 import type { StoredRequest } from "./vault";
 
 /**
- * Creates a new payment request with its own fresh stealth keys. Returns the record to store
- * in the encrypted vault; `record.link` is the shareable (public) link code.
+ * Creates a new payment request. In the app, `keys` and `index` always come from the wallet-
+ * derived link seed (src/lib/link-keys.ts), so the link can be recovered from the wallet alone.
+ * Without them (tests only) fresh random keys are used. `record.link` is the shareable code.
  */
 export function createPaymentRequest(p: {
   kind?: LinkKind;
@@ -21,6 +22,9 @@ export function createPaymentRequest(p: {
   expirySeconds: number;
   fromBlock: bigint;
   nowMs?: number;
+  /** Wallet-derived keys for link number `index`. */
+  keys?: RequestKeys;
+  index?: number;
 }): StoredRequest {
   const kind: LinkKind = p.kind ?? "fixed";
   const options: readonly { seconds: number }[] = kind === "fixed" ? EXPIRY_OPTIONS : OPEN_EXPIRY_OPTIONS;
@@ -28,7 +32,7 @@ export function createPaymentRequest(p: {
   if (kind === "fixed" && p.amount <= 0n) throw new Error("Amount must be positive.");
   const amount = kind === "fixed" ? p.amount : 0n;
   const now = p.nowMs ?? Date.now();
-  const keys = createRequestKeys();
+  const keys = p.keys ?? createRequestKeys();
   const id = bytesToHex(randomBytes(16));
   const expiresAt = p.expirySeconds === 0 ? 0 : Math.floor(now / 1000) + p.expirySeconds;
   const link = encodePaymentLink({
@@ -53,6 +57,7 @@ export function createPaymentRequest(p: {
     fromBlock: p.fromBlock.toString(),
     link,
     keys,
+    ...(p.index !== undefined ? { index: p.index } : {}),
     payments: [],
   };
 }

@@ -46,6 +46,13 @@ export interface StoredRequest {
     viewingPublicKey: Hex;
     stealthMetaAddress: Hex;
   };
+  /** Link number the keys were derived from. Missing on old links that used random keys. */
+  index?: number;
+  /**
+   * True when the link was rebuilt from the chain on this device. Its shareable code, amount and
+   * expiry are not known (they only lived in the link), but its payments and funds are.
+   */
+  recovered?: boolean;
   payments: StoredPayment[];
 }
 
@@ -54,16 +61,18 @@ export interface VaultData {
   address: Address;
   requests: StoredRequest[];
   /**
-   * Shielded pool master keys (decimal field elements). Derived from the wallet signature on
-   * unlock and kept here too, so backups carry them. The first set is used for new deposits;
-   * every set is scanned.
+   * Shielded pool master keys (decimal field elements), derived from the wallet signature on
+   * unlock. The first set is used for new deposits; every set is scanned.
    */
   poolKeys?: { masterNullifier: string; masterSecret: string }[];
-  /**
-   * Private key that signs QuietPay name reservations. Derived from the wallet signature on
-   * unlock (separate derivation) and kept here so backups carry it. Never the wallet key.
-   */
+  /** Private key that signs QuietPay name reservations. Derived from the wallet signature. Never the wallet key. */
   nameKey?: Hex;
+  /** Seed for every link's keys, derived from the wallet signature (src/lib/link-keys.ts). */
+  linkSeed?: Hex;
+  /** Number of the next link to create. Links 0..n-1 are in use. */
+  nextLinkIndex?: number;
+  /** When this browser last checked the chain for links made elsewhere (ms). */
+  linksCheckedAt?: number;
 }
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -100,6 +109,9 @@ const vaultSchema = z.object({
     .max(16)
     .optional(),
   nameKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+  linkSeed: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
+  nextLinkIndex: z.number().int().min(0).optional(),
+  linksCheckedAt: z.number().optional(),
 });
 
 export function emptyVault(address: Address): VaultData {
@@ -149,39 +161,6 @@ export async function loadVault(store: KeyValueStore, key: CryptoKey, address: A
 export async function saveVault(store: KeyValueStore, key: CryptoKey, vault: VaultData): Promise<void> {
   const sealed = await seal(key, vault, vaultAad(vault.address));
   store.setItem(vaultStorageKey(vault.address), JSON.stringify(sealed));
-}
-
-/** Merges restored requests into an existing vault without dropping local progress. */
-export function mergeVaults(current: VaultData, incoming: VaultData): { vault: VaultData; added: number } {
-  const byId = new Map(current.requests.map((r) => [r.id.toLowerCase(), r]));
-  let added = 0;
-  for (const r of incoming.requests) {
-    const existing = byId.get(r.id.toLowerCase());
-    if (!existing) {
-      byId.set(r.id.toLowerCase(), r);
-      added++;
-      continue;
-    }
-    const payments = new Map(existing.payments.map((p) => [p.stealthAddress.toLowerCase(), p]));
-    for (const p of r.payments) {
-      const e = payments.get(p.stealthAddress.toLowerCase());
-      if (!e || (!e.claimTx && p.claimTx)) payments.set(p.stealthAddress.toLowerCase(), p);
-    }
-    byId.set(r.id.toLowerCase(), { ...existing, payments: [...payments.values()] });
-  }
-  const poolKeys = [...(current.poolKeys ?? [])];
-  for (const k of incoming.poolKeys ?? []) {
-    if (!poolKeys.some((x) => x.masterNullifier === k.masterNullifier && x.masterSecret === k.masterSecret)) poolKeys.push(k);
-  }
-  return {
-    vault: {
-      ...current,
-      requests: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt),
-      ...(poolKeys.length ? { poolKeys } : {}),
-      ...((current.nameKey ?? incoming.nameKey) ? { nameKey: current.nameKey ?? incoming.nameKey } : {}),
-    },
-    added,
-  };
 }
 
 export type RequestStatus = "created" | "expired" | "announcement_pending" | "claimable" | "claimed";

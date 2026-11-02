@@ -61,8 +61,11 @@ const sections: LegalSection[] = [
     title: "Your responsibilities",
     body: (
       <ul>
-        <li>Keeping your wallet, its recovery phrase and your QuietPay backup files and passphrases safe.</li>
-        <li>Exporting a backup after creating links. Clearing browser data without a backup permanently loses unclaimed payments.</li>
+        <li>
+          Keeping your wallet and its recovery phrase safe. Your QuietPay keys are recreated from your wallet, so losing the wallet means
+          losing access to your QuietPay payments.
+        </li>
+        <li>Only signing QuietPay&apos;s vault message on QuietPay itself.</li>
         <li>Checking the amount, network and source of every link before you pay it.</li>
         <li>Paying network fees, which are set by Robinhood Chain and not by QuietPay.</li>
         <li>Complying with the laws that apply to you, including tax, sanctions and anti-money-laundering rules.</li>
