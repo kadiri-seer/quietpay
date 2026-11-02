@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { privateKeyToAccount } from "viem/accounts";
 import { checkName, signReservation, NAME_MAX } from "@/lib/names/names";
 import { useSelectedNetwork } from "@/components/Providers";
+import { X_URL } from "@/components/SiteChrome";
 import { LoadingRows, Notice, PageTitle, Spinner } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
@@ -118,7 +119,12 @@ export function NamesFlow() {
 
       {count !== null && !closed && (
         <p className="mt-4 text-sm text-haze">
-          {count.toLocaleString()} name{count === 1 ? "" : "s"} reserved so far.
+          {count.toLocaleString()} name{count === 1 ? "" : "s"} reserved so far.{" "}
+          <a href={X_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-snow underline decoration-snow/30 underline-offset-4 hover:decoration-snow">
+            Follow @quietpay_ on X
+            <span className="sr-only"> (opens in a new tab)</span>
+          </a>{" "}
+          for the launch.
         </p>
       )}
 
@@ -186,7 +192,7 @@ function Reserve({ name, onCount, onChange }: { name: string | null; onCount: (n
   if (mine === undefined) return <LoadingRows label="Checking your reservation" rows={2} />;
 
   if (mine) {
-    const share = `https://x.com/intent/post?text=${encodeURIComponent(`I just reserved @${mine.name} on QuietPay, private payment links on Robinhood Chain. Claim yours: ${origin}/names`)}`;
+    const share = `https://x.com/intent/post?text=${encodeURIComponent(`I just reserved @${mine.name} on @quietpay_, private payment links on Robinhood Chain. Claim yours: ${origin}/names`)}`;
     return (
       <div className="space-y-4">
         <p className="font-display text-2xl font-semibold tracking-[-0.02em] text-snow">@{mine.name} is yours</p>

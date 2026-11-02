@@ -23,6 +23,7 @@ const NAV = [
 export const HEADER_HEIGHT = 76;
 
 export const ETH_FAUCET_URL = "https://faucet.testnet.chain.robinhood.com";
+export const X_URL = "https://x.com/quietpay_";
 
 export function NetworkIndicator() {
   const { network, setNetwork } = useSelectedNetwork();
@@ -192,6 +193,7 @@ export function SiteFooter() {
             { href: "/security", label: "Security model" },
             { href: "/security#contracts", label: "Contracts" },
             { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
+            { href: X_URL, label: "Follow @quietpay_ on X", external: true },
           ]}
         />
       </div>
