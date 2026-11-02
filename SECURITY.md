@@ -35,10 +35,12 @@ states this on every page and the payer must acknowledge it before paying.
 - Every QuietPay key (link keys, pool keys, name key, vault key) is derived from that one signature
   with its own HKDF salt and label. The signature therefore acts like a password: anyone who gets
   it can recreate the keys. There are no backup files.
-- The message is a fixed Sign-In with Ethereum (EIP-4361) message bound to `quietpay.sbs` (fixed
+- The message is a fixed Sign-In with Ethereum (EIP-4361) message bound to `www.quietpay.sbs`, the
+  site's primary domain (fixed
   nonce and issue time, so the signature never changes). Wallets that check SIWE domains warn when
   any other site asks for it, which is the main defence against phishing for the signature. The
-  old vercel.app address redirects to quietpay.sbs so users never sign there.
+  apex domain and the old vercel.app address redirect there, so users never sign on another host.
+  The primary domain must stay `www.quietpay.sbs`; changing it changes every user's keys.
 - No key material is ever placed in URLs, sent to a server, written to logs, or sent to analytics
   (there is no server and no analytics). Links contain public keys only.
 

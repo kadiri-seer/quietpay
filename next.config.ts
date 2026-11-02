@@ -6,14 +6,15 @@ import { LOCKED_DOWN_CSP } from "./src/lib/csp";
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
-  // The vault message is bound to quietpay.sbs (see src/lib/vault-crypto.ts), so wallets warn on
-  // any other host. Send the old vercel.app address there instead of letting people sign on it.
+  // The vault message is bound to www.quietpay.sbs (see src/lib/vault-crypto.ts), so wallets warn
+  // on any other host. Send other hosts there instead of letting people sign on them. (Vercel's
+  // domain settings already redirect quietpay.sbs and the vercel.app address; this is a backstop.)
   async redirects() {
     return [
       {
         source: "/:path*",
         has: [{ type: "host", value: "quietpay-gules.vercel.app" }],
-        destination: "https://quietpay.sbs/:path*",
+        destination: "https://www.quietpay.sbs/:path*",
         permanent: false,
       },
     ];

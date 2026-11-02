@@ -71,7 +71,7 @@ a new device the shielded money is still found and can be withdrawn from the Poo
 Note secrets follow the SDK's scheme: two master keys, then
 `Poseidon(master, scope, index)` per deposit and `Poseidon(master, label, index)` per change note.
 QuietPay derives the master keys with HKDF-SHA256 from the same deterministic wallet signature that
-unlocks the vault (a fixed Sign-In with Ethereum message bound to quietpay.sbs) (separate salt and info), so the same wallet recreates them on any device. Notes are never stored: they are rebuilt from public events by trying deposit indexes
+unlocks the vault (a fixed Sign-In with Ethereum message bound to www.quietpay.sbs) (separate salt and info), so the same wallet recreates them on any device. Notes are never stored: they are rebuilt from public events by trying deposit indexes
 in order and following each deposit's nullifier chain.
 
 ## Verification before use

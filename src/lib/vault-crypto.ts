@@ -2,7 +2,7 @@
  * Client-side encryption for stealth keys (Web Crypto only).
  *
  * Vault key: HKDF-SHA256 over a wallet signature of a fixed Sign-In with Ethereum message bound
- *   to quietpay.sbs (buildVaultMessage), salt "quietpay/vault/v1", info "aes-256-gcm|<address>".
+ *   to www.quietpay.sbs (buildVaultMessage), salt "quietpay/vault/v1", info "aes-256-gcm|<address>".
  *   The resulting AES-256-GCM key is non-extractable and lives in memory, or, if the user chooses
  *   to stay signed in, in IndexedDB (src/lib/remember.ts), where it can be used but not read out.
  *   The signature itself is never stored.
@@ -54,14 +54,15 @@ export function randomBytes(n: number): Uint8Array {
 }
 
 /**
- * The site the vault message is bound to. Changing it changes every user's keys, so it is a
- * constant, not configuration. Other hosts (the vercel.app address) redirect here.
+ * The host the vault message is bound to: the site's primary domain on Vercel (quietpay.sbs and
+ * the vercel.app address redirect here). Wallets compare it with the page's host exactly, so it
+ * must stay the primary domain. Changing it changes every user's keys, so it is a constant.
  */
-export const VAULT_DOMAIN = "quietpay.sbs";
+export const VAULT_DOMAIN = "www.quietpay.sbs";
 
 /**
  * The exact message a wallet signs to unlock the vault: a Sign-In with Ethereum (EIP-4361)
- * message bound to VAULT_DOMAIN. Wallets that check SIWE domains (MetaMask, Rabby, Coinbase
+ * message bound to VAULT_DOMAIN (www.quietpay.sbs). Wallets that check SIWE domains (MetaMask, Rabby, Coinbase
  * Wallet and others) warn when any other site asks for it, which is the main defence against a
  * phishing site collecting the signature that recreates every QuietPay key.
  *
@@ -79,7 +80,7 @@ export function buildVaultMessage(address: Address): string {
     chainId: ROBINHOOD_MAINNET_ID,
     nonce: "quietpaykeys2",
     issuedAt: new Date("2026-11-02T00:00:00.000Z"),
-    resources: ["https://quietpay.sbs/security"],
+    resources: [`https://${VAULT_DOMAIN}/security`],
   });
 }
 

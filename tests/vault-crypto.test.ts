@@ -34,17 +34,18 @@ function sampleRequest() {
 }
 
 describe("vault message", () => {
-  it("is a fixed Sign-In with Ethereum message bound to quietpay.sbs", () => {
+  it("is a fixed Sign-In with Ethereum message bound to www.quietpay.sbs", () => {
     const addr = "0x1111111111111111111111111111111111111111";
     const m = buildVaultMessage(addr);
     const parsed = parseSiweMessage(m);
-    expect(parsed.domain).toBe("quietpay.sbs");
-    expect(parsed.uri).toBe("https://quietpay.sbs");
+    expect(parsed.domain).toBe("www.quietpay.sbs");
+    expect(parsed.uri).toBe("https://www.quietpay.sbs");
     expect(parsed.address).toBe(addr);
     expect(m).toContain("does not send a transaction");
     // Wallets that check SIWE domains accept it on quietpay.sbs and flag it anywhere else.
-    expect(validateSiweMessage({ message: parsed, domain: "quietpay.sbs", address: addr })).toBe(true);
+    expect(validateSiweMessage({ message: parsed, domain: "www.quietpay.sbs", address: addr })).toBe(true);
     expect(validateSiweMessage({ message: parsed, domain: "quietpay-phish.example", address: addr })).toBe(false);
+    expect(validateSiweMessage({ message: parsed, domain: "www.quietpay.sbs.evil.example", address: addr })).toBe(false);
     // Fixed fields: the same wallet always signs the same text.
     expect(buildVaultMessage(addr)).toBe(m);
   });
