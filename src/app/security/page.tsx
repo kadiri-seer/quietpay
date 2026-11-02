@@ -33,6 +33,10 @@ const KEYS: { what: string; where: string }[] = [
     what: "Pool keys",
     where: "Derived in this browser from the same signature (separate derivation) and kept in the encrypted vault, so backups include them. Pool proofs are generated on this device.",
   },
+  {
+    what: "Name key",
+    where: "Signs username reservations. Derived in this browser from the same signature (separate derivation), kept in the vault, and never your wallet key.",
+  },
 ];
 
 const RISKS: { title: string; body: string }[] = [
@@ -147,8 +151,9 @@ export default function SecurityPage() {
             ))}
           </dl>
           <p className="mt-4 text-sm text-haze">
-            No keys or secrets are ever sent to a server. QuietPay has no database or analytics. The only QuietPay server code is the pool
-            relayer and approver, which receive finished proofs, never secrets.
+            No keys or secrets are ever sent to a server. QuietPay has no analytics. Its only server code is the pool relayer and approver,
+            which receive finished proofs, never secrets, and the username waitlist, which stores a name, the time and a name key that is
+            not your wallet.
           </p>
         </Section>
 

@@ -14,7 +14,10 @@ const sections: LegalSection[] = [
     body: (
       <ul>
         <li>QuietPay has no accounts, no server database, no cookies for tracking and no analytics.</li>
-        <li>The only QuietPay server code is the shielded pool&apos;s relayer, which you use only when you withdraw from the pool.</li>
+        <li>
+          QuietPay&apos;s only server code is the shielded pool&apos;s relayer, used when you withdraw from the pool, and the username waitlist,
+          which stores a name and a key that is not your wallet.
+        </li>
         <li>Your payment keys are encrypted and stored only in your own browser.</li>
         <li>Blockchain activity is public and permanent, and some outside services can see technical details such as your IP address.</li>
       </ul>
@@ -27,6 +30,9 @@ const sections: LegalSection[] = [
       <p>
         QuietPay itself does not collect, receive or store personal information. It does not ask for your name, email address or main wallet
         address when you create a link. Payment links keep their data after the # in the address, which browsers do not send to the web server.
+        If you reserve a username, QuietPay&apos;s server stores only that name, the time, and a public key your browser creates for names
+        (not your wallet address). To limit abuse, it also keeps a short-lived counter tied to a scrambled form of your IP address, which
+        expires within an hour and is never stored with your name.
       </p>
     ),
   },

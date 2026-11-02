@@ -59,6 +59,11 @@ export interface VaultData {
    * every set is scanned.
    */
   poolKeys?: { masterNullifier: string; masterSecret: string }[];
+  /**
+   * Private key that signs QuietPay name reservations. Derived from the wallet signature on
+   * unlock (separate derivation) and kept here so backups carry it. Never the wallet key.
+   */
+  nameKey?: Hex;
 }
 
 const hex = z.string().regex(/^0x[0-9a-fA-F]*$/);
@@ -94,6 +99,7 @@ const vaultSchema = z.object({
     .array(z.object({ masterNullifier: z.string().regex(/^\d{1,78}$/), masterSecret: z.string().regex(/^\d{1,78}$/) }))
     .max(16)
     .optional(),
+  nameKey: z.string().regex(/^0x[0-9a-fA-F]{64}$/).optional(),
 });
 
 export function emptyVault(address: Address): VaultData {
@@ -168,7 +174,12 @@ export function mergeVaults(current: VaultData, incoming: VaultData): { vault: V
     if (!poolKeys.some((x) => x.masterNullifier === k.masterNullifier && x.masterSecret === k.masterSecret)) poolKeys.push(k);
   }
   return {
-    vault: { ...current, requests: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt), ...(poolKeys.length ? { poolKeys } : {}) },
+    vault: {
+      ...current,
+      requests: [...byId.values()].sort((a, b) => b.createdAt - a.createdAt),
+      ...(poolKeys.length ? { poolKeys } : {}),
+      ...((current.nameKey ?? incoming.nameKey) ? { nameKey: current.nameKey ?? incoming.nameKey } : {}),
+    },
     added,
   };
 }

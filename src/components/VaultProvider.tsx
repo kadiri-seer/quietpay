@@ -10,6 +10,7 @@ import type { Address, Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
 import { browserStore, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
 import { derivePoolMasterKeys } from "@/lib/pool/crypto";
+import { deriveNameKey } from "@/lib/names/names";
 import { classifyTxError } from "@/lib/tx-errors";
 
 type Status = "locked" | "unlocking" | "unlocked" | "unavailable";
@@ -83,6 +84,11 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       const known = data.poolKeys ?? [];
       if (!known.some((k) => k.masterNullifier === pkStr.masterNullifier && k.masterSecret === pkStr.masterSecret)) {
         data = { ...data, poolKeys: [...known, pkStr] };
+        await saveVault(store, key, data);
+      }
+      // The name key for username reservations: kept once created, so a backup restores the same name.
+      if (!data.nameKey) {
+        data = { ...data, nameKey: await deriveNameKey(sig, address) };
         await saveVault(store, key, data);
       }
       keyRef.current = { key, address };

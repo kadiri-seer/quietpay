@@ -15,6 +15,7 @@ const NAV = [
   { href: "/pay", label: "Pay" },
   { href: "/receive", label: "Receive" },
   { href: "/pool", label: "Pool" },
+  { href: "/names", label: "Names" },
   { href: "/security", label: "Security" },
 ];
 
@@ -78,7 +79,7 @@ export function SiteHeader() {
           <Wordmark />
         </Link>
 
-        <nav aria-label="Main" className="hidden items-center gap-8 lg:flex">
+        <nav aria-label="Main" className="hidden items-center gap-6 lg:flex xl:gap-8">
           {NAV.map((n) => (
             <Link
               key={n.href}
@@ -170,6 +171,7 @@ export function SiteFooter() {
             { href: "/pay", label: "Pay a link" },
             { href: "/receive", label: "Receive and claim" },
             { href: "/pool", label: "Shielded pool" },
+            { href: "/names", label: "Claim your name" },
           ]}
         />
         <FooterCol
