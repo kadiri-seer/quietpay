@@ -1,5 +1,6 @@
 /**
- * Name reservation logic shared by the API route and tests.
+ * Name reservation logic shared by the API route and tests. The total number of reservations is
+ * kept in the store (qp:count) for the owner but never returned publicly.
  */
 import "server-only";
 import type { Address } from "viem";
@@ -17,19 +18,18 @@ async function scramble(ip: string, salt: string) {
 
 export async function lookup(store: NameStore, q: { name?: string | null; key?: string | null }, ip: string, salt: string) {
   if (!(await store.allow(`l:${await scramble(ip, salt)}`, LOOKUPS_PER_MINUTE, 60))) throw new ReservationError("Too many requests. Wait a minute.", 429);
-  const count = await store.count();
   if (q.key) {
     if (!/^0x[0-9a-fA-F]{40}$/.test(q.key)) throw new ReservationError("Malformed key.");
     const mine = await store.byKey(q.key as Address);
-    return { count, mine: mine ? { name: mine.name, at: mine.at } : null };
+    return { mine: mine ? { name: mine.name, at: mine.at } : null };
   }
   if (q.name) {
     const c = checkName(q.name);
-    if (!c.ok) return { count, name: q.name, available: false, reason: c.reason };
+    if (!c.ok) return { name: q.name, available: false, reason: c.reason };
     const taken = await store.get(c.name);
-    return { count, name: c.name, available: !taken, reason: taken ? "Already reserved." : null };
+    return { name: c.name, available: !taken, reason: taken ? "Already reserved." : null };
   }
-  return { count };
+  return { open: true };
 }
 
 export async function submit(store: NameStore, raw: unknown, ip: string, salt: string, nowMs = Date.now()) {
@@ -37,12 +37,12 @@ export async function submit(store: NameStore, raw: unknown, ip: string, salt: s
   if (req.action === "release") {
     const ok = await store.release(req.name, req.key);
     if (!ok) throw new ReservationError("That name isn't reserved by this key.", 404);
-    return { released: req.name, count: await store.count() };
+    return { released: req.name };
   }
   if (!(await store.allow(`c:${await scramble(ip, salt)}`, CLAIMS_PER_HOUR, 3600)))
     throw new ReservationError("Too many reservations from this network. Try again later.", 429);
   const r = await store.reserve(req.name, req.key, nowMs);
   if (r === "taken") throw new ReservationError("Someone already reserved that name.", 409);
   if (r === "has-name") throw new ReservationError("You already have a name. Release it first to pick another.", 409);
-  return { reserved: req.name, at: nowMs, count: await store.count() };
+  return { reserved: req.name, at: nowMs };
 }

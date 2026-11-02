@@ -1,6 +1,6 @@
 /**
  * Name waitlist API.
- *   GET  ?name=kadiri   availability      GET ?key=0x…   your reservation      GET  count
+ *   GET  ?name=kadiri   availability      GET ?key=0x…   your reservation      GET  open or not
  *   POST {action,name,key,issuedAt,signature}   reserve or release (signed by the name key)
  * Stores only the name, the name key's address and the time. No wallet addresses, no IP logs.
  */

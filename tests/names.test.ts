@@ -49,13 +49,16 @@ describe("reservation service", () => {
     const a = generatePrivateKey();
     const b = generatePrivateKey();
     const res = await submit(store, await signReservation(a, "reserve", "kadiri"), "1.1.1.1", "s");
-    expect(res).toMatchObject({ reserved: "kadiri", count: 1 });
+    expect(res).toMatchObject({ reserved: "kadiri" });
     await expect(submit(store, await signReservation(b, "reserve", "kadiri"), "2.2.2.2", "s")).rejects.toThrow(/already reserved/);
     await expect(submit(store, await signReservation(a, "reserve", "another"), "1.1.1.1", "s")).rejects.toThrow(/already have a name/);
     expect(await lookup(store, { name: "kadiri" }, "3.3.3.3", "s")).toMatchObject({ available: false });
+    // The total is kept privately and never returned to the public.
+    expect(JSON.stringify(await lookup(store, {}, "3.3.3.3", "s"))).not.toMatch(/count/);
+    expect(await store.count()).toBe(1);
     expect(await lookup(store, { key: privateKeyToAccount(a).address }, "3.3.3.3", "s")).toMatchObject({ mine: { name: "kadiri" } });
     await expect(submit(store, await signReservation(b, "release", "kadiri"), "2.2.2.2", "s")).rejects.toThrow(/isn't reserved by this key/);
-    expect(await submit(store, await signReservation(a, "release", "kadiri"), "1.1.1.1", "s")).toMatchObject({ released: "kadiri", count: 0 });
+    expect(await submit(store, await signReservation(a, "release", "kadiri"), "1.1.1.1", "s")).toMatchObject({ released: "kadiri" });
     expect(await lookup(store, { name: "kadiri" }, "3.3.3.3", "s")).toMatchObject({ available: true });
   });
   it("rate-limits claims per network address", async () => {

@@ -23,7 +23,6 @@ export function NamesFlow() {
   const [input, setInput] = useState("");
   const [avail, setAvail] = useState<Availability>(null);
   const [checking, setChecking] = useState(false);
-  const [count, setCount] = useState<number | null>(null);
   const [closed, setClosed] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -31,8 +30,8 @@ export function NamesFlow() {
   const name = local?.ok ? local.name : null;
 
   useEffect(() => {
-    api<{ count: number }>()
-      .then((j) => setCount(j.count))
+    api<{ open: boolean }>()
+      .then(() => setClosed(null))
       .catch((e: Error) => setClosed(e.message));
   }, []);
 
@@ -42,10 +41,9 @@ export function NamesFlow() {
     if (!name) return;
     setChecking(true);
     const t = setTimeout(() => {
-      api<{ name: string; available: boolean; reason: string | null; count: number }>(undefined, `?name=${encodeURIComponent(name)}`)
+      api<{ name: string; available: boolean; reason: string | null }>(undefined, `?name=${encodeURIComponent(name)}`)
         .then((j) => {
           setAvail({ name: j.name, available: j.available, reason: j.reason });
-          setCount(j.count);
         })
         .catch(() => setAvail(null))
         .finally(() => setChecking(false));
@@ -110,18 +108,15 @@ export function NamesFlow() {
           <div className="border-t border-harbor pt-6">
             <WalletGate network={network} purpose="Connect your wallet to reserve a name. It only unlocks your QuietPay keys; the wallet's address is never sent.">
               <VaultGate>
-                <Reserve name={avail?.available ? avail.name : null} onCount={setCount} onChange={() => setVersion((v) => v + 1)} />
+                <Reserve name={avail?.available ? avail.name : null} onChange={() => setVersion((v) => v + 1)} />
               </VaultGate>
             </WalletGate>
           </div>
         </div>
       )}
 
-      {count !== null && !closed && (
-        <div className="mt-3 flex items-center justify-between gap-3 text-sm text-haze">
-          <p>
-            {count.toLocaleString()} name{count === 1 ? "" : "s"} reserved so far.
-          </p>
+      {!closed && (
+        <div className="mt-3 flex justify-end">
           <XLink className="-mr-3" />
         </div>
       )}
@@ -143,7 +138,7 @@ export function NamesFlow() {
   );
 }
 
-function Reserve({ name, onCount, onChange }: { name: string | null; onCount: (n: number) => void; onChange: () => void }) {
+function Reserve({ name, onChange }: { name: string | null; onChange: () => void }) {
   const { vault } = useVault();
   const nameKey = vault?.nameKey ?? null;
   const keyAddr = nameKey ? privateKeyToAccount(nameKey).address : null;
@@ -156,10 +151,9 @@ function Reserve({ name, onCount, onChange }: { name: string | null; onCount: (n
 
   const refresh = useCallback(async () => {
     if (!keyAddr) return;
-    const j = await api<{ mine: { name: string; at: number } | null; count: number }>(undefined, `?key=${keyAddr}`);
+    const j = await api<{ mine: { name: string; at: number } | null }>(undefined, `?key=${keyAddr}`);
     setMine(j.mine);
-    onCount(j.count);
-  }, [keyAddr, onCount]);
+  }, [keyAddr]);
 
   useEffect(() => {
     void refresh().catch((e: Error) => {
@@ -174,8 +168,7 @@ function Reserve({ name, onCount, onChange }: { name: string | null; onCount: (n
     setError(null);
     try {
       const body = await signReservation(nameKey, action, n);
-      const j = await api<{ count: number }>({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      onCount(j.count);
+      await api<{ reserved?: string; released?: string }>({ method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
       await refresh();
       onChange();
     } catch (e) {
