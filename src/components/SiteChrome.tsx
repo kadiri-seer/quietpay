@@ -191,7 +191,6 @@ export function SiteFooter() {
         <FooterCol
           title="Trust"
           links={[
-            { href: "/#about", label: "About us" },
             { href: "/security", label: "Security model" },
             { href: "/security#contracts", label: "Contracts" },
             { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
@@ -204,7 +203,10 @@ export function SiteFooter() {
             <span suppressHydrationWarning>© {year}</span> QuietPay. Experimental software that provides recipient address unlinkability, not
             anonymity.
           </p>
-          <nav aria-label="Legal" className="flex gap-6">
+          <nav aria-label="Legal" className="flex flex-wrap gap-x-6">
+            <Link href="/about" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
+              About us
+            </Link>
             <Link href="/terms" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
               Terms of Service
             </Link>
