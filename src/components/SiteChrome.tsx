@@ -23,27 +23,6 @@ export const HEADER_HEIGHT = 76;
 
 export const ETH_FAUCET_URL = "https://faucet.testnet.chain.robinhood.com";
 
-/** Thin bar above the header on testnet, so test money is one tap away on every page. */
-function TestnetBar() {
-  const { network } = useSelectedNetwork();
-  if (!network.chain.testnet) return null;
-  const link = "inline-flex min-h-9 items-center font-medium text-snow underline decoration-snow/30 underline-offset-4 hover:decoration-snow";
-  return (
-    <div className="border-b border-harbor bg-deep/70 text-xs text-haze">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-5 gap-y-0 px-4 sm:px-6">
-        <span className="hidden sm:inline">Testnet: test money has no value.</span>
-        <a href={ETH_FAUCET_URL} target="_blank" rel="noopener noreferrer" className={link}>
-          Get test ETH<span aria-hidden>&nbsp;↗</span>
-          <span className="sr-only"> (opens in a new tab)</span>
-        </a>
-        <Link href="/faucet" className={link}>
-          Get test {network.expectedSymbol}
-        </Link>
-      </div>
-    </div>
-  );
-}
-
 export function NetworkIndicator() {
   const { network, setNetwork } = useSelectedNetwork();
   const nets = enabledNetworks();
@@ -94,7 +73,6 @@ export function SiteHeader() {
 
   return (
     <header className="relative z-30">
-      <TestnetBar />
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 sm:px-6" style={{ height: HEADER_HEIGHT }}>
         <Link href="/" aria-label="QuietPay home" className="-m-2 p-2">
           <Wordmark />

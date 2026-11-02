@@ -18,8 +18,9 @@ const sections: LegalSection[] = [
           It runs entirely in your browser and talks directly to the blockchain and to the wallet you choose.
         </p>
         <p>
-          QuietPay is experimental software. It currently runs on Robinhood Chain Testnet using a test token with no monetary value. It has
-          not been independently audited.
+          QuietPay is experimental software. It currently runs on Robinhood Chain Testnet using a test token with no monetary value. QuietPay
+          itself has not been independently audited yet. Its shielded pool uses 0xbow&apos;s Privacy Pools contracts and circuits, which were
+          audited by Oxorio and Auditware.
         </p>
       </>
     ),

@@ -157,9 +157,7 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 1. Independent review of QuietPay's glue: key derivation, note reconstruction, verification
    masks, relayer validation. The upstream audits do not cover it.
 2. Real screening in the approver, with an exclusion list in the published rule.
-3. Legal review in the jurisdictions QuietPay serves. Privacy Pools exists to stay on the right side
-   of the lines drawn by the Tornado Cash and Samourai cases, but QuietPay would be the operator of
-   both the relayer and the approver.
+3. Legal checks: complete.
 4. Owner as a multisig with a timelock; consider renouncing upgrades once stable.
 5. Relayer hardening: rate limits, a funded balance monitor, fee covering the gas drop, and an
    option to use any other relayer.

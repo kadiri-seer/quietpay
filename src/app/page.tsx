@@ -2,7 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { PaymentTrack } from "@/components/PaymentTrack";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
-import { HeroNetwork } from "./HeroNetwork";
+import { HeroFaucet, HeroNetwork } from "./HeroNetwork";
 
 interface Tile {
   href: string;
@@ -136,6 +136,7 @@ export default function Home() {
             <Link href="/create" className="btn btn-primary mt-9 min-h-12 px-7">
               Create a payment link
             </Link>
+            <HeroFaucet />
             <HeroNetwork />
             <a href="#how" className="mt-4 -ml-2 inline-flex h-11 w-11 items-center justify-center text-mist/70 hover:text-snow" aria-label="How QuietPay works">
               <svg width="24" height="14" viewBox="0 0 28 16" fill="none" stroke="currentColor" strokeWidth="2">

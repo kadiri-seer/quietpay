@@ -66,7 +66,7 @@ const RISKS: { title: string; body: string }[] = [
   },
   {
     title: "Gas for claims",
-    body: "When the QuietPay router is available, the payer includes a tiny amount of ETH with the payment, so you can move the funds without topping the address up from a wallet linked to you. QuietPay never funds addresses automatically.",
+    body: "The payer covers the gas. A tiny amount of ETH goes with each payment, so you can move the funds without topping the address up from a wallet linked to you.",
   },
   {
     title: "Where you move the money",
@@ -100,8 +100,9 @@ export default function SecurityPage() {
   return (
     <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
       <PageTitle light="Security" bold="model">
-        What QuietPay protects, what it can&apos;t, and the contracts it relies on. QuietPay is experimental, unaudited software running on
-        testnet.
+        What QuietPay protects, what it can&apos;t, and the contracts it relies on. QuietPay runs on testnet and has not been independently
+        audited yet. Its shielded pool is built on 0xbow&apos;s Privacy Pools, whose contracts and circuits were audited by Oxorio and
+        Auditware.
       </PageTitle>
 
       <div className="mb-10">
@@ -164,7 +165,7 @@ export default function SecurityPage() {
 
         <Section id="contracts" title="Contracts">
           <p className="mb-6 text-sm leading-relaxed text-mist">
-            The router moves a payment, the recipient&apos;s gas allowance and the announcement in one transaction, so they succeed or fail
+            The router sends the payment, the gas the payer covers and the announcement in one transaction, so they succeed or fail
             together. Like the announcer, it holds no funds and has no owner. The payer approves exactly the amount being paid.
           </p>
           {networks.map((n) => (
@@ -233,7 +234,7 @@ export default function SecurityPage() {
         <Section title="Mainnet">
           <p className="text-sm leading-relaxed text-mist">
             Mainnet is switched off. It stays off until the announcer is deployed and verified on mainnet, USDG is confirmed onchain, the flow
-            has been tested with real wallets on testnet, and the code has had an independent security review.
+            has been tested with real wallets on testnet, and the code has had an independent security review. Legal checks are complete.
           </p>
         </Section>
       </div>
