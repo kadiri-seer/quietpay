@@ -14,7 +14,7 @@ const chains = nets.map((n) => n.chain) as [Chain, ...Chain[]];
 /** Public Reown (WalletConnect) project ID. WalletConnect is offered only when it is set. */
 export const WALLETCONNECT_PROJECT_ID = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID || "";
 
-const origin = typeof window !== "undefined" ? window.location.origin : "https://quietpay.app";
+const origin = typeof window !== "undefined" ? window.location.origin : "https://www.quietpay.sbs";
 
 export const wagmiConfig = createConfig({
   chains,
