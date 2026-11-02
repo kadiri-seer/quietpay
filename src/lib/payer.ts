@@ -324,6 +324,10 @@ export interface PayerRecord {
   metadata: Hex;
   machine: PaymentMachine;
   updatedAt: number;
+  /** The payment transaction's nonce, recorded right after sending, to tell later if it was dropped. */
+  paymentNonce?: number;
+  /** Set when the payment transaction was proven dropped (its nonce used by something else, no transfer). */
+  dropped?: boolean;
 }
 
 const payerKey = (requestId: Hex) => `quietpay:payer:v1:${requestId.toLowerCase()}`;
@@ -426,6 +430,34 @@ export async function findUnrecordedPayment(
     }
   }
   return null;
+}
+
+/**
+ * What happened to a payment transaction that hasn't confirmed:
+ *  - "landed": the money did reach the one-time address (possibly in a replacement transaction);
+ *  - "pending": the network still knows the transaction, or it can't be told yet;
+ *  - "dropped": the transaction is gone, the payer's nonce has moved past it, and no transfer to the
+ *    one-time address happened, so it can never go through and a new payment is safe.
+ */
+export async function checkPaymentFate(
+  client: PublicClient,
+  network: NetworkConfig,
+  rec: PayerRecord,
+): Promise<{ status: "landed"; hash: Hash; announced: boolean } | { status: "pending" } | { status: "dropped" }> {
+  const landed = await findUnrecordedPayment(client, network, rec).catch(() => null);
+  if (landed) return { status: "landed", ...landed };
+  const hash = rec.machine.paymentTx as Hash | undefined;
+  if (hash) {
+    const tx = await client.getTransaction({ hash }).catch(() => null);
+    if (tx) return { status: "pending" };
+  }
+  if (rec.paymentNonce === undefined) return { status: "pending" };
+  const used = await client.getTransactionCount({ address: rec.payer, blockTag: "latest" });
+  if (used <= rec.paymentNonce) return { status: "pending" };
+  // The nonce was used by another transaction. Look once more for the transfer, in case the
+  // replacement was the payment itself, before calling it dropped.
+  const again = await findUnrecordedPayment(client, network, rec);
+  return again ? { status: "landed", ...again } : { status: "dropped" };
 }
 
 /* ---------------- Transactions ---------------- */

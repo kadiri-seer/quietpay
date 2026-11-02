@@ -127,13 +127,19 @@ export interface Sealed {
   ct: string;
 }
 
-export async function seal(key: CryptoKey, data: unknown, aad: string): Promise<Sealed> {
+/**
+ * Encrypts `data` (as JSON) with AES-256-GCM. Every call draws a fresh random 96-bit nonce from
+ * the platform CSPRNG; with a vault saved at most a few thousand times per key (and keys rotated),
+ * the chance of ever repeating a nonce under one key is negligible (birthday bound ~2^-64 at 2^16
+ * saves). `aad` binds the ciphertext to its purpose, address, format version and key id.
+ */
+export async function seal(key: CryptoKey, data: unknown, aad: string, version = VAULT_VERSION): Promise<Sealed> {
   const iv = randomBytes(12);
   const pt = te.encode(JSON.stringify(data));
   const ct = new Uint8Array(
     await subtle().encrypt({ name: "AES-GCM", iv: buf(iv), additionalData: buf(te.encode(aad)) }, key, buf(pt)),
   );
-  return { v: VAULT_VERSION, alg: "AES-256-GCM", iv: b64(iv), ct: b64(ct) };
+  return { v: version, alg: "AES-256-GCM", iv: b64(iv), ct: b64(ct) };
 }
 
 export class DecryptionError extends Error {
@@ -143,8 +149,13 @@ export class DecryptionError extends Error {
   }
 }
 
-export async function open<T = unknown>(key: CryptoKey, sealed: Sealed, aad: string): Promise<T> {
-  if (sealed?.alg !== "AES-256-GCM" || sealed.v !== VAULT_VERSION) throw new DecryptionError("Unsupported format.");
+/**
+ * Decrypts and authenticates. AES-GCM checks the tag before returning anything, so a wrong key or
+ * a single altered byte throws DecryptionError and no partial plaintext is ever returned.
+ */
+export async function open<T = unknown>(key: CryptoKey, sealed: Sealed, aad: string, version = VAULT_VERSION): Promise<T> {
+  if (sealed?.alg !== "AES-256-GCM" || sealed.v !== version) throw new DecryptionError("Unsupported format.");
+  if (typeof sealed.iv !== "string" || typeof sealed.ct !== "string" || sealed.ct.length > 8_000_000) throw new DecryptionError("Unsupported format.");
   try {
     const pt = await subtle().decrypt(
       { name: "AES-GCM", iv: buf(unb64(sealed.iv)), additionalData: buf(te.encode(aad)) },
@@ -159,4 +170,63 @@ export async function open<T = unknown>(key: CryptoKey, sealed: Sealed, aad: str
 
 export function vaultAad(address: Address) {
   return `quietpay/vault/v${VAULT_VERSION}|${getAddress(address).toLowerCase()}`;
+}
+
+/* ---------------- Vault format v2: a random data key, wrapped by the signature key ---------------- */
+
+/**
+ * v2 encrypts the vault with a random 256-bit data key (DEK). The DEK is stored only wrapped
+ * (AES-256-GCM) by the key derived from the wallet signature (the KEK, deriveVaultKey). So:
+ *  - the signature-derived key is never kept anywhere; "stay signed in" keeps only the DEK, as a
+ *    non-extractable CryptoKey;
+ *  - the DEK can be rotated (a new one wrapped by the same KEK) without a new message or any
+ *    change to the user's payment keys, which are derived separately from the signature;
+ *  - a DEK that was kept on a device stops opening the vault once it is rotated.
+ */
+export const VAULT_V2 = 2;
+
+export interface WrappedKey {
+  iv: string;
+  ct: string;
+}
+
+/** A random 64-bit key id, bound into every v2 ciphertext's associated data. */
+export function newKeyId(): string {
+  return [...randomBytes(8)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+const dekAad = (address: Address, kid: string) => `quietpay/vault-dek/v2|${getAddress(address).toLowerCase()}|${kid}`;
+export const vaultAadV2 = (address: Address, kid: string) => `quietpay/vault/v2|${getAddress(address).toLowerCase()}|${kid}`;
+
+const importDek = (raw: Uint8Array) => subtle().importKey("raw", buf(raw), { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+
+/** A new data key: the usable (non-extractable) key and its wrapped form for storage. */
+export async function newDataKey(kek: CryptoKey, address: Address): Promise<{ dek: CryptoKey; wrapped: WrappedKey; kid: string }> {
+  const raw = randomBytes(32);
+  const kid = newKeyId();
+  try {
+    const iv = randomBytes(12);
+    const ct = new Uint8Array(await subtle().encrypt({ name: "AES-GCM", iv: buf(iv), additionalData: buf(te.encode(dekAad(address, kid))) }, kek, buf(raw)));
+    return { dek: await importDek(raw), wrapped: { iv: b64(iv), ct: b64(ct) }, kid };
+  } finally {
+    raw.fill(0);
+  }
+}
+
+/** Unwraps a stored data key with the signature key. Throws DecryptionError if it doesn't match. */
+export async function unwrapDataKey(kek: CryptoKey, wrapped: WrappedKey, address: Address, kid: string): Promise<CryptoKey> {
+  let raw: Uint8Array;
+  try {
+    raw = new Uint8Array(
+      await subtle().decrypt({ name: "AES-GCM", iv: buf(unb64(wrapped.iv)), additionalData: buf(te.encode(dekAad(address, kid))) }, kek, buf(unb64(wrapped.ct))),
+    );
+  } catch {
+    throw new DecryptionError();
+  }
+  if (raw.length !== 32) throw new DecryptionError("Unsupported format.");
+  try {
+    return await importDek(raw);
+  } finally {
+    raw.fill(0);
+  }
 }

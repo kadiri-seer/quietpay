@@ -1,6 +1,9 @@
 /**
- * "Keep me signed in on this device": keeps the vault's AES key in IndexedDB so the vault opens
- * on the next visit without a new wallet signature.
+ * "Keep me signed in on this device": keeps the vault's data key in IndexedDB so the vault opens
+ * on the next visit without a new wallet signature. (Vault format v2: this is the random data
+ * key, never the key derived from the wallet signature, and it is rotated at the next signature.
+ * Entries saved before v2 hold the signature-derived key; they are recognised as kind "kek" and
+ * replaced with a data key when they are next used.)
  *
  * The key is a non-extractable CryptoKey. IndexedDB stores it as is, so the browser can use it
  * to decrypt the vault, but no script (QuietPay's or anyone's) can read its bytes out. It is
@@ -16,11 +19,16 @@ const DB = "quietpay-session";
 const STORE = "keys";
 const ID = "current";
 
+export type KeptKind = "dek" | "kek";
+
 interface Entry {
   id: typeof ID;
   address: Address;
   key: CryptoKey;
   expiresAt: number;
+  /** Missing on entries saved before vault v2, which hold the signature-derived key. */
+  kind?: KeptKind;
+  kid?: string;
 }
 
 function openDb(): Promise<IDBDatabase | null> {
@@ -57,16 +65,21 @@ async function run<T>(mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRe
 }
 
 /** Remembers `key` for `address`, replacing any other remembered wallet. Returns the expiry (ms), or null if the browser refused. */
-export async function rememberKey(address: Address, key: CryptoKey, nowMs = Date.now()): Promise<number | null> {
+export async function rememberKey(
+  address: Address,
+  key: CryptoKey,
+  opts: { kind: KeptKind; kid?: string; expiresAt?: number } = { kind: "dek" },
+  nowMs = Date.now(),
+): Promise<number | null> {
   if (key.extractable) throw new Error("Refusing to remember an extractable key.");
-  const expiresAt = nowMs + REMEMBER_DAYS * 86_400_000;
-  const entry: Entry = { id: ID, address: getAddress(address), key, expiresAt };
+  const expiresAt = opts.expiresAt ?? nowMs + REMEMBER_DAYS * 86_400_000;
+  const entry: Entry = { id: ID, address: getAddress(address), key, expiresAt, kind: opts.kind, ...(opts.kid ? { kid: opts.kid } : {}) };
   const ok = await run("readwrite", (s) => s.put(entry));
   return ok === null ? null : expiresAt;
 }
 
 /** The remembered key for `address`, if there is one and it hasn't expired. */
-export async function recallKey(address: Address, nowMs = Date.now()): Promise<{ key: CryptoKey; expiresAt: number } | null> {
+export async function recallKey(address: Address, nowMs = Date.now()): Promise<{ key: CryptoKey; expiresAt: number; kind: KeptKind; kid: string | null } | null> {
   const e = (await run("readonly", (s) => s.get(ID) as IDBRequest<Entry | undefined>)) as Entry | null;
   if (!e || !(e.key instanceof CryptoKey)) return null;
   if (e.expiresAt <= nowMs) {
@@ -74,7 +87,7 @@ export async function recallKey(address: Address, nowMs = Date.now()): Promise<{
     return null;
   }
   if (getAddress(e.address) !== getAddress(address)) return null;
-  return { key: e.key, expiresAt: e.expiresAt };
+  return { key: e.key, expiresAt: e.expiresAt, kind: e.kind ?? "kek", kid: e.kid ?? null };
 }
 
 export async function forgetKey(): Promise<void> {

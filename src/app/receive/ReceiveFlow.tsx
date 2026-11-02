@@ -118,8 +118,16 @@ function Dashboard({ network }: { network: NetworkConfig }) {
   if (!readiness.data?.announcer || !readiness.data?.token)
     return <SetupBlocker network={network} readiness={readiness.data} error={readiness.error} />;
 
+  const setAside = vault?.quarantine?.length ?? 0;
   return (
     <div className="space-y-8">
+      {setAside > 0 && (
+        <Notice tone="warn" title="Some saved records couldn't be read">
+          {setAside === 1 ? "One saved record was" : `${setAside} saved records were`} damaged or in an unexpected format, so QuietPay set{" "}
+          {setAside === 1 ? "it" : "them"} aside instead of using {setAside === 1 ? "it" : "them"}. Nothing was deleted, and balances don&apos;t
+          count {setAside === 1 ? "it" : "them"}. Your links and money can still be found from your wallet with Search full history.
+        </Notice>
+      )}
       <Notice tone="info" title="Recoverable from your wallet">
         Your links&apos; keys come from your wallet. Connect the same wallet on any device and QuietPay finds your links and payments again.
         Only sign the QuietPay message on this site.

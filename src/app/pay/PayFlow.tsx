@@ -9,6 +9,7 @@ import { AmountError, checkLimits, formatAmount, limitsFor, parseAmount } from "
 import { extractLinkCode, validatePaymentLink, type LinkValidation } from "@/lib/link";
 import {
   approveRouterIfNeeded,
+  checkPaymentFate,
   clearPayerRecord,
   confirmAnnouncement,
   confirmPayment,
@@ -234,6 +235,19 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     }
   }, [address, request.requestId, store, freshStart, checkUnconfirmed]);
 
+  /** Saves the payment transaction's nonce so a later check can tell if it was dropped. */
+  const recordNonce = useCallback(
+    async (r: PayerRecord, hash: Hash): Promise<PayerRecord> => {
+      const tx = await client.getTransaction({ hash }).catch(() => null);
+      if (!tx) return r;
+      const next = { ...r, paymentNonce: tx.nonce };
+      if (store) savePayerRecord(store, next);
+      setRec(next);
+      return next;
+    },
+    [client, store],
+  );
+
   const persist = useCallback(
     (next: PayerRecord) => {
       setRec(next);
@@ -357,6 +371,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
           requestId: request.kind === "fixed" ? request.requestId : null,
         });
         cur = apply(cur, { type: "SUBMIT_PAYMENT", txHash: hash });
+        cur = await recordNonce(cur, hash);
         const receipt = await confirmRoutedPayment(client, hash, {
           network,
           token: token.address,
@@ -371,6 +386,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
       }
       hash = await submitPayment(wallet, { network, token: token.address, stealthAddress: cur.stealthAddress, amount });
       cur = apply(cur, { type: "SUBMIT_PAYMENT", txHash: hash });
+      cur = await recordNonce(cur, hash);
       const receipt = await confirmPayment(client, hash, {
         network,
         token: token.address,
@@ -403,6 +419,34 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     setBusy("recheck");
     setNotice(null);
     const amount = BigInt(rec.amount ?? request.amount.toString());
+    // Before waiting again, see whether the transaction was dropped or replaced.
+    try {
+      const fate = await checkPaymentFate(client, network, rec);
+      if (fate.status === "dropped" && rec.machine.state === "pending") {
+        const failed = { ...rec, dropped: true, machine: transition(rec.machine, { type: "PAYMENT_FAILED", reason: "The transaction was dropped by the network and never went through. Nothing was sent.", txSubmitted: true }) };
+        persist(failed);
+        setBusy(null);
+        return;
+      }
+      if (fate.status === "landed" && rec.machine.state === "pending" && fate.hash !== rec.machine.paymentTx) {
+        // A replacement transaction (for example a fee bump from the wallet) carried the payment:
+        // verify that one instead, exactly as the original would have been.
+        const moved = { ...rec, machine: { ...rec.machine, paymentTx: fate.hash } };
+        persist(moved);
+        const p = { network, token: token.address, stealthAddress: rec.stealthAddress, amount, payer: address };
+        if (rec.mode === "router" && fate.announced) {
+          const r = await confirmRoutedPayment(client, fate.hash, p);
+          apply(moved, { type: "ROUTED_PAYMENT_CONFIRMED", txHash: r.transactionHash });
+        } else {
+          const r = await confirmPayment(client, fate.hash, p);
+          apply(moved, { type: "PAYMENT_CONFIRMED", txHash: r.transactionHash });
+        }
+        setBusy(null);
+        return;
+      }
+    } catch {
+      /* fall through to waiting for the receipt */
+    }
     try {
       if (rec.mode === "router") {
         const r = await confirmRoutedPayment(client, rec.machine.paymentTx as Hash, {
@@ -755,10 +799,21 @@ function Progress({
         )}
       </ol>
 
-      {m.state === "error" && (
+      {m.state === "error" && !rec.dropped && (
         <Notice tone="bad" title="Payment did not complete">
           {m.error} Check the explorer before trying anything else. QuietPay will not send this payment again from this browser.
         </Notice>
+      )}
+      {m.state === "error" && rec.dropped && (
+        <div className="space-y-3">
+          <Notice tone="warn" title="This payment never went through">
+            {m.error} QuietPay checked: your wallet used that transaction&apos;s slot for something else and no money reached the payment
+            address, so it can&apos;t go through later. You can safely pay again.
+          </Notice>
+          <button type="button" className="btn btn-primary w-full" onClick={onPayAgain}>
+            Start a new payment
+          </button>
+        </div>
       )}
       {m.state === "pending" && notice && (
         <div className="space-y-3">

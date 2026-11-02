@@ -26,7 +26,8 @@ import { createPaymentRequest } from "@/lib/request";
 import { validatePaymentLink } from "@/lib/link";
 import { deriveStealthPayment } from "@/lib/stealth";
 import { buildPaymentMetadata } from "@/lib/metadata";
-import { approveRouterIfNeeded, confirmRoutedPayment, newPayerRecord, preflight, submitRoutedPayment } from "@/lib/payer";
+import { approveRouterIfNeeded, checkPaymentFate, confirmRoutedPayment, newPayerRecord, preflight, submitRoutedPayment } from "@/lib/payer";
+import { transition } from "@/lib/payment-state";
 import { verifyRouter, VerificationError } from "@/lib/chain";
 
 const ROOT = join(__dirname, "..");
@@ -249,6 +250,47 @@ describe.skipIf(!existsSync(ANVIL))("router v2 on a local EVM", () => {
         client.simulateContract({ address: router, abi: V2.abi, functionName: "pay", args: [reentering, amount, d.ephemeralPublicKey, meta], account: payer.account!, value: 1000n }),
       ).rejects.toThrow(/StipendTransferFailed|Reentrancy/);
     });
+  });
+
+  it("tells a dropped payment from a pending one, and finds a payment that landed", async () => {
+    const fromBlock = await client.getBlockNumber();
+    const req = createPaymentRequest({ kind: "open", chainId: 46630, token: network.token!, amount: 0n, decimals: 6, symbol: "tUSDG", expirySeconds: 0, fromBlock });
+    const { request } = validatePaymentLink(req.link, { networks });
+    const from = payer.account!.address;
+    const amount = 4_000_000n;
+    const d = deriveStealthPayment(request.stealthMetaAddress);
+    await approveRouterIfNeeded(payer, client, { network, token: network.token!, owner: from, amount });
+    let rec = newPayerRecord(request, from, d, network.token!, { amount, mode: "router" });
+    await client.request({ method: "evm_setAutomine" as never, params: [false] as never });
+    try {
+      const hash = await submitRoutedPayment(payer, {
+        network, token: network.token!, stealthAddress: rec.stealthAddress, amount, ephemeralPublicKey: rec.ephemeralPublicKey,
+        metadata: rec.metadata, stipend: 0n, routerVersion: 2, requestId: null,
+      });
+      const tx = await client.getTransaction({ hash });
+      rec = { ...rec, paymentNonce: tx.nonce, machine: transition(rec.machine, { type: "SUBMIT_PAYMENT", txHash: hash }) };
+      expect((await checkPaymentFate(client, network, rec)).status).toBe("pending");
+      // The network drops it, and the wallet then uses that nonce for something else.
+      await client.request({ method: "anvil_dropTransaction" as never, params: [hash] as never });
+      expect((await checkPaymentFate(client, network, rec)).status).toBe("pending"); // can't tell yet
+      await payer.sendTransaction({ to: from, value: 0n, nonce: tx.nonce, account: payer.account!, chain: network.chain });
+      await client.request({ method: "evm_mine" as never, params: [] as never });
+      expect(await checkPaymentFate(client, network, rec)).toEqual({ status: "dropped" });
+      expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [rec.stealthAddress] })).toBe(0n);
+    } finally {
+      await client.request({ method: "evm_setAutomine" as never, params: [true] as never });
+    }
+    // A payment that did go through is found, whatever its hash.
+    const d2 = deriveStealthPayment(request.stealthMetaAddress);
+    let rec2 = newPayerRecord(request, from, d2, network.token!, { amount, mode: "router" });
+    await approveRouterIfNeeded(payer, client, { network, token: network.token!, owner: from, amount });
+    const h2 = await submitRoutedPayment(payer, {
+      network, token: network.token!, stealthAddress: rec2.stealthAddress, amount, ephemeralPublicKey: rec2.ephemeralPublicKey,
+      metadata: rec2.metadata, stipend: 0n, routerVersion: 2, requestId: null,
+    });
+    await client.waitForTransactionReceipt({ hash: h2 });
+    rec2 = { ...rec2, machine: transition(rec2.machine, { type: "SUBMIT_PAYMENT", txHash: `0x${"00".repeat(32)}` }) };
+    expect(await checkPaymentFate(client, network, rec2)).toMatchObject({ status: "landed", hash: h2, announced: true });
   });
 
   it("never holds funds and has no owner functions", async () => {

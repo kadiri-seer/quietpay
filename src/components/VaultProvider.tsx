@@ -10,7 +10,19 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { useAccount, useAccountEffect, usePublicClient, useSignMessage } from "wagmi";
 import { getAddress, type Address, type Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
-import { browserStore, emptyVault, hasVault, loadVault, saveVault, vaultStorageKey, type VaultData } from "@/lib/vault";
+import {
+  browserStore,
+  emptyVault,
+  hasVault,
+  KeyChangedError,
+  openVault,
+  rekeyVault,
+  shouldRotate,
+  vaultStorageKey,
+  writeVault,
+  type VaultData,
+  type VaultKeys,
+} from "@/lib/vault";
 import { derivePoolMasterKeys } from "@/lib/pool/crypto";
 import { deriveNameKey } from "@/lib/names/names";
 import { deriveLinkSeed } from "@/lib/link-keys";
@@ -116,7 +128,8 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [isNew, setIsNew] = useState(false);
   const [rememberedUntil, setRememberedUntil] = useState<number | null>(null);
   const [askRemember, setAskRemember] = useState(false);
-  const keyRef = useRef<{ key: CryptoKey; address: Address } | null>(null);
+  // The vault's data key (format v2), never the signature-derived key.
+  const keyRef = useRef<{ keys: VaultKeys; address: Address } | null>(null);
   const prevAddress = useRef<Address | undefined>(undefined);
 
   // A deliberate disconnect signs this device out.
@@ -144,15 +157,31 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       try {
         const r = await recallKey(address);
         if (!r) throw new Error("none");
-        const data = await loadVault(store, r.key, address);
+        let data: VaultData;
+        let keys: VaultKeys | null;
+        if (r.kind === "dek") {
+          ({ data, keys } = await openVault(store, address, { dek: { key: r.key, kid: r.kid ?? "" } }));
+        } else {
+          // Kept before vault v2: this is the signature-derived key. Open with it, upgrade the
+          // vault to v2 if needed, and keep the new data key instead from now on.
+          ({ data, keys } = await openVault(store, address, { kek: r.key }));
+          const kek = r.key;
+          keys = await withVaultLock(address, async () => (keys ? keys : rekeyVault(store, kek, data)));
+          keys = { ...keys, remembered: true };
+          await writeVault(store, keys, data);
+          await rememberKey(address, keys.dek, { kind: "dek", kid: keys.kid, expiresAt: r.expiresAt });
+        }
+        if (!keys) throw new Error("needs a signature");
         // Every derived key must already be in the vault; otherwise a signature is needed once.
         if (!data.linkSeed || !data.nameKey || !data.poolKeys?.length) throw new Error("incomplete");
         if (cancelled) return;
-        keyRef.current = { key: r.key, address };
+        keyRef.current = { keys, address };
         setVault(data);
         setRememberedUntil(r.expiresAt);
         setStatus("unlocked");
-      } catch {
+      } catch (e) {
+        // A kept key that no longer opens the vault (it was rotated at a later signature) is useless.
+        if (e instanceof KeyChangedError || e instanceof DecryptionError) void forgetKey();
         if (!cancelled) setStatus("locked");
       }
     })();
@@ -160,6 +189,30 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, [address]);
+
+  /**
+   * Keeps the data key on this device ("stay signed in") and marks it in the saved vault, so the
+   * next signature unlock replaces it with a new one.
+   */
+  const keepOnDevice = useCallback(async () => {
+    const k = keyRef.current;
+    const store = browserStore();
+    if (!k || !store) return;
+    const until = await rememberKey(k.address, k.keys.dek, { kind: "dek", kid: k.keys.kid });
+    if (until === null) {
+      setError("This browser would not keep you signed in (private browsing or blocked site data). You'll be asked to sign next time.");
+      return;
+    }
+    if (!k.keys.remembered) {
+      const marked = { ...k.keys, remembered: true };
+      await withVaultLock(k.address, async () => {
+        const { data } = await openVault(store, k.address, { dek: { key: marked.dek, kid: marked.kid } });
+        await writeVault(store, marked, data);
+      }).catch(() => undefined);
+      if (keyRef.current === k) keyRef.current = { ...k, keys: marked };
+    }
+    setRememberedUntil(until);
+  }, []);
 
   const unlock = useCallback(async (opts?: { remember?: boolean }) => {
     const store = browserStore();
@@ -187,10 +240,11 @@ export function VaultProvider({ children }: { children: ReactNode }) {
           "Your wallet produced two different signatures for the same message, so QuietPay can't recreate your keys from it. Use an ordinary wallet account (MetaMask, Rabby, Coinbase Wallet, Trust and most others work), not a smart-contract or passkey wallet.",
         );
       }
-      const key = await deriveVaultKey(sig, address);
+      const kek = await deriveVaultKey(sig, address);
       let data: VaultData;
+      let keys: VaultKeys | null = null;
       try {
-        data = await loadVault(store, key, address);
+        ({ data, keys } = await openVault(store, address, { kek }));
       } catch (e) {
         if (!(e instanceof DecryptionError)) throw e;
         // This browser holds a vault this signature can't open. Either it was made with an older
@@ -203,8 +257,14 @@ export function VaultProvider({ children }: { children: ReactNode }) {
           );
         }
         data = emptyVault(address);
-        await saveVault(store, key, data);
       }
+      // A new vault, a v1 vault (upgraded now; its old ciphertext is kept as a backup), a reset
+      // one, or a data key that was kept on a device or is old: start a new data key.
+      if (!keys || shouldRotate(keys)) {
+        const current = data;
+        keys = await withVaultLock(address, () => rekeyVault(store, kek, current));
+      }
+      const save = (d: VaultData) => writeVault(store, keys!, d);
       // Pool keys, the name key and the link seed all come from this one signature (each with its
       // own derivation), so connecting the same wallet on any device recreates them.
       const pk = await derivePoolMasterKeys(sig, address);
@@ -212,15 +272,15 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       const known = data.poolKeys ?? [];
       if (!known.some((k) => k.masterNullifier === pkStr.masterNullifier && k.masterSecret === pkStr.masterSecret)) {
         data = { ...data, poolKeys: [...known, pkStr] };
-        await saveVault(store, key, data);
+        await save(data);
       }
       const nameKey = await deriveNameKey(sig, address);
       const linkSeed = await deriveLinkSeed(sig, address);
       if (data.nameKey !== nameKey || data.linkSeed !== linkSeed) {
         data = { ...data, nameKey, linkSeed };
-        await saveVault(store, key, data);
+        await save(data);
       }
-      keyRef.current = { key, address };
+      keyRef.current = { keys, address };
       setVault(data);
       setIsNew(firstTime);
       setRememberedUntil(null);
@@ -228,9 +288,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       setStatus("unlocked");
       if (opts?.remember) {
         setDeclined(address, false);
-        const until = await rememberKey(address, key);
-        if (until === null) setError("This browser would not keep you signed in (private browsing or blocked site data). You'll be asked to sign next time.");
-        else setRememberedUntil(until);
+        await keepOnDevice();
       }
     } catch (e) {
       setStatus("locked");
@@ -241,7 +299,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
         setError(c.kind === "unknown" && e instanceof Error ? e.message : c.message);
       }
     }
-  }, [address, signMessageAsync, walletFacts, waitForTap]);
+  }, [address, signMessageAsync, walletFacts, waitForTap, keepOnDevice]);
 
   const lock = useCallback(() => {
     tapRef.current?.reject(new Error("Locked."));
@@ -259,12 +317,7 @@ export function VaultProvider({ children }: { children: ReactNode }) {
     if (!k) return;
     setDeclined(k.address, !yes);
     if (!yes) return;
-    const until = await rememberKey(k.address, k.key);
-    if (until === null) {
-      setError("This browser would not keep you signed in (private browsing or blocked site data). You'll be asked to sign next time.");
-      return;
-    }
-    setRememberedUntil(until);
+    await keepOnDevice();
   }, []);
 
   const vaultRef = useRef<VaultData | null>(null);
@@ -280,12 +333,34 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       const k = keyRef.current;
       const store = browserStore();
       if (e.key !== key || !k || !store) return;
-      void loadVault(store, k.key, k.address)
-        .then((fresh) => {
-          vaultRef.current = fresh;
-          setVault(fresh);
+      void openVault(store, k.address, { dek: { key: k.keys.dek, kid: k.keys.kid } })
+        .then(({ data }) => {
+          vaultRef.current = data;
+          setVault(data);
         })
-        .catch(() => undefined);
+        .catch(async (err) => {
+          if (!(err instanceof KeyChangedError)) return;
+          // Another tab signed in again and re-keyed the vault. Pick up the new key if this device
+          // keeps it; otherwise this tab must unlock again.
+          const r = await recallKey(k.address).catch(() => null);
+          if (r?.kind === "dek" && r.kid) {
+            try {
+              const o = await openVault(store, k.address, { dek: { key: r.key, kid: r.kid } });
+              if (o.keys) {
+                keyRef.current = { keys: o.keys, address: k.address };
+                vaultRef.current = o.data;
+                setVault(o.data);
+                return;
+              }
+            } catch {
+              /* fall through to locking */
+            }
+          }
+          keyRef.current = null;
+          setVault(null);
+          setStatus("locked");
+          setError(new KeyChangedError().message);
+        });
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
@@ -300,13 +375,21 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       return withVaultLock(k.address, async () => {
         let cur = vaultRef.current!;
         try {
-          cur = await loadVault(store, k.key, k.address);
-        } catch {
-          /* unreadable stored copy: keep the one in memory */
+          ({ data: cur } = await openVault(store, k.address, { dek: { key: k.keys.dek, kid: k.keys.kid } }));
+        } catch (e) {
+          // Re-keyed elsewhere: never overwrite it with this tab's out-of-date key.
+          if (e instanceof KeyChangedError) {
+            keyRef.current = null;
+            setVault(null);
+            setStatus("locked");
+            setError(e.message);
+            throw e;
+          }
+          /* unreadable stored copy (altered or corrupted): keep the one in memory */
         }
         const next = await fn(cur);
         if (getAddress(next.address) !== getAddress(k.address)) throw new Error("Vault is locked.");
-        await saveVault(store, k.key, next);
+        await writeVault(store, k.keys, next);
         if (keyRef.current === k) {
           vaultRef.current = next;
           setVault(next);
