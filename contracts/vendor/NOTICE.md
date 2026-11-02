@@ -38,3 +38,8 @@ the bytecode does not depend on newer opcodes.
 ## Browser proving
 
 Proofs use snarkjs 0.7.5 (GPL-3.0), loaded only on the pool page.
+
+## Other brand marks
+
+- `public/brand/walletconnect.svg`: official WalletConnect icon from WalletConnect/walletconnect-assets.
+- X icon in `src/components/XLink.tsx`: from Simple Icons (CC0-1.0), used only to link to QuietPay's X account.

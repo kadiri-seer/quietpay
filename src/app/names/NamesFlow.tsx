@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import { privateKeyToAccount } from "viem/accounts";
 import { checkName, signReservation, NAME_MAX } from "@/lib/names/names";
 import { useSelectedNetwork } from "@/components/Providers";
-import { X_URL } from "@/components/SiteChrome";
+import { XLink } from "@/components/XLink";
 import { LoadingRows, Notice, PageTitle, Spinner } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
@@ -118,14 +118,12 @@ export function NamesFlow() {
       )}
 
       {count !== null && !closed && (
-        <p className="mt-4 text-sm text-haze">
-          {count.toLocaleString()} name{count === 1 ? "" : "s"} reserved so far.{" "}
-          <a href={X_URL} target="_blank" rel="noopener noreferrer" className="font-medium text-snow underline decoration-snow/30 underline-offset-4 hover:decoration-snow">
-            Follow @quietpay_ on X
-            <span className="sr-only"> (opens in a new tab)</span>
-          </a>{" "}
-          for the launch.
-        </p>
+        <div className="mt-3 flex items-center justify-between gap-3 text-sm text-haze">
+          <p>
+            {count.toLocaleString()} name{count === 1 ? "" : "s"} reserved so far.
+          </p>
+          <XLink className="-mr-3" />
+        </div>
       )}
 
       <section className="mt-10 space-y-3 text-sm leading-relaxed text-mist" aria-labelledby="names-what">

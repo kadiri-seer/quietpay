@@ -7,6 +7,7 @@ import { useAccount, useDisconnect } from "wagmi";
 import { enabledNetworks, type NetworkKey } from "@/config/networks";
 import { Wordmark } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
+import { XLink } from "./XLink";
 import { useSelectedNetwork } from "./Providers";
 import { Mono, shorten } from "./ui";
 
@@ -23,7 +24,6 @@ const NAV = [
 export const HEADER_HEIGHT = 76;
 
 export const ETH_FAUCET_URL = "https://faucet.testnet.chain.robinhood.com";
-export const X_URL = "https://x.com/quietpay_";
 
 export function NetworkIndicator() {
   const { network, setNetwork } = useSelectedNetwork();
@@ -164,6 +164,7 @@ export function SiteFooter() {
             <Wordmark />
           </Link>
           <p className="max-w-[34ch] text-haze">One-time USDG payment links with a fresh receiving address for every payment.</p>
+          <XLink className="-ml-3" />
         </div>
         <FooterCol
           title="Use QuietPay"
@@ -193,7 +194,6 @@ export function SiteFooter() {
             { href: "/security", label: "Security model" },
             { href: "/security#contracts", label: "Contracts" },
             { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
-            { href: X_URL, label: "Follow @quietpay_ on X", external: true },
           ]}
         />
       </div>
