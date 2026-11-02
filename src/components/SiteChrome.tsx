@@ -190,11 +190,7 @@ export function SiteFooter() {
         />
         <FooterCol
           title="Trust"
-          links={[
-            { href: "/security", label: "Security model" },
-            { href: "/security#contracts", label: "Contracts" },
-            { href: "https://eips.ethereum.org/EIPS/eip-5564", label: "ERC-5564 standard", external: true },
-          ]}
+          links={[{ href: "/security", label: "Security" }]}
         />
       </div>
       <div className="border-t border-mist/10">
@@ -213,14 +209,6 @@ export function SiteFooter() {
             <Link href="/privacy" className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow">
               Privacy Policy
             </Link>
-            <a
-              href="https://github.com/kadiri-seer/quietpay"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center underline decoration-mist/30 underline-offset-4 hover:text-snow"
-            >
-              Source code<span className="sr-only"> (opens in a new tab)</span>
-            </a>
           </nav>
         </div>
       </div>

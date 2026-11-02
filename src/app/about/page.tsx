@@ -34,6 +34,18 @@ export default function AboutPage() {
               <XLink className="-ml-3" />
               <span>Follow along for updates</span>
             </div>
+            <p className="mt-6 text-xs leading-relaxed text-haze">
+              QuietPay is open source under the AGPL-3.0 licence.{" "}
+              <a
+                href="https://github.com/kadiri-seer/quietpay"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline decoration-mist/30 underline-offset-4 hover:text-snow"
+              >
+                View the source code<span className="sr-only"> (opens in a new tab)</span>
+              </a>
+              .
+            </p>
           </div>
           <ul className="grid content-start gap-3 sm:grid-cols-2">
             {[

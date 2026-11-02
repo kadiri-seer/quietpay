@@ -180,7 +180,16 @@ export default function SecurityPage() {
 
         <Section id="contracts" title="Contracts">
           <p className="mb-6 text-sm leading-relaxed text-mist">
-            The router sends the payment, the gas the payer covers and the announcement in one transaction, so they succeed or fail
+            QuietPay follows the{" "}
+            <a
+              href="https://eips.ethereum.org/EIPS/eip-5564"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-signal underline decoration-signal/40 underline-offset-4 hover:decoration-signal"
+            >
+              ERC-5564 stealth address standard<span className="sr-only"> (opens in a new tab)</span>
+            </a>
+            . The router sends the payment, the gas the payer covers and the announcement in one transaction, so they succeed or fail
             together. Like the announcer, it holds no funds and has no owner. The payer approves exactly the amount being paid.
           </p>
           {networks.map((n) => (
