@@ -1,11 +1,13 @@
 "use client";
 
 /**
- * Holds the unlocked vault in memory. The AES key is non-extractable and never persisted;
- * reloading the page locks the vault again.
+ * Holds the unlocked vault in memory. The AES key is non-extractable. By default it is never
+ * persisted and reloading the page locks the vault again; if the user chooses "Keep me signed in
+ * on this device", the key is kept in IndexedDB (src/lib/remember.ts) and the vault reopens on
+ * the next visit without a signature.
  */
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { useAccount, useSignMessage } from "wagmi";
+import { useAccount, useAccountEffect, useSignMessage } from "wagmi";
 import type { Address, Hex } from "viem";
 import { buildVaultMessage, deriveVaultKey, DecryptionError } from "@/lib/vault-crypto";
 import { browserStore, emptyVault, hasVault, loadVault, saveVault, type VaultData } from "@/lib/vault";
@@ -13,16 +15,25 @@ import { derivePoolMasterKeys } from "@/lib/pool/crypto";
 import { deriveNameKey } from "@/lib/names/names";
 import { deriveLinkSeed } from "@/lib/link-keys";
 import { classifyTxError } from "@/lib/tx-errors";
+import { forgetKey, hasDeclined, recallKey, rememberKey, setDeclined } from "@/lib/remember";
 
-type Status = "locked" | "unlocking" | "unlocked" | "unavailable";
+type Status = "locked" | "restoring" | "unlocking" | "unlocked" | "unavailable";
 
 interface VaultContextValue {
   status: Status;
   vault: VaultData | null;
   error: string | null;
   isNew: boolean;
-  unlock: () => Promise<void>;
+  /** Signs to open the vault. `remember: true` keeps this device signed in without asking. */
+  unlock: (opts?: { remember?: boolean }) => Promise<void>;
+  /** Locks the vault and signs this device out (forgets a remembered key). */
   lock: () => void;
+  /** When the vault stays open on this device until (ms), or null if it isn't remembered. */
+  rememberedUntil: number | null;
+  /** True right after a signature, when we should ask whether to stay signed in. */
+  askRemember: boolean;
+  /** Answer to "Keep me signed in on this device?" */
+  chooseRemember: (yes: boolean) => Promise<void>;
   /** Encrypts and persists a new vault state. Resolves only after it is written. */
   save: (next: VaultData) => Promise<void>;
   /** Applies `fn` to the latest vault and saves it. Updates run one at a time, so none are lost. */
@@ -44,18 +55,53 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   const [vault, setVault] = useState<VaultData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isNew, setIsNew] = useState(false);
+  const [rememberedUntil, setRememberedUntil] = useState<number | null>(null);
+  const [askRemember, setAskRemember] = useState(false);
   const keyRef = useRef<{ key: CryptoKey; address: Address } | null>(null);
+  const prevAddress = useRef<Address | undefined>(undefined);
 
-  // Lock whenever the connected wallet changes.
+  // A deliberate disconnect signs this device out.
+  useAccountEffect({ onDisconnect: () => void forgetKey() });
+
+  // Lock whenever the connected wallet changes, then reopen from a remembered key if there is one.
   useEffect(() => {
+    // Another wallet connected in place of the remembered one: sign this device out of the old one.
+    // (While the page loads, the address is briefly undefined; that is not a switch.)
+    if (prevAddress.current && address && prevAddress.current !== address) void forgetKey();
+    if (address) prevAddress.current = address;
     keyRef.current = null;
     setVault(null);
     setError(null);
-    setStatus(browserStore() ? "locked" : "unavailable");
-    setIsNew(address ? !(browserStore() && hasVault(browserStore()!, address)) : false);
+    setRememberedUntil(null);
+    setAskRemember(false);
+    const store = browserStore();
+    setIsNew(address ? !(store && hasVault(store, address)) : false);
+    if (!store) return setStatus("unavailable");
+    if (!address || !hasVault(store, address)) return setStatus("locked");
+    setStatus("restoring");
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await recallKey(address);
+        if (!r) throw new Error("none");
+        const data = await loadVault(store, r.key, address);
+        // Every derived key must already be in the vault; otherwise a signature is needed once.
+        if (!data.linkSeed || !data.nameKey || !data.poolKeys?.length) throw new Error("incomplete");
+        if (cancelled) return;
+        keyRef.current = { key: r.key, address };
+        setVault(data);
+        setRememberedUntil(r.expiresAt);
+        setStatus("unlocked");
+      } catch {
+        if (!cancelled) setStatus("locked");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [address]);
 
-  const unlock = useCallback(async () => {
+  const unlock = useCallback(async (opts?: { remember?: boolean }) => {
     const store = browserStore();
     if (!store) {
       setStatus("unavailable");
@@ -108,7 +154,15 @@ export function VaultProvider({ children }: { children: ReactNode }) {
       keyRef.current = { key, address };
       setVault(data);
       setIsNew(firstTime);
+      setRememberedUntil(null);
+      setAskRemember(!opts?.remember && !hasDeclined(address));
       setStatus("unlocked");
+      if (opts?.remember) {
+        setDeclined(address, false);
+        const until = await rememberKey(address, key);
+        if (until === null) setError("This browser would not keep you signed in (private browsing or blocked site data). You'll be asked to sign next time.");
+        else setRememberedUntil(until);
+      }
     } catch (e) {
       setStatus("locked");
       if (e instanceof DecryptionError) {
@@ -121,9 +175,26 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   }, [address, signMessageAsync]);
 
   const lock = useCallback(() => {
+    void forgetKey();
     keyRef.current = null;
     setVault(null);
+    setRememberedUntil(null);
+    setAskRemember(false);
     setStatus("locked");
+  }, []);
+
+  const chooseRemember = useCallback(async (yes: boolean) => {
+    const k = keyRef.current;
+    setAskRemember(false);
+    if (!k) return;
+    setDeclined(k.address, !yes);
+    if (!yes) return;
+    const until = await rememberKey(k.address, k.key);
+    if (until === null) {
+      setError("This browser would not keep you signed in (private browsing or blocked site data). You'll be asked to sign next time.");
+      return;
+    }
+    setRememberedUntil(until);
   }, []);
 
   const save = useCallback(async (next: VaultData) => {
@@ -157,6 +228,6 @@ export function VaultProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, save, update }}>{children}</VaultContext.Provider>
+    <VaultContext.Provider value={{ status, vault, error, isNew, unlock, lock, save, update, rememberedUntil, askRemember, chooseRemember }}>{children}</VaultContext.Provider>
   );
 }

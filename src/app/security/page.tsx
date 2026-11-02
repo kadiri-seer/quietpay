@@ -63,6 +63,10 @@ const RISKS: { title: string; body: string }[] = [
     body: "Malware or a malicious extension running in the page can read keys while the vault is unlocked. QuietPay can't protect against that.",
   },
   {
+    title: "Staying signed in",
+    body: "If you choose to stay signed in, the vault opens on this device without a signature for up to 30 days. The key can be used but not copied out of the browser, yet anyone who can use the browser, or anything running in the page, could use your links and payments. Only choose it on your own device. Signing out of this device, disconnecting or connecting another wallet ends it.",
+  },
+  {
     title: "Network providers",
     body: "Your browser talks to Robinhood Chain's RPC directly. It can see your IP address and which blocks you scan, never your keys. WalletConnect messages are end-to-end encrypted but pass through Reown's relay, which sees connection metadata.",
   },

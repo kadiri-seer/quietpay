@@ -46,6 +46,10 @@ const sections: LegalSection[] = [
           <li>Your key vault: a cache of your links, keys and payment records, encrypted with a key derived from your wallet's signature.</li>
           <li>Payments you have sent: the one-time address, public announcement data and transaction hashes, so an interrupted payment can be finished.</li>
           <li>Wallet connection settings, so your wallet reconnects when you return.</li>
+          <li>
+            If you choose to stay signed in: the key that opens your vault, kept for up to 30 days in browser storage that lets it be used but
+            not copied out. Signing out of this device, disconnecting or connecting another wallet deletes it.
+          </li>
           <li>Circuit files for the shielded pool, cached by your browser after the first withdrawal.</li>
         </ul>
         <p>

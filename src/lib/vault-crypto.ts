@@ -3,7 +3,8 @@
  *
  * Vault key: HKDF-SHA256 over a wallet signature of a domain-separated message
  *   (buildVaultMessage), salt "quietpay/vault/v1", info "aes-256-gcm|<address>".
- *   The resulting AES-256-GCM key is non-extractable and lives only in memory.
+ *   The resulting AES-256-GCM key is non-extractable and lives in memory, or, if the user chooses
+ *   to stay signed in, in IndexedDB (src/lib/remember.ts), where it can be used but not read out.
  *   The signature itself is never stored.
  *
  * There are no backup files: every key in the vault can be re-derived from the same wallet

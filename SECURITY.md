@@ -19,7 +19,7 @@ states this on every page and the payer must acknowledge it before paying.
 | Secret | Where it lives | Protection |
 | --- | --- | --- |
 | Per-link spending + viewing private keys | Derived from the wallet signature and the link number (HKDF-SHA256); cached in the vault | Re-derivable on any device; cache encrypted with AES-256-GCM |
-| Vault encryption key | Memory only, non-extractable `CryptoKey` | Gone on reload or wallet change |
+| Vault encryption key | Memory, non-extractable `CryptoKey`; in IndexedDB (still non-extractable) only if the user chooses to stay signed in | Gone on reload or wallet change; if kept, after 30 days, or on sign out, disconnect or another wallet connecting |
 | Wallet signature used for the vault key | Never stored | Not applicable |
 | Stealth private key (per payment) | Derived in memory at claim time | Used to sign locally, then discarded |
 | Payer record (stealth address, ephemeral **public** key, tx hashes) | Payer's `localStorage`, plaintext | Not secret; lets announcements be retried |

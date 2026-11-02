@@ -7,6 +7,7 @@ import type { NetworkConfig } from "@/config/networks";
 import { classifyTxError } from "@/lib/tx-errors";
 import { Notice, Spinner } from "./ui";
 import { useVault } from "./VaultProvider";
+import { hasDeclined, REMEMBER_DAYS } from "@/lib/remember";
 
 /** Renders children only when a wallet is connected on `network`. */
 export function WalletGate({ network, children, purpose }: { network: NetworkConfig; children: ReactNode; purpose: string }) {
@@ -118,8 +119,42 @@ export function WalletGate({ network, children, purpose }: { network: NetworkCon
 
 /** Renders children only when the encrypted key vault is unlocked. */
 export function VaultGate({ children }: { children: ReactNode }) {
-  const { status, unlock, error, isNew } = useVault();
-  if (status === "unlocked") return <>{children}</>;
+  const { status, unlock, error, isNew, askRemember, chooseRemember, rememberedUntil, lock } = useVault();
+  const { address } = useAccount();
+  const [declined, setDeclinedState] = useState(false);
+  const [remember, setRemember] = useState(false);
+  // People who once answered "No" get a checkbox instead of the question, so they can change their mind.
+  useEffect(() => setDeclinedState(!!address && hasDeclined(address)), [address, status]);
+  if (status === "restoring") {
+    return (
+      <p className="flex items-center gap-2 text-sm text-haze">
+        <Spinner /> Opening your vault…
+      </p>
+    );
+  }
+  if (status === "unlocked") {
+    return (
+      <>
+        {askRemember && <StaySignedIn onChoose={chooseRemember} />}
+        {error && (
+          <div className="mb-4">
+            <Notice tone="warn">{error}</Notice>
+          </div>
+        )}
+        {rememberedUntil && (
+          <p className="mb-4 flex flex-wrap items-center gap-x-2 text-xs text-haze">
+            <span>
+              Signed in on this device until {new Date(rememberedUntil).toLocaleDateString(undefined, { day: "numeric", month: "short" })}.
+            </span>
+            <button type="button" className="underline underline-offset-2 hover:text-snow" onClick={lock}>
+              Sign out of this device
+            </button>
+          </p>
+        )}
+        {children}
+      </>
+    );
+  }
   return (
     <div className="space-y-4">
       <div className="space-y-2 text-sm leading-relaxed text-haze">
@@ -130,11 +165,54 @@ export function VaultGate({ children }: { children: ReactNode }) {
           {isNew && " Your wallet will ask twice the first time, to confirm it signs consistently."}
         </p>
       </div>
-      <button type="button" className="btn btn-primary" disabled={status === "unlocking" || status === "unavailable"} onClick={unlock}>
+      {declined && !isNew && (
+        <label className="flex items-center gap-2 text-sm text-haze">
+          <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)} className="h-4 w-4 accent-current" />
+          Keep me signed in on this device for {REMEMBER_DAYS} days
+        </label>
+      )}
+      <button
+        type="button"
+        className="btn btn-primary"
+        disabled={status === "unlocking" || status === "unavailable"}
+        onClick={() => unlock({ remember: declined && remember })}
+      >
         {status === "unlocking" ? <Spinner /> : null} {isNew ? "Sign to set up vault" : "Sign to unlock"}
       </button>
       {error && <Notice tone="bad">{error}</Notice>}
       {status === "unavailable" && <Notice tone="bad">This browser blocks local storage. Allow site data for QuietPay to keep payment keys.</Notice>}
+    </div>
+  );
+}
+
+function StaySignedIn({ onChoose }: { onChoose: (yes: boolean) => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  const choose = async (yes: boolean) => {
+    setBusy(true);
+    try {
+      await onChoose(yes);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div role="group" aria-labelledby="stay-signed-in" className="mb-5 space-y-3 rounded-lg border border-snow/40 p-4">
+      <p id="stay-signed-in" className="font-medium text-snow">
+        Keep me signed in on this device?
+      </p>
+      <p className="text-sm leading-relaxed text-haze">
+        You won&apos;t have to sign each time you open QuietPay here, so creating links is quicker. Anyone who can use this browser could
+        then use your QuietPay links and payments, so only say yes on your own device. It lasts {REMEMBER_DAYS} days; disconnecting
+        your wallet signs you out.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn btn-sm btn-primary" disabled={busy} onClick={() => choose(true)}>
+          Yes, keep me signed in
+        </button>
+        <button type="button" className="btn btn-sm btn-quiet" disabled={busy} onClick={() => choose(false)}>
+          No, ask each time
+        </button>
+      </div>
     </div>
   );
 }
