@@ -100,10 +100,30 @@ sends a transaction when deposits older than `POOL_APPROVAL_DELAY_SECONDS` (defa
 so right away) are missing, at most once every 10 seconds. A root change makes in-flight proofs stale; the relayer reports
 that and the browser proves again automatically, once.
 
-**On testnet this approves everything, immediately.** That is fine for worthless test tokens and not fine for
-real money. Before mainnet the approver must screen deposits (sanctions lists at minimum), and the
-rule format needs an exclusion list (a v2 descriptor pointing at a published list, or an event
-log contract). Excluded deposits can still exit to their one-time address.
+**On testnet this approves everything, immediately.** That is fine for worthless test tokens.
+
+### Screening (`POOL_SCREENING`, on by default for mainnet)
+
+Each deposit newer than the last approval is checked before it is approved, in seconds:
+
+- **Who is checked:** the depositing address *and* every address that sent it the pool's token
+  before the deposit. A QuietPay deposit comes from a one-time address no list will ever contain;
+  the address that matters is the payer, found from the token transfers into it
+  (`src/lib/screening/screen.ts`).
+- **Against what:** OFAC-sanctioned crypto addresses that apply to EVM chains, from the official
+  SDN list and a daily mirror of it, refreshed every 6 hours, with a bundled copy as the fallback
+  (`src/lib/screening/sanctions.ts`, `npm run sanctions:update`).
+- **Excluded deposits** are left out of the approved set. The rule becomes
+  `quietpay-asp-v2:upto=<block>:x=<id>`, and the list is published at
+  `/api/pool/exclusions?x=<id>` (with the matched address), so clients rebuild the set and check it
+  against the onchain root. Excluded deposits can still exit to their one-time address.
+- **When a check can't run** (RPC or storage down), approval stops just before that deposit and is
+  retried on the next call. Nothing is approved unchecked, and deposits already approved are never
+  re-screened or un-approved.
+- **Limits:** list screening catches money sent straight from a sanctioned address, not money that
+  passed through other wallets first. A risk-scoring provider (TRM, Elliptic, Chainalysis) can be
+  added as another check in `screenDeposit`. Verdicts and lists are stored in Redis (Upstash), which
+  mainnet needs.
 
 ## The relayer
 
@@ -176,7 +196,8 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 
 1. Independent review of QuietPay's glue: key derivation, note reconstruction, verification
    masks, relayer validation. The upstream audits do not cover it.
-2. Real screening in the approver, with an exclusion list in the published rule.
+2. Screening: list screening is built (above). Decide on a risk-scoring provider, and have a
+   compliance lawyer confirm the policy.
 3. Legal checks: complete.
 4. Owner as a multisig with a timelock; consider renouncing upgrades once stable.
 5. Relayer hardening: a funded balance monitor, a live ETH price instead of the

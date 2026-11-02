@@ -17,7 +17,8 @@ import { findBlockAtOrBefore, waitForConfirmedReceipt } from "@/lib/chain";
 import type { NetworkConfig } from "@/config/networks";
 import { treeRoot } from "./crypto";
 import { relayArgs, type PoolInfo, type SerializedWithdrawal } from "./actions";
-import { aspLabels, encodeAspDescriptor, type PoolEvents } from "./state";
+import { aspLabels, encodeAspDescriptor, parseAspDescriptor, type PoolDeposit, type PoolEvents } from "./state";
+import type { Verdict } from "@/lib/screening/screen";
 
 const uint = z.string().regex(/^\d{1,78}$/);
 export const relayBodySchema = z.object({
@@ -195,8 +196,26 @@ export async function relayWithdrawal(
 }
 
 /**
+ * Screening hooks for the approver (see src/lib/screening and the approvals route). Without them
+ * every deposit old enough is approved (testnet).
+ */
+export interface ApprovalScreening {
+  /** Every deposit label excluded so far. */
+  excluded(): Promise<bigint[]>;
+  /** The deposit's verdict (cached after the first check). Throws if it can't be checked now. */
+  verdict(deposit: PoolDeposit): Promise<Verdict>;
+  /** Saves this version of the exclusion list where clients can fetch it; returns its id. */
+  publish(labels: bigint[]): Promise<string>;
+}
+
+/**
  * Publishes a new approval root if deposits older than `delaySeconds` are not yet approved.
  * Returns the transaction hash, or null when the approved set is already current.
+ *
+ * With screening, each deposit newer than the last approval is checked first. A failed check
+ * excludes it (it can still exit to its depositor); a check that can't run stops the approval just
+ * before that deposit, so nothing is approved unchecked and it is retried on the next call.
+ * Deposits already approved are never re-screened or un-approved.
  */
 export async function refreshApprovals(
   client: PublicClient,
@@ -204,26 +223,53 @@ export async function refreshApprovals(
   network: NetworkConfig,
   info: PoolInfo,
   events: PoolEvents,
-  p: { delaySeconds: number; nowSeconds?: number; fromBlock?: bigint },
-): Promise<{ hash: Hash | null; uptoBlock: bigint; approved: number }> {
+  p: { delaySeconds: number; nowSeconds?: number; fromBlock?: bigint; screening?: ApprovalScreening; send?: <T>(fn: () => Promise<T>) => Promise<T> },
+): Promise<{ hash: Hash | null; uptoBlock: bigint; approved: number; excluded: number }> {
   const now = BigInt(p.nowSeconds ?? Math.floor(Date.now() / 1000));
   const cutoff = now - BigInt(p.delaySeconds);
   // Search from the pool's deployment block, not genesis (Robinhood Chain has 100 ms blocks).
   let upto = await findBlockAtOrBefore(client, cutoff, p.fromBlock ?? network.pool?.fromBlock ?? 0n);
   if (upto > events.toBlock) upto = events.toBlock;
-  const labels = aspLabels(events.deposits, upto);
-  if (labels.length === 0) return { hash: null, uptoBlock: upto, approved: 0 };
+
+  const last = events.rootUpdates.at(-1);
+  const floor = (last && parseAspDescriptor(last.cid)?.uptoBlock) ?? -1n;
+  if (upto < floor) upto = floor;
+
+  const excluded = new Set<string>();
+  if (p.screening) {
+    for (const l of await p.screening.excluded()) excluded.add(l.toString());
+    for (const d of events.deposits) {
+      if (d.blockNumber <= floor || d.blockNumber > upto || excluded.has(d.label.toString())) continue;
+      let v: Verdict;
+      try {
+        v = await p.screening.verdict(d);
+      } catch {
+        upto = d.blockNumber - 1n;
+        break;
+      }
+      if (!v.ok) excluded.add(d.label.toString());
+    }
+  }
+
+  const xs = [...excluded].map((l) => BigInt(l));
+  const labels = aspLabels(events.deposits, upto, xs);
+  const excludedHere = events.deposits.filter((d) => d.blockNumber <= upto && excluded.has(d.label.toString())).map((d) => d.label);
+  if (labels.length === 0) return { hash: null, uptoBlock: upto, approved: 0, excluded: excludedHere.length };
   const root = treeRoot(labels);
-  if (root === info.aspRoot) return { hash: null, uptoBlock: upto, approved: labels.length };
-  const hash = await wallet.writeContract({
-    address: info.entrypoint,
-    abi: Entrypoint.abi,
-    functionName: "updateRoot",
-    args: [root, encodeAspDescriptor(upto)],
-    account: wallet.account!,
-    chain: network.chain,
-  });
+  if (root === info.aspRoot) return { hash: null, uptoBlock: upto, approved: labels.length, excluded: excludedHere.length };
+  const exclusionId = excludedHere.length ? await p.screening!.publish(excludedHere) : null;
+  const send = p.send ?? ((fn) => fn());
+  const hash = await send(() =>
+    wallet.writeContract({
+      address: info.entrypoint,
+      abi: Entrypoint.abi,
+      functionName: "updateRoot",
+      args: [root, encodeAspDescriptor(upto, exclusionId)],
+      account: wallet.account!,
+      chain: network.chain,
+    }),
+  );
   const r = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   if (r.status !== "success") throw new Error("Approval update reverted.");
-  return { hash: r.transactionHash, uptoBlock: upto, approved: labels.length };
+  return { hash: r.transactionHash, uptoBlock: upto, approved: labels.length, excluded: excludedHere.length };
 }

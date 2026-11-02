@@ -8,7 +8,7 @@ import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { depositFromAccount, afterVettingFee, type PoolInfo } from "@/lib/pool/actions";
 import { SHIELD_GAS_BUDGET } from "@/lib/pool/constants";
-import { fetchPoolEvents, reconstructNotes } from "@/lib/pool/state";
+import { exclusionsFrom, fetchPoolEvents, reconstructNotes } from "@/lib/pool/state";
 import { recordSend, stealthAccount, stealthBalances } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
 import type { Delivery, StoredPayment, StoredRequest } from "@/lib/vault";
@@ -112,7 +112,13 @@ export function ShieldForm({ request, payment, network, info }: { request: Store
     setError(null);
     try {
       // Always rebuild the note index from the chain right before depositing.
-      const events = await fetchPoolEvents(client, { entrypoint: info.entrypoint, pool: info.pool, fromBlock: network.pool!.fromBlock, chunkSize: network.logChunkSize });
+      const events = await fetchPoolEvents(client, {
+        entrypoint: info.entrypoint,
+        pool: info.pool,
+        fromBlock: network.pool!.fromBlock,
+        chunkSize: network.logChunkSize,
+        exclusions: exclusionsFrom(network.pool!.exclusionsUrl),
+      });
       const { nextDepositIndex } = reconstructNotes(keys[0], info.scope, events);
       setBusy("Approving and depositing");
       const res = await depositFromAccount(client, network, info, {

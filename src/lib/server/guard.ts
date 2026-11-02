@@ -14,6 +14,8 @@ interface Kv {
   /** Takes `key` for `ttlSec` if free. Returns a token to release it, or null if taken. */
   acquire(key: string, ttlSec: number): Promise<string | null>;
   release(key: string, token: string): Promise<void>;
+  get(key: string): Promise<string | null>;
+  set(key: string, value: string): Promise<void>;
 }
 
 const RATE_LUA = `local n = redis.call('INCR', KEYS[1])
@@ -46,6 +48,12 @@ class UpstashKv implements Kv {
   async release(key: string, token: string) {
     await this.cmd<number>(["EVAL", RELEASE_LUA, 1, `qp:lock:${key}`, token]);
   }
+  async get(key: string) {
+    return this.cmd<string | null>(["GET", `qp:${key}`]);
+  }
+  async set(key: string, value: string) {
+    await this.cmd<string>(["SET", `qp:${key}`, value]);
+  }
 }
 
 class MemoryKv implements Kv {
@@ -70,6 +78,13 @@ class MemoryKv implements Kv {
   async release(key: string, token: string) {
     if (this.locks.get(key)?.token === token) this.locks.delete(key);
   }
+  private data = new Map<string, string>();
+  async get(key: string) {
+    return this.data.get(key) ?? null;
+  }
+  async set(key: string, value: string) {
+    this.data.set(key, value);
+  }
 }
 
 /** Redis first; if it can't be reached, this instance's memory, so the routes keep working. */
@@ -87,6 +102,12 @@ class FallbackKv implements Kv {
   async release(key: string, token: string) {
     await Promise.all([this.primary.release(key, token).catch(() => undefined), this.backup.release(key, token)]);
   }
+  get(key: string) {
+    return this.primary.get(key).catch(() => this.backup.get(key));
+  }
+  set(key: string, value: string) {
+    return this.primary.set(key, value).catch(() => this.backup.set(key, value));
+  }
 }
 
 let memory: MemoryKv | null = null;
@@ -94,6 +115,17 @@ export function kv(): Kv {
   const cfg = upstashEnv();
   memory ??= new MemoryKv();
   return cfg ? new FallbackKv(new UpstashKv(cfg), memory) : memory;
+}
+
+/**
+ * For records that must be the same on every server instance (screening verdicts and exclusion
+ * lists): Redis only, never a per-instance fallback. When Redis is down this throws, and callers
+ * wait and retry instead of acting on data other instances can't see.
+ */
+export function durableKv(): Pick<Kv, "get" | "set"> {
+  const cfg = upstashEnv();
+  memory ??= new MemoryKv();
+  return cfg ? new UpstashKv(cfg) : memory;
 }
 
 /** A salted hash of the caller's IP address, for rate-limit counters only. */

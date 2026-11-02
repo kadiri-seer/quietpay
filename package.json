@@ -15,7 +15,8 @@
     "contracts:compile": "tsx scripts/compile-contracts.ts",
     "contracts:compile:pool": "tsx scripts/compile-pool.ts",
     "contracts:deploy": "tsx scripts/deploy-testnet.ts",
-    "contracts:verify": "tsx scripts/verify-deployment.ts"
+    "contracts:verify": "tsx scripts/verify-deployment.ts",
+    "sanctions:update": "tsx scripts/update-sanctions.ts"
   },
   "engines": {
     "node": ">=20"

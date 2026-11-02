@@ -80,7 +80,8 @@ shielded pool breaks it: *Move funds → Shielded pool* deposits the payment int
 circuits, used unchanged), and the Pool page withdraws any amount to any fresh address through a
 relayer, with the zero-knowledge proof generated in the browser. Deposits must be approved before
 they can be withdrawn privately; on testnet the approver approves every deposit as soon as it
-lands. Any deposit can exit back to its one-time address without approval.
+lands, and on mainnet it first checks the deposit and its payer against the OFAC sanctions list.
+Any deposit can exit back to its one-time address without approval.
 
 Full design, trust assumptions and mainnet blockers: [docs/shielded-pool.md](./docs/shielded-pool.md).
 
@@ -216,7 +217,7 @@ GitHub Actions runs the type check and the full suite on every push (`.github/wo
 Vercel builds with `npm run vercel-build`, which runs the type check and the unit tests first, so a
 failing build is never deployed.
 
-The suite (116 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
+The suite (124 tests) covers amount parsing and limits, link encoding/validation/tampering, AES-GCM
 vault encryption, wallet-derived link keys and recovery on a new device, stealth derivation and matching, metadata,
 network gating and bytecode fingerprints, the payment state machine, and transaction-error
 classification. `tests/e2e-anvil.test.ts` runs the full flow on a real local EVM: deploy, create,

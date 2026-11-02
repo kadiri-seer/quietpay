@@ -7,7 +7,7 @@ import { getAddress, isAddress } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
-import { fetchPoolEvents } from "@/lib/pool/state";
+import { exclusionsFrom, fetchPoolEvents } from "@/lib/pool/state";
 import { ArtifactIntegrityError, fetchArtifact } from "@/lib/pool/prover";
 import { stealthAccount } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
@@ -55,8 +55,9 @@ export function PoolFlow() {
           it much harder to connect the two.
         </p>
         <p>
-          Every deposit must be approved before it can be withdrawn privately. On testnet, deposits are approved automatically as soon as they
-          land. If a deposit is never approved, its one-time address can always take the funds back.
+          Every deposit must be approved before it can be withdrawn privately. On mainnet, the pool first checks the deposit and the wallet
+          that paid it against the US sanctions list (OFAC); a clean deposit is approved within seconds. On testnet, deposits are approved
+          automatically as soon as they land. If a deposit is never approved, its one-time address can always take the funds back.
         </p>
       </section>
     </div>
@@ -74,7 +75,7 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
   const decimals = readiness.data?.token?.decimals ?? 6;
   const symbol = readiness.data?.token?.symbol ?? "tUSDG";
   const fmt = (v: bigint) => `${formatAmount(v, decimals, { group: true })} ${symbol}`;
-  const waitingCount = (snap.data?.notes ?? []).filter((n) => n.status === "spendable" && !n.approved).length;
+  const waitingCount = (snap.data?.notes ?? []).filter((n) => n.status === "spendable" && !n.approved && !n.excluded).length;
 
   const runApprovals = useCallback(
     async (manual: boolean) => {
@@ -124,7 +125,7 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
   const notes = snap.data?.notes ?? [];
   const live = notes.filter((n) => n.status === "spendable");
   const ready = live.filter((n) => n.approved).reduce((s, n) => s + n.value, 0n);
-  const waiting = live.filter((n) => !n.approved).reduce((s, n) => s + n.value, 0n);
+  const waiting = live.filter((n) => !n.approved && !n.excluded).reduce((s, n) => s + n.value, 0n);
 
   return (
     <div className="space-y-8">
@@ -216,7 +217,9 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
         ? { state: "claimed", label: "Exited" }
         : note.approved
           ? { state: "claimable", label: "Ready" }
-          : { state: "pending", label: "Waiting for approval" };
+          : note.excluded
+            ? { state: "error", label: "Not approved" }
+            : { state: "pending", label: "Waiting for approval" };
   return (
     <li className="rounded-xl border border-harbor bg-abyss/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -236,6 +239,12 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
             </li>
           ))}
         </ul>
+      )}
+      {note.status === "spendable" && note.excluded && (
+        <p className="mt-3 text-sm leading-relaxed text-mist">
+          This deposit didn&apos;t pass the pool&apos;s sanctions screening, so it can&apos;t be withdrawn privately. Exit takes it back to
+          its one-time address.
+        </p>
       )}
       {note.status === "spendable" && (
         <div className="mt-4 flex flex-wrap gap-2">
@@ -327,7 +336,13 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
           const fresh = await verifyPool(client, network);
           if (!fresh) break;
           poolInfo = fresh;
-          events = await fetchPoolEvents(client, { entrypoint: fresh.entrypoint, pool: fresh.pool, fromBlock: network.pool!.fromBlock, chunkSize: network.logChunkSize });
+          events = await fetchPoolEvents(client, {
+            entrypoint: fresh.entrypoint,
+            pool: fresh.pool,
+            fromBlock: network.pool!.fromBlock,
+            chunkSize: network.logChunkSize,
+            exclusions: exclusionsFrom(network.pool!.exclusionsUrl),
+          });
           continue;
         }
         break;

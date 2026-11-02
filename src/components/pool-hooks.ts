@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import type { NetworkConfig } from "@/config/networks";
 import { verifyPool } from "@/lib/pool/actions";
 import type { PoolMasterKeys } from "@/lib/pool/crypto";
-import { currentApprovalSet, fetchPoolEvents, reconstructNotes, type PoolNote } from "@/lib/pool/state";
+import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes, type PoolNote } from "@/lib/pool/state";
 import { useVault } from "./VaultProvider";
 import { usePublicClient } from "./hooks";
 
@@ -54,7 +54,8 @@ export function usePoolKeys(): PoolMasterKeys[] {
 }
 
 export interface PoolSnapshot {
-  notes: (PoolNote & { keys: PoolMasterKeys; approved: boolean })[];
+  /** `excluded`: the deposit failed screening; it can only exit back to its depositor. */
+  notes: (PoolNote & { keys: PoolMasterKeys; approved: boolean; excluded: boolean })[];
   nextDepositIndex: bigint;
   events: Awaited<ReturnType<typeof fetchPoolEvents>>;
   approvalsReadable: boolean;
@@ -75,15 +76,21 @@ export function usePoolSnapshot(network: NetworkConfig) {
         pool: info.data!.pool,
         fromBlock: network.pool!.fromBlock,
         chunkSize: network.logChunkSize,
+        exclusions: exclusionsFrom(network.pool!.exclusionsUrl),
       });
       const approvals = currentApprovalSet(events, info.data!.aspRoot);
       const approved = new Set(approvals?.labels.map(String) ?? []);
+      const excluded = new Set(approvals?.excluded.map(String) ?? []);
+      for (const l of await latestExclusions(network.pool!.exclusionsUrl)) excluded.add(l);
       const notes: PoolSnapshot["notes"] = [];
       let nextDepositIndex = 0n;
       keys.forEach((k, i) => {
         const r = reconstructNotes(k, info.data!.scope, events);
         if (i === 0) nextDepositIndex = r.nextDepositIndex;
-        for (const n of r.notes) notes.push({ ...n, keys: k, approved: approved.has(String(n.label)) });
+        for (const n of r.notes) {
+          const ok = approved.has(String(n.label));
+          notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)) });
+        }
       });
       notes.sort((a, b) => (a.deposit.blockNumber > b.deposit.blockNumber ? -1 : 1));
       return { notes, nextDepositIndex, events, approvalsReadable: !!approvals || events.rootUpdates.length === 0 };

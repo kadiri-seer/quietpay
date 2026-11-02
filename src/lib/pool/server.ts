@@ -8,6 +8,8 @@
  *   RELAYER_ETH_PRICE            payment tokens per 1 ETH, default 3000; the fee must cover gas
  *                                and the top-up at this price, so tiny withdrawals are refused
  *   POOL_APPROVAL_DELAY_SECONDS  how old a deposit must be before it is approved, default 0 (immediately)
+ *   POOL_SCREENING               "on" or "off": check deposits against the OFAC sanctions list before
+ *                                approving them. Default on for mainnet, off for testnet.
  */
 import "server-only";
 import { createWalletClient, http, parseEther, parseUnits, type Hex, type WalletClient } from "viem";
@@ -26,6 +28,15 @@ export interface RelayerContext {
   approvalDelaySeconds: number;
   /** Payment tokens per 1 ETH, as a decimal string. */
   ethPrice: string;
+  /** Whether the approver screens deposits (src/lib/screening). */
+  screening: boolean;
+}
+
+export function screeningOn(setting: string | undefined, network: "testnet" | "mainnet"): boolean {
+  const v = (setting ?? "").trim().toLowerCase();
+  if (v === "on") return true;
+  if (v === "off") return false;
+  return network === "mainnet";
 }
 
 let decimalsCache: { token: string; decimals: number } | null = null;
@@ -67,5 +78,6 @@ export function relayerContext(): RelayerContext | null {
     policy: { feeRecipient: account.address, feeBPS, gasDrop },
     approvalDelaySeconds: Math.max(0, Number(process.env.POOL_APPROVAL_DELAY_SECONDS ?? 0) | 0),
     ethPrice: (process.env.RELAYER_ETH_PRICE ?? "3000").trim() || "3000",
+    screening: screeningOn(process.env.POOL_SCREENING, network.key),
   };
 }

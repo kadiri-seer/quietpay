@@ -9,6 +9,7 @@ import { refreshApprovals } from "@/lib/pool/relayer";
 import { relayerContext } from "@/lib/pool/server";
 import { fetchPoolEvents } from "@/lib/pool/state";
 import { rateLimit, withLock } from "@/lib/server/guard";
+import { approverScreening } from "@/lib/screening/approver";
 
 /** Calls per client per minute. The site asks at most every few seconds while a deposit waits. */
 const CALLS_PER_MIN = 30;
@@ -27,7 +28,7 @@ export async function POST(req: Request) {
   if (!ctx) return NextResponse.json({ error: "The approver is not running." }, { status: 503, headers: noStore });
   // One approval update at a time across all server instances; a call that finds one running
   // simply returns, since that update will cover its deposit too.
-  const r = await withLock("approver", 60, 0, () => approve(ctx)).catch(() => ({ value: null }));
+  const r = await withLock("approver", 90, 0, () => approve(ctx)).catch(() => ({ value: null }));
   if (!r) return NextResponse.json({ updated: false, reason: "busy" }, { headers: noStore });
   return r.value ?? NextResponse.json({ error: "Could not update approvals. Try again shortly." }, { status: 502, headers: noStore });
 }
@@ -47,13 +48,28 @@ async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
     if (last && now - Number(last.timestamp) < 10) {
       return NextResponse.json({ updated: false, reason: "recent" }, { headers: noStore });
     }
-    // The approver signs with the relayer's key, so it takes the same send lock as relays.
-    const sent = await withLock("relayer:send", 30, 20_000, () =>
-      refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, { delaySeconds: ctx.approvalDelaySeconds, nowSeconds: now }),
+    const r = await refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, {
+      delaySeconds: ctx.approvalDelaySeconds,
+      nowSeconds: now,
+      screening: ctx.screening
+        ? approverScreening(ctx.client, {
+            token: ctx.network.token!,
+            fromBlock: ctx.network.announcerFromBlock ?? ctx.network.pool!.fromBlock,
+            ignore: [info.pool, info.entrypoint],
+          })
+        : undefined,
+      // The approver signs with the relayer's key, so its transaction takes the relayer's send lock
+      // (only for the send itself, not while screening).
+      send: async (fn) => {
+        const r = await withLock("relayer:send", 30, 20_000, fn);
+        if (!r) throw new Error("The relayer is busy.");
+        return r.value;
+      },
+    });
+    return NextResponse.json(
+      { updated: !!r.hash, hash: r.hash, approved: r.approved, excluded: r.excluded, uptoBlock: r.uptoBlock.toString() },
+      { headers: noStore },
     );
-    if (!sent) return NextResponse.json({ updated: false, reason: "busy" }, { headers: noStore });
-    const r = sent.value;
-    return NextResponse.json({ updated: !!r.hash, hash: r.hash, approved: r.approved, uptoBlock: r.uptoBlock.toString() }, { headers: noStore });
   } catch {
     return NextResponse.json({ error: "Could not update approvals. Try again shortly." }, { status: 502, headers: noStore });
   }

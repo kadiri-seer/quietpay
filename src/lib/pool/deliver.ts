@@ -9,7 +9,7 @@ import type { NetworkConfig } from "@/config/networks";
 import { prepareWithdrawal, serializeWithdrawal, verifyPool } from "./actions";
 import type { PoolMasterKeys } from "./crypto";
 import type { ArtifactLoader } from "./prover";
-import { currentApprovalSet, fetchPoolEvents, reconstructNotes } from "./state";
+import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes } from "./state";
 
 export type DeliveryOutcome =
   | { status: "delivered"; hash: `0x${string}`; amount: bigint; fee: bigint }
@@ -17,6 +17,8 @@ export type DeliveryOutcome =
   | { status: "waiting" }
   /** Nothing left to send: already withdrawn or exited some other way. */
   | { status: "gone" }
+  /** The deposit failed the pool's screening. It can only exit back to its one-time address. */
+  | { status: "excluded" }
   /** The relayer won't take this amount: its fee wouldn't cover the network fee. */
   | { status: "too-small"; minWithdrawal: bigint };
 
@@ -28,7 +30,13 @@ export interface RelayerTermsLite {
 async function loadState(client: PublicClient, network: NetworkConfig) {
   const info = await verifyPool(client, network);
   if (!info) throw new Error("No pool is configured.");
-  const events = await fetchPoolEvents(client, { entrypoint: info.entrypoint, pool: info.pool, fromBlock: network.pool!.fromBlock, chunkSize: network.logChunkSize });
+  const events = await fetchPoolEvents(client, {
+    entrypoint: info.entrypoint,
+    pool: info.pool,
+    fromBlock: network.pool!.fromBlock,
+    chunkSize: network.logChunkSize,
+    exclusions: exclusionsFrom(network.pool!.exclusionsUrl),
+  });
   return { info, events };
 }
 
@@ -42,7 +50,10 @@ export async function deliverNote(
   const find = () => reconstructNotes(p.keys, info.scope, events).notes.find((n) => n.label === p.label);
   let note = find();
   if (!note || note.status !== "spendable" || note.value === 0n) return { status: "gone" };
-  if (!currentApprovalSet(events, info.aspRoot)?.labels.includes(p.label)) {
+  const approvals = currentApprovalSet(events, info.aspRoot);
+  if (approvals?.excluded.includes(p.label)) return { status: "excluded" };
+  if (!approvals?.labels.includes(p.label)) {
+    if ((await latestExclusions(network.pool!.exclusionsUrl)).has(p.label.toString())) return { status: "excluded" };
     await fetch("/api/pool/approvals", { method: "POST" }).catch(() => null);
     return { status: "waiting" };
   }

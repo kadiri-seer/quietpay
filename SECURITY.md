@@ -184,7 +184,14 @@ states this on every page and the payer must acknowledge it before paying.
   submits. The proof binds recipient, fee address and fee, so it cannot redirect funds. It sees IP
   addresses and can refuse service; it stores nothing.
 - The approver publishes roots by a public rule encoded onchain, so clients verify the approval set
-  themselves. On testnet it approves everything immediately. Real screening is a mainnet blocker.
+  themselves. On testnet it approves everything immediately. With screening on (default for
+  mainnet, `POOL_SCREENING`), each new deposit is checked first: the depositing address and every
+  address that sent it the token (for a QuietPay payment, the payer) against the OFAC sanctions
+  list. Failed deposits are left out and published in an exclusion list that clients verify against
+  the onchain root; they can still exit to their one-time address. If a check can't run, approval
+  stops just before that deposit and retries; nothing is approved unchecked. This is list screening
+  only: money that passed through other wallets first isn't traced (a risk-scoring provider is the
+  next step).
 - The entrypoint is upgradeable and owned by the deployer. The owner cannot take pool funds, and
   `ragequit` works without the owner, approver or relayer, but the owner could block private
   withdrawals. The relayer key is separate from the owner key and is the only key on the web host.

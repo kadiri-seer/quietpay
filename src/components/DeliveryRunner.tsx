@@ -71,6 +71,11 @@ export function DeliveryRunner() {
               await queryClient.invalidateQueries({ queryKey: ["pool-info"] });
             } else if (out.status === "gone") {
               await patch(d.id, { status: "cancelled", lastError: "Already moved out of the pool." });
+            } else if (out.status === "excluded") {
+              await patch(d.id, {
+                status: "cancelled",
+                lastError: "This deposit didn't pass the pool's sanctions screening. Exit it from the Pool page to take it back.",
+              });
             } else if (out.status === "too-small") {
               // Gas prices can change, so try again later rather than giving up.
               await patch(d.id, {

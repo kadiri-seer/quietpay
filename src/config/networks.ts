@@ -55,6 +55,8 @@ export interface PoolConfig {
   fromBlock: bigint;
   /** Relayer endpoint that submits withdrawals so the receiving address needs no gas. */
   relayerUrl: string;
+  /** Where the approver publishes exclusion lists (deposits that failed screening). */
+  exclusionsUrl: string;
 }
 
 function optionalBlock(v: string | undefined): bigint | null {
@@ -65,7 +67,13 @@ function poolConfig(entrypoint: string | undefined, pool: string | undefined, fr
   const e = optionalAddress(entrypoint);
   const p = optionalAddress(pool);
   if (!e || !p) return null;
-  return { entrypoint: e, pool: p, fromBlock: BigInt(positiveInt(fromBlock, 0) || 0), relayerUrl: relayerUrl?.trim() || "/api/relay" };
+  return {
+    entrypoint: e,
+    pool: p,
+    fromBlock: BigInt(positiveInt(fromBlock, 0) || 0),
+    relayerUrl: relayerUrl?.trim() || "/api/relay",
+    exclusionsUrl: "/api/pool/exclusions",
+  };
 }
 
 function optionalAddress(value: string | undefined): Address | null {

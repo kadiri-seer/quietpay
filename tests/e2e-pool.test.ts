@@ -16,10 +16,11 @@ import { NETWORKS, type NetworkConfig } from "@/config/networks";
 import { erc20Abi, mockTokenFaucetAbi } from "@/config/contracts";
 import { deployPool } from "../scripts/pool-deploy-lib";
 import { derivePoolMasterKeys, masterKeysFromSeeds } from "@/lib/pool/crypto";
-import { fetchPoolEvents, reconstructNotes, currentApprovalSet } from "@/lib/pool/state";
+import { fetchPoolEvents, reconstructNotes, currentApprovalSet, exclusionListId } from "@/lib/pool/state";
 import { ArtifactIntegrityError, loadVerified, type ArtifactLoader } from "@/lib/pool/prover";
 import { SHIELD_GAS_BUDGET, depositFromAccount, NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
-import { refreshApprovals, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
+import { refreshApprovals, relayWithdrawal, RelayRejected, type ApprovalScreening } from "@/lib/pool/relayer";
+import { screenDeposit } from "@/lib/screening/screen";
 import { VerificationError } from "@/lib/chain";
 
 const ROOT = join(__dirname, "..");
@@ -90,7 +91,7 @@ describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
       vettingFeeBPS: 0n,
       maxRelayFeeBPS: 100n,
     });
-    network = { ...network, pool: { entrypoint: d.entrypoint, pool: d.pool, fromBlock: d.fromBlock, relayerUrl: "/api/relay" } };
+    network = { ...network, pool: { entrypoint: d.entrypoint, pool: d.pool, fromBlock: d.fromBlock, relayerUrl: "/api/relay", exclusionsUrl: "/api/pool/exclusions" } };
   }, 120_000);
   afterAll(() => anvil?.kill());
 
@@ -217,6 +218,85 @@ describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
     // Nothing onchain links the one-time address to either recipient except through the pool.
     const relayed = await client.getTransaction({ hash: res.hash });
     expect(relayed.from.toLowerCase()).toBe(relayer.account!.address.toLowerCase());
+  }, 240_000);
+
+  it("screens deposits: money from a sanctioned wallet is left out and published; clean money is approved", async () => {
+    // A wallet on the sanctions list pays a one-time address, which then deposits.
+    const sanctioned = privateKeyToAccount(generatePrivateKey());
+    for (const h of [
+      await deployer.writeContract({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [sanctioned.address, 20_000_000n], account: deployer.account!, chain: network.chain }),
+      await deployer.sendTransaction({ to: sanctioned.address, value: parseEther("0.01"), account: deployer.account!, chain: network.chain }),
+    ])
+      await client.waitForTransactionReceipt({ hash: h });
+    const dirtyOneTime = privateKeyToAccount(generatePrivateKey());
+    const sw = createWalletClient({ account: sanctioned, chain: network.chain, transport: http(RPC) });
+    for (const h of [
+      await sw.writeContract({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [dirtyOneTime.address, 10_000_000n], account: sanctioned, chain: network.chain }),
+      await sw.sendTransaction({ to: dirtyOneTime.address, value: parseEther("0.001"), account: sanctioned, chain: network.chain }),
+    ])
+      await client.waitForTransactionReceipt({ hash: h });
+    const cleanOneTime = await fundOneTime(12_000_000n);
+
+    const kClean = masterKeysFromSeeds(555n, 666n);
+    const kDirty = masterKeysFromSeeds(777n, 888n);
+    const clean = await depositFromAccount(client, network, info, { account: cleanOneTime, keys: kClean, depositIndex: 0n, amount: 12_000_000n });
+    const dirty = await depositFromAccount(client, network, info, { account: dirtyOneTime, keys: kDirty, depositIndex: 0n, amount: 10_000_000n });
+
+    // Screening with an in-memory store, the real sender lookup, and a list holding the wallet.
+    const list = { has: (a: string) => a.toLowerCase() === sanctioned.address.toLowerCase(), size: 1, source: "bundled" as const, asOf: "" };
+    const store = { excluded: [] as bigint[], published: new Map<string, bigint[]>(), failNext: false };
+    const screening: ApprovalScreening = {
+      excluded: async () => store.excluded,
+      verdict: async (deposit) => {
+        if (store.failNext) throw new Error("RPC down");
+        return screenDeposit(client, { deposit, token: network.token!, list, fromBlock: 0n, ignore: [info.pool, info.entrypoint] });
+      },
+      publish: async (labels) => {
+        const id = exclusionListId(labels);
+        store.published.set(id, labels);
+        store.excluded = labels;
+        return id;
+      },
+    };
+    const now = async () => Number((await client.getBlock()).timestamp);
+    const r = await refreshApprovals(client, relayer, network, info, await events(), { delaySeconds: 0, nowSeconds: await now(), screening });
+    expect(r.hash).not.toBeNull();
+    expect(r.excluded).toBe(1);
+    info = (await verifyPool(client, network))!;
+
+    // Clients rebuild the set from the chain plus the published list, and check the root.
+    const loader = async (id: string) => store.published.get(id) ?? null;
+    const ev = await fetchPoolEvents(client, { entrypoint: network.pool!.entrypoint, pool: network.pool!.pool, fromBlock: network.pool!.fromBlock, chunkSize: 1000n, exclusions: loader });
+    const set = currentApprovalSet(ev, info.aspRoot)!;
+    expect(set.labels).toContain(clean.label);
+    expect(set.labels).not.toContain(dirty.label);
+    expect(set.excluded).toEqual([dirty.label]);
+    // Without the list (or with a different one) the set can't be verified.
+    expect(currentApprovalSet(await events(), info.aspRoot)).toBeNull();
+    expect(currentApprovalSet({ ...ev, exclusions: { id: ev.exclusions!.id, labels: [] } }, info.aspRoot)).toBeNull();
+
+    // The excluded deposit can't be withdrawn privately, only exited.
+    const dirtyNote = reconstructNotes(kDirty, info.scope, ev).notes[0];
+    await expect(
+      prepareWithdrawal(load, { info, events: ev, keys: kDirty, note: dirtyNote, amount: 1_000_000n, recipient: cleanOneTime.address, feeRecipient: relayer.account!.address, feeBPS: FEE_BPS }),
+    ).rejects.toBeInstanceOf(NotApprovedYetError);
+
+    // If screening can't run, nothing new is approved and nothing already approved is taken back.
+    const later = await fundOneTime(3_000_000n);
+    const kLater = masterKeysFromSeeds(999n, 1000n);
+    const third = await depositFromAccount(client, network, info, { account: later, keys: kLater, depositIndex: 0n, amount: 3_000_000n });
+    store.failNext = true;
+    const r2 = await refreshApprovals(client, relayer, network, info, await events(), { delaySeconds: 0, nowSeconds: await now(), screening });
+    expect(r2.hash).toBeNull();
+    expect(r2.uptoBlock).toBeLessThan((await client.getTransactionReceipt({ hash: third.hash })).blockNumber);
+    store.failNext = false;
+    const r3 = await refreshApprovals(client, relayer, network, info, await events(), { delaySeconds: 0, nowSeconds: await now(), screening });
+    expect(r3.hash).not.toBeNull();
+    info = (await verifyPool(client, network))!;
+    const ev3 = await fetchPoolEvents(client, { entrypoint: network.pool!.entrypoint, pool: network.pool!.pool, fromBlock: network.pool!.fromBlock, chunkSize: 1000n, exclusions: loader });
+    const set3 = currentApprovalSet(ev3, info.aspRoot)!;
+    expect(set3.labels).toEqual(expect.arrayContaining([clean.label, third.label]));
+    expect(set3.excluded).toEqual([dirty.label]);
   }, 240_000);
 
   it("lets the depositor exit without approval (ragequit) back to the one-time address", async () => {
