@@ -75,7 +75,7 @@ export function SiteHeader() {
   }, [open]);
 
   return (
-    <header className="relative z-30">
+    <header className="relative z-30 pt-[env(safe-area-inset-top)]">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-6 px-4 sm:px-6" style={{ height: HEADER_HEIGHT }}>
         <Link href="/" aria-label="QuietPay home" className="-m-2 p-2">
           <Wordmark />
@@ -158,7 +158,7 @@ export function SiteFooter() {
   const { network } = useSelectedNetwork();
   const year = new Date().getFullYear();
   return (
-    <footer className="relative z-10 mt-24 border-t border-mist/15">
+    <footer className="relative z-10 mt-24 border-t border-mist/15 pb-[env(safe-area-inset-bottom)]">
       <div className="mx-auto grid max-w-6xl gap-10 px-4 py-12 text-sm sm:grid-cols-2 sm:px-6 lg:grid-cols-4">
         <div className="space-y-3">
           <Link href="/" aria-label="QuietPay home" className="-m-2 inline-block p-2">
