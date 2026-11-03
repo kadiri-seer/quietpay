@@ -9,7 +9,8 @@ import { Wordmark } from "./Logo";
 import { ThemeToggle } from "./ThemeToggle";
 import { XLink } from "./XLink";
 import { useSelectedNetwork } from "./Providers";
-import { Mono, shorten } from "./ui";
+import { CopyButton, Mono, shorten } from "./ui";
+import { QPAY_CONTRACT } from "@/config/token";
 
 const NAV = [
   { href: "/create", label: "Create" },
@@ -165,6 +166,14 @@ export function SiteFooter() {
           </Link>
           <p className="max-w-[34ch] text-haze">One-time USDG payment links with a fresh receiving address for every payment.</p>
           <XLink className="-ml-3" />
+          <div className="max-w-[34ch] space-y-1.5 border-t border-mist/10 pt-3">
+            <p className="text-[0.8125rem] font-semibold text-snow">$QPAY</p>
+            <p className="text-xs text-haze">Holding $QPAY grants early access to the QuietPay beta.</p>
+            <div className="flex items-center gap-1">
+              <Mono className="break-all text-[0.6875rem] text-mist/85">{QPAY_CONTRACT}</Mono>
+              <CopyButton value={QPAY_CONTRACT} label="Copy CA" className="shrink-0" />
+            </div>
+          </div>
         </div>
         <FooterCol
           title="Use QuietPay"

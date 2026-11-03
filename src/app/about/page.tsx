@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { XLink } from "@/components/XLink";
+import { QPAY_CONTRACT } from "@/config/token";
 
 export const metadata: Metadata = {
   title: "About us | QuietPay",
@@ -46,6 +47,12 @@ export default function AboutPage() {
               </a>
               .
             </p>
+            <div className="mt-6 panel p-5">
+              <h2 className="font-semibold tracking-[-0.01em] text-snow">$QPAY and early access</h2>
+              <p className="mt-2 text-sm leading-relaxed text-haze">Holding $QPAY grants early access to the QuietPay beta.</p>
+              <p className="mt-3 text-xs text-haze">Contract address</p>
+              <p className="mt-1 break-all font-mono text-xs text-mist">{QPAY_CONTRACT}</p>
+            </div>
           </div>
           <ul className="grid content-start gap-3 sm:grid-cols-2">
             {[
