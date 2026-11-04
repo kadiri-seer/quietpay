@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { EXPIRY_OPTIONS, OPEN_EXPIRY_OPTIONS, PAYMENT_LIMITS } from "@/config/networks";
 import type { LinkKind } from "@/lib/link";
@@ -68,15 +67,12 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const poolInfo = usePoolInfo(network);
   const poolRouter = usePoolRouter(network);
   const poolKeys = usePoolKeys();
-  const [kind, setKind] = useState<LinkKind>("fixed");
+  // Requests are for a set amount and pay once. (Any-amount payments go to your @username or
+  // personal link, which pay into the pool too.)
+  const kind: LinkKind = "fixed";
   const [amount, setAmount] = useState("");
   const [expiry, setExpiry] = useState<number>(EXPIRY_OPTIONS[1].seconds);
   const expiryOptions: readonly { label: string; seconds: number }[] = kind === "fixed" ? EXPIRY_OPTIONS : OPEN_EXPIRY_OPTIONS;
-  const chooseKind = (k: LinkKind) => {
-    setKind(k);
-    setExpiry(k === "fixed" ? EXPIRY_OPTIONS[1].seconds : OPEN_EXPIRY_OPTIONS[0].seconds);
-    setError(null);
-  };
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState<string | false>(false);
   const [error, setError] = useState<string | null>(null);
@@ -86,11 +82,14 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
     try {
       const v = parseAmount(amount, token.decimals);
       const limitErr = checkLimits(v, limits, token.decimals, token.symbol);
+      // Requests pay straight into the pool, which takes payments from its minimum up.
+      const min = poolRouter.data && poolInfo.data ? poolInfo.data.minimumDeposit : null;
+      if (!limitErr && min !== null && v < min) return { error: `The smallest request is ${formatAmount(min, token.decimals)} ${token.symbol}.` };
       return limitErr ? { error: limitErr } : { value: v };
     } catch (e) {
       return { error: e instanceof AmountError ? e.message : "Invalid amount." };
     }
-  }, [amount, token.decimals, token.symbol, limits]);
+  }, [amount, token.decimals, token.symbol, limits, poolRouter.data, poolInfo.data]);
 
   // One-time links pay straight into the shielded pool when this network has the pool router and
   // the amount meets the pool's minimum deposit. Reusable links (and smaller amounts) still use a
@@ -193,33 +192,6 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
       }}
       noValidate
     >
-      {token.isMock && (
-        <Notice tone="warn" title="Testnet mock token">
-          This deployment uses {token.symbol}, a QuietPay test token with no value, because no verified testnet USDG contract exists.
-        </Notice>
-      )}
-      <fieldset>
-        <legend className="mb-2 text-sm font-medium text-snow">What should the payer send?</legend>
-        <div className="grid grid-cols-2 gap-2" role="radiogroup">
-          {(
-            [
-              { k: "fixed", title: "Fixed amount", hint: "An invoice. Paid once." },
-              { k: "open", title: "Any amount", hint: "Reusable. Payer chooses." },
-            ] as const
-          ).map((o) => (
-            <label
-              key={o.k}
-              className={`cursor-pointer rounded-lg border px-3 py-3 text-left ${
-                kind === o.k ? "border-snow bg-snow/10" : "border-harbor hover:border-mist/60"
-              }`}
-            >
-              <input type="radio" name="kind" value={o.k} checked={kind === o.k} onChange={() => chooseKind(o.k)} className="sr-only" />
-              <span className="block text-sm font-medium text-snow">{o.title}</span>
-              <span className="mt-0.5 block text-xs text-haze">{o.hint}</span>
-            </label>
-          ))}
-        </div>
-      </fieldset>
 
       {kind === "fixed" ? (
       <div>
@@ -236,13 +208,13 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(",", "."))}
             onBlur={() => setTouched(true)}
-            aria-invalid={touched && "error" in parsed}
+            aria-invalid={(touched || amount.trim() !== "") && "error" in parsed}
             aria-describedby="amount-help"
           />
           <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm text-haze">{token.symbol}</span>
         </div>
-        <p id="amount-help" className={`mt-2 text-xs ${touched && "error" in parsed ? "text-bad" : "text-haze"}`}>
-          {touched && "error" in parsed
+        <p id="amount-help" className={`mt-2 text-xs ${(touched || amount.trim() !== "") && "error" in parsed ? "text-bad" : "text-haze"}`}>
+          {(touched || amount.trim() !== "") && "error" in parsed
             ? parsed.error
             : `Between ${formatAmount(limits.min, token.decimals)} and ${formatAmount(limits.max, token.decimals, { group: true })} ${token.symbol}.`}
         </p>
@@ -270,25 +242,6 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           ))}
         </div>
       </fieldset>
-
-      {kind === "fixed" && poolRouter.data && poolInfo.data && (
-        <p className="rounded-xl border border-harbor px-4 py-3 text-sm leading-relaxed text-mist" aria-live="polite">
-          {poolEligible ? (
-            <>
-              <span className="font-medium text-snow">Pays straight into your pool balance.</span> Nobody can see onchain who it&apos;s for.
-            </>
-          ) : poolMin !== null && "value" in parsed && parsed.value !== undefined ? (
-            <>
-              Payments of {formatAmount(poolMin, token.decimals)} {token.symbol} or more go straight into your pool balance. This one lands at a
-              one-time address instead.
-            </>
-          ) : (
-            <>
-              Payments of {formatAmount(poolMin ?? 0n, token.decimals)} {token.symbol} or more go straight into your pool balance.
-            </>
-          )}
-        </p>
-      )}
 
       <button type="submit" className="btn btn-primary w-full" disabled={!!busy || poolPending}>
         {busy ? (
@@ -349,11 +302,8 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
         This link&apos;s keys come from your wallet. On any device, connect the same wallet and QuietPay finds its payments again.
       </Notice>
       <div className="flex flex-wrap gap-3">
-        <Link href="/receive" className="btn btn-quiet">
-          Track payments
-        </Link>
         <button type="button" className="btn btn-quiet" onClick={onReset}>
-          Create another
+          New request
         </button>
       </div>
     </div>
@@ -383,4 +333,14 @@ function FormSkeleton({ label }: { label: string }) {
       </p>
     </div>
   );
+}
+
+/** A request for a set amount, as used inside Receive: the form, then the link once made. */
+export function RequestPanel() {
+  const { network } = useSelectedNetwork();
+  const readiness = useNetworkReadiness(network);
+  const [created, setCreated] = useState<StoredRequest | null>(null);
+  if (readiness.isLoading) return <FormSkeleton label={`Checking ${network.label} contracts`} />;
+  if (!readiness.data?.token || !readiness.data?.announcer) return <SetupBlocker network={network} readiness={readiness.data} error={readiness.error} />;
+  return created ? <LinkResult request={created} onReset={() => setCreated(null)} /> : <CreateForm onCreated={setCreated} />;
 }

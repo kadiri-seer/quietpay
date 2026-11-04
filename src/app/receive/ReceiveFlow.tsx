@@ -6,40 +6,182 @@ import { getAddress, isAddress, type Address } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
-import { applyScan, discoverLinks, estimateSweepCost, leftoverEth, recordSend, scanRequest, sendFromStealthPayment, stealthBalances, sweepLeftoverEth } from "@/lib/receive";
+import { estimateSweepCost, leftoverEth, recordSend, sendFromStealthPayment, stealthBalances, sweepLeftoverEth } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
 import { usePoolSnapshot } from "@/components/pool-hooks";
 import { usePaymentScan } from "@/components/scan-hooks";
 import { isExpired, requestStatus, type StoredPayment, type StoredRequest } from "@/lib/vault";
 import { STATE_LABELS } from "@/lib/payment-state";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
-import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { useSelectedNetwork } from "@/components/Providers";
 import { SetupBlocker } from "@/components/SetupBlocker";
-import { CopyButton, Countdown, formatEthCeil, LoadingRows, ExplorerLink, Mono, Notice, PageTitle, Spinner, StatusPill, formatDateTime, shorten } from "@/components/ui";
+import { CopyButton, Countdown, formatEthCeil, LoadingRows, ExplorerLink, Mono, Notice, Spinner, StatusPill, formatDateTime, shorten } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 import { usePoolInfo } from "@/components/pool-hooks";
 import { ShieldForm } from "./ShieldForm";
+import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
+import { privateKeyToAccount } from "viem/accounts";
+import { RequestPanel } from "@/app/create/CreateFlow";
+import { usePoolRouter } from "@/components/pool-hooks";
+import { personalLinkUrl, usernameUrl } from "@/lib/pool/locks";
+import { QR } from "@/components/ui";
+
+type Tab = "username" | "link" | "request";
 
 export function ReceiveFlow() {
   const { network } = useSelectedNetwork();
   return (
-    <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
-      <PageTitle light="Receive and" bold="claim">
-        Your browser scans public announcements and recognises your payments with each link&apos;s private viewing key. Keys never leave this
-        device.
-      </PageTitle>
+    <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
+      <h1 className="mb-6 font-display text-[2rem] font-bold leading-[1.08] tracking-[-0.03em] text-snow sm:text-[2.6rem]">Receive</h1>
       <div className="panel p-5 sm:p-7">
-        <WalletGate network={network} purpose="Connect the wallet you used to create your links. It unlocks the keys stored in this browser.">
+        <WalletGate network={network} purpose="Connect the wallet you use with QuietPay. Its signature unlocks your keys on this device.">
           <VaultGate>
-            <Dashboard network={network} />
+            <ReceiveHub network={network} />
           </VaultGate>
         </WalletGate>
       </div>
-      <div className="mt-8">
-        <PrivacyStatement compact />
+    </div>
+  );
+}
+
+const TABS: { id: Tab; label: string }[] = [
+  { id: "username", label: "Username" },
+  { id: "link", label: "Personal link" },
+  { id: "request", label: "Request" },
+];
+
+function ReceiveHub({ network }: { network: NetworkConfig }) {
+  const [tab, setTab] = useState<Tab>("username");
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "username" || t === "link" || t === "request") setTab(t);
+  }, []);
+  const choose = (t: Tab) => {
+    setTab(t);
+    const u = new URL(window.location.href);
+    u.searchParams.set("tab", t);
+    window.history.replaceState(null, "", u);
+  };
+  return (
+    <div className="space-y-6">
+      <div role="tablist" aria-label="Ways to receive" className="grid grid-cols-3 gap-1 rounded-xl border border-harbor p-1">
+        {TABS.map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.id}
+            onClick={() => choose(t.id)}
+            className={`rounded-lg px-2 py-2.5 text-sm font-medium ${tab === t.id ? "bg-snow text-abyss" : "text-mist hover:text-snow"}`}
+          >
+            {t.label}
+          </button>
+        ))}
       </div>
+      {tab === "username" && <UsernameCard network={network} />}
+      {tab === "link" && <PersonalLinkCard network={network} />}
+      {tab === "request" && (
+        <div className="space-y-10">
+          <RequestPanel />
+          <Dashboard network={network} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Whether payments can reach you yet: locks are uploaded in the background by LockKeeper. */
+function useReceiveReady(network: NetworkConfig, key: Address | null) {
+  const router = usePoolRouter(network);
+  const q = useQuery({
+    queryKey: ["lock-counts", key],
+    enabled: !!key && !!router.data,
+    refetchInterval: (query) => ((query.state.data as { available: number } | undefined)?.available ? 60_000 : 4_000),
+    queryFn: async () => {
+      const r = await fetch(`/api/locks?key=${key}&counts=1`, { cache: "no-store" });
+      if (!r.ok) throw new Error("unavailable");
+      return (await r.json()) as { available: number; total: number };
+    },
+  });
+  if (!network.pool?.router || router.isError) return "unavailable" as const;
+  if (q.isError) return "unavailable" as const;
+  if (!q.data) return "checking" as const;
+  return q.data.available > 0 ? ("ready" as const) : ("preparing" as const);
+}
+
+function ReadyNote({ state }: { state: ReturnType<typeof useReceiveReady> }) {
+  if (state === "ready") return <p className="text-center text-sm text-haze">Payments go straight into your shielded balance.</p>;
+  if (state === "unavailable") return <Notice tone="warn">Receiving by username or personal link isn&apos;t available right now. Use a request instead.</Notice>;
+  return (
+    <p className="flex items-center justify-center gap-2 text-sm text-haze" aria-live="polite">
+      <Spinner className="h-3 w-3" /> Getting ready to receive payments…
+    </p>
+  );
+}
+
+function ShareBlock({ url, label }: { url: string; label: string }) {
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-center">
+        <QR value={url} />
+      </div>
+      <div className="flex gap-2">
+        <input aria-label={label} className="field font-mono text-base sm:text-xs" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
+        <CopyButton value={url} className="min-h-[2.9rem]" />
+      </div>
+    </div>
+  );
+}
+
+function UsernameCard({ network }: { network: NetworkConfig }) {
+  const { vault } = useVault();
+  const key = vault?.nameKey ? privateKeyToAccount(vault.nameKey).address : null;
+  const state = useReceiveReady(network, key);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+  const mine = useQuery({
+    queryKey: ["my-name", key],
+    enabled: !!key,
+    queryFn: async () => {
+      const r = await fetch(`/api/names?key=${key}`, { cache: "no-store" });
+      if (!r.ok) throw new Error("unavailable");
+      return ((await r.json()) as { mine: { name: string } | null }).mine;
+    },
+  });
+  if (mine.isLoading) return <LoadingRows label="Checking your username" rows={2} />;
+  if (!mine.data)
+    return (
+      <div className="space-y-4 text-center">
+        <p className="text-sm leading-relaxed text-mist">Get a username so people can pay you without asking for anything else, like @yourname.</p>
+        <Link href="/names" className="btn btn-primary">
+          Claim a username
+        </Link>
+        <p className="text-xs text-haze">Until then, share your personal link.</p>
+      </div>
+    );
+  return (
+    <div className="space-y-5">
+      <p className="text-center font-display text-4xl font-semibold tracking-[-0.02em] text-snow">@{mine.data.name}</p>
+      {origin && <ShareBlock url={usernameUrl(origin, mine.data.name)} label="Your username link" />}
+      <ReadyNote state={state} />
+    </div>
+  );
+}
+
+function PersonalLinkCard({ network }: { network: NetworkConfig }) {
+  const { vault } = useVault();
+  const key = vault?.nameKey ? privateKeyToAccount(vault.nameKey).address : null;
+  const state = useReceiveReady(network, key);
+  const [origin, setOrigin] = useState("");
+  useEffect(() => setOrigin(window.location.origin), []);
+  if (!key) return <Notice tone="warn">Unlock again to set up your personal link.</Notice>;
+  return (
+    <div className="space-y-5">
+      <p className="text-center text-sm leading-relaxed text-mist">One link for anyone to pay you any amount, as many times as they like. It never shows your wallet.</p>
+      {origin && <ShareBlock url={personalLinkUrl(origin, key)} label="Your personal link" />}
+      <ReadyNote state={state} />
     </div>
   );
 }
@@ -73,15 +215,11 @@ function Dashboard({ network }: { network: NetworkConfig }) {
           count {setAside === 1 ? "it" : "them"}. Your links and money can still be found from your wallet with Search full history.
         </Notice>
       )}
-      <Notice tone="info" title="Recoverable from your wallet">
-        Your links&apos; keys come from your wallet. Connect the same wallet on any device and QuietPay finds your links and payments again.
-        Only sign the QuietPay message on this site.
-      </Notice>
 
       <section aria-labelledby="links-h" className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 id="links-h" className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">
-            Your links <span className="font-normal text-haze">({requests.length})</span>
+            Your requests <span className="font-normal text-haze">({requests.length})</span>
           </h2>
           {scanning ? (
             <button type="button" className="btn btn-sm btn-quiet" onClick={cancel}>
@@ -114,11 +252,7 @@ function Dashboard({ network }: { network: NetworkConfig }) {
               "Looking for links this wallet already made…"
             ) : (
               <>
-                No links on {network.label} for this wallet yet.{" "}
-                <a href="/create" className="text-signal underline underline-offset-4">
-                  Create a payment link
-                </a>
-                .
+                No requests on {network.label} yet.
               </>
             )}
           </div>

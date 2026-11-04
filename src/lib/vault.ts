@@ -88,6 +88,8 @@ export interface VaultData {
   linkSeed?: Hex;
   /** Number of the next link to create. Links 0..n-1 are in use. */
   nextLinkIndex?: number;
+  /** Signed pool locks uploaded for your @username and personal link (they are numbered 0..n-1). */
+  lockCount?: number;
   /** When this browser last checked the chain for links made elsewhere (ms). */
   linksCheckedAt?: number;
   /** Private claims: payments shielded in the pool, then sent on to an address at a chosen time. */
@@ -250,6 +252,7 @@ const topSchema = z.object({
   linkSeed: z.unknown().optional(),
   nextLinkIndex: z.unknown().optional(),
   linksCheckedAt: z.unknown().optional(),
+  lockCount: z.unknown().optional(),
   deliveries: z.unknown().optional(),
   quarantine: z.unknown().optional(),
 });
@@ -310,6 +313,7 @@ export function parseVault(data: unknown, now = Date.now()): VaultData {
   opt("linkSeed", hexBytes(32), t.linkSeed, (v) => (out.linkSeed = v as Hex));
   opt("nextLinkIndex", z.number().int().min(0).max(1_000_000), t.nextLinkIndex, (v) => (out.nextLinkIndex = v));
   opt("linksCheckedAt", timeMs, t.linksCheckedAt, (v) => (out.linksCheckedAt = v));
+  opt("lockCount", z.number().int().min(0).max(1_000_000), t.lockCount, (v) => (out.lockCount = v));
   if (t.deliveries !== undefined) {
     const list = z.array(z.unknown()).max(500).safeParse(t.deliveries);
     if (!list.success) setAside("deliveries", t.deliveries, reasonOf(list.error));

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { PaymentTrack } from "@/components/PaymentTrack";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { HeroFaucet, HeroNetwork } from "./HeroNetwork";
+import { GetStarted, HomeApp } from "./home/HomeFlow";
 
 interface Tile {
   href: string;
@@ -18,11 +19,11 @@ const ART_STROKE = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, str
 
 const TILES: Tile[] = [
   {
-    href: "/create",
+    href: "/receive",
     step: 1,
-    title: "Create a link",
-    body: "Set an amount and expiry. Each link gets its own receiving keys.",
-    action: "Create",
+    title: "Get paid",
+    body: "Share your @username, your personal link or a request for a set amount.",
+    action: "Receive",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
         <rect x="30" y="18" width="60" height="40" rx="5" transform="skewX(-14)" />
@@ -32,11 +33,11 @@ const TILES: Tile[] = [
     ),
   },
   {
-    href: "/pay",
+    href: "/send",
     step: 2,
-    title: "Pay a link",
-    body: "Review the details, then send USDG to a one-time address.",
-    action: "Pay",
+    title: "Payments go into the pool",
+    body: "Every payment lands straight in your shielded balance. Nothing onchain says it's yours.",
+    action: "Send",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
         <circle cx="26" cy="40" r="9" />
@@ -47,11 +48,11 @@ const TILES: Tile[] = [
     ),
   },
   {
-    href: "/receive",
+    href: "/send",
     step: 3,
-    title: "Receive funds",
-    body: "Your browser spots payments with a private key, then moves them to any wallet.",
-    action: "Receive",
+    title: "Send privately",
+    body: "Send to a @username or any wallet. Your device proves the money is yours without saying where it came from.",
+    action: "Send",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
         <path d="M60 62a6 6 0 1 1 0-.1" />
@@ -64,7 +65,7 @@ const TILES: Tile[] = [
   {
     href: "/security",
     title: "What's public",
-    body: "Payer, amount, receiving address and time stay visible onchain.",
+    body: "Who paid in, amounts and times stay visible onchain. Who received doesn't.",
     action: "Security model",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
@@ -76,7 +77,7 @@ const TILES: Tile[] = [
   {
     href: "/receive",
     title: "Recover anywhere",
-    body: "Connect the same wallet on any device and your links come back.",
+    body: "Connect the same wallet on any device and your balance comes back.",
     action: "Receive",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
@@ -125,17 +126,19 @@ const HEX_WRAP = "[filter:drop-shadow(0_0_0.6px_var(--qp-tide))_drop-shadow(0_10
 export default function Home() {
   return (
     <>
-      <section className="relative overflow-hidden">
+      {/* Your balance, for people who use QuietPay on this device (see HomeApp). */}
+      <section className="app-top mx-auto max-w-xl px-4 pb-16 pt-6 sm:px-6" aria-label="Your balance">
+        <HomeApp />
+      </section>
+      <section className="landing-hero relative overflow-hidden">
         <div className="relative mx-auto grid min-h-[72vh] max-w-6xl items-center gap-6 px-4 pb-16 pt-10 sm:px-6 lg:grid-cols-[1.02fr_1fr] lg:gap-4 lg:pb-24">
           <div className="flex flex-col items-start">
-            <p className="text-balance text-sm font-medium text-haze sm:text-base">One-time USDG payment links on Robinhood Chain</p>
+            <p className="text-balance text-sm font-medium text-haze sm:text-base">Private USDG payments on Robinhood Chain</p>
             <h1 className="mt-4 font-display font-bold leading-[1.02] tracking-[-0.035em] text-snow">
               <span className="block text-[2.7rem] sm:text-6xl lg:text-[4.1rem]">A fresh address</span>{" "}
               <span className="block text-[2.7rem] sm:text-6xl lg:text-[4.1rem]">for every payment.</span>
             </h1>
-            <Link href="/create" className="btn btn-primary mt-9 min-h-12 px-7">
-              Create a payment link
-            </Link>
+            <GetStarted className="btn btn-primary mt-9 min-h-12 px-7" />
             <HeroFaucet />
             <HeroNetwork />
             <a href="#how" className="mt-4 -ml-2 inline-flex h-11 w-11 items-center justify-center text-mist/70 hover:text-snow" aria-label="How QuietPay works">
@@ -179,8 +182,8 @@ export default function Home() {
 
       <section className="mx-auto mt-24 max-w-3xl border-y border-mist/15 px-4 py-10 text-center sm:px-6">
         <p className="mx-auto max-w-[62ch] leading-relaxed text-mist">
-          QuietPay never asks for your main wallet address when you create a link. Payers send to a one-time address derived from public
-          keys in the link, and only your browser can recognise and spend from it. Nothing is stored on a server.
+          Your wallet address never goes into a link or a username. Payers pay into the shielded pool under a one-time lock that only your
+          device can open. QuietPay&apos;s server keeps those locks for your username, never your keys or your wallet address.
         </p>
       </section>
 

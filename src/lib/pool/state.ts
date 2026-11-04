@@ -208,13 +208,15 @@ export function reconstructReceived(
   ev: PoolEvents,
   issued: bigint,
   maxGap = 20,
+  /** First receive index of the range (0 for one-time links, PERSONAL_INDEX_BASE for personal locks). */
+  offset = 0n,
 ): { notes: PoolNote[]; nextReceiveIndex: bigint } {
   const m = noteMaps(ev);
   const notes: PoolNote[] = [];
   let next = issued;
   let misses = 0;
   for (let i = 0n; i < issued || misses < maxGap; i++) {
-    const s = receiveSecrets(keys, scope, i);
+    const s = receiveSecrets(keys, scope, offset + i);
     const dep = m.byPrecommitment.get(precommitmentHash(s));
     if (!dep) {
       if (i >= issued) misses++;
@@ -222,7 +224,7 @@ export function reconstructReceived(
     }
     misses = 0;
     if (i + 1n > next) next = i + 1n;
-    notes.push(followNote(keys, m, dep, s, RECEIVE_INDEX_BASE + i));
+    notes.push(followNote(keys, m, dep, s, RECEIVE_INDEX_BASE + offset + i));
   }
   return { notes, nextReceiveIndex: next };
 }

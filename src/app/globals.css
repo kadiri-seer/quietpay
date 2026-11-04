@@ -207,3 +207,14 @@ body {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Front page: people who use QuietPay on this device see their balance, visitors see the hero. */
+.app-top {
+  display: none;
+}
+html[data-app="1"] .app-top {
+  display: block;
+}
+html[data-app="1"] .landing-hero {
+  display: none;
+}

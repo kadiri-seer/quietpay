@@ -27,6 +27,7 @@ import {
 } from "@/config/pool-contracts.generated";
 import { VerificationError, waitForConfirmedReceipt } from "@/lib/chain";
 export { SHIELD_GAS_BUDGET } from "./constants";
+import { SHIELD_GAS_BUDGET } from "./constants";
 import { depositSecrets, merkleProof, precommitmentHash, withdrawalSecrets, type PoolMasterKeys } from "./crypto";
 import { encodeRelayData, proveRagequit, proveWithdrawal, withdrawalContext, type ArtifactLoader, type WithdrawProof, type Withdrawal } from "./prover";
 import { currentApprovalSet, type PoolEvents, type PoolNote } from "./state";
@@ -263,4 +264,30 @@ export async function ragequit(
   });
   const r = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   return r.transactionHash;
+}
+
+/**
+ * Moves a payment that landed at a one-time address into the pool, when it can: at least the
+ * pool's minimum, and enough ETH at the address (the payer's gas stipend) for approve + deposit.
+ * Returns null (and does nothing) otherwise.
+ */
+export async function shieldOneTime(
+  client: PublicClient,
+  network: NetworkConfig,
+  info: PoolInfo,
+  p: { account: LocalAccount; keys: PoolMasterKeys; depositIndex: bigint },
+): Promise<{ hash: Hash; value: bigint; amount: bigint } | null> {
+  const token = network.token!;
+  if (info.dead) return null;
+  const [amount, eth, fees] = await Promise.all([
+    client.readContract({ address: token, abi: erc20Abi, functionName: "balanceOf", args: [p.account.address] }),
+    client.getBalance({ address: p.account.address }),
+    client.estimateFeesPerGas(),
+  ]);
+  if (amount < info.minimumDeposit) return null;
+  // Realistic cost for approve + deposit (the payer's stipend budgets SHIELD_GAS_BUDGET).
+  const cost = ((SHIELD_GAS_BUDGET / 2n) * (fees.maxFeePerGas ?? 0n) * 3n) / 2n;
+  if (eth < cost) return null;
+  const r = await depositFromAccount(client, network, info, { ...p, amount });
+  return { hash: r.hash, value: r.value, amount };
 }

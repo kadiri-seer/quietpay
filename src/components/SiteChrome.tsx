@@ -13,12 +13,11 @@ import { CopyButton, Mono, shorten } from "./ui";
 import { QPAY_CONTRACT } from "@/config/token";
 
 const NAV = [
-  { href: "/home", label: "Home" },
-  { href: "/create", label: "Create" },
-  { href: "/pay", label: "Pay" },
+  { href: "/", label: "Home" },
   { href: "/receive", label: "Receive" },
+  { href: "/send", label: "Send" },
+  { href: "/activity", label: "Activity" },
   { href: "/pool", label: "Pool" },
-  { href: "/names", label: "Names" },
   { href: "/security", label: "Security" },
 ];
 
@@ -65,6 +64,16 @@ export function SiteHeader() {
   const { disconnect } = useDisconnect();
   const [open, setOpen] = useState(false);
   const menuId = useId();
+  // Disconnecting signs out: the front page goes back to the public landing page on this device.
+  const signOut = () => {
+    try {
+      localStorage.removeItem("quietpay:app");
+    } catch {
+      /* storage blocked */
+    }
+    delete document.documentElement.dataset.app;
+    disconnect();
+  };
 
   // Close the menu on navigation and on Escape.
   useEffect(() => setOpen(false), [path]);
@@ -101,7 +110,7 @@ export function SiteHeader() {
           <ThemeToggle />
           <NetworkIndicator />
           {address && (
-            <button type="button" onClick={() => disconnect()} className="btn btn-sm btn-quiet normal-case tracking-normal" title="Disconnect wallet">
+            <button type="button" onClick={signOut} className="btn btn-sm btn-quiet normal-case tracking-normal" title="Disconnect wallet">
               <Mono>{shorten(address)}</Mono>
             </button>
           )}
@@ -144,7 +153,7 @@ export function SiteHeader() {
           <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-3 border-t border-harbor px-4 py-4 sm:px-6">
             <NetworkIndicator />
             {address && (
-              <button type="button" onClick={() => disconnect()} className="btn btn-sm btn-quiet normal-case tracking-normal">
+              <button type="button" onClick={signOut} className="btn btn-sm btn-quiet normal-case tracking-normal">
                 Disconnect <Mono>{shorten(address)}</Mono>
               </button>
             )}
@@ -165,7 +174,7 @@ export function SiteFooter() {
           <Link href="/" aria-label="QuietPay home" className="-m-2 inline-block p-2">
             <Wordmark />
           </Link>
-          <p className="max-w-[34ch] text-haze">One-time USDG payment links with a fresh receiving address for every payment.</p>
+          <p className="max-w-[34ch] text-haze">Private USDG payments on Robinhood Chain. Every payment goes straight into a shielded pool.</p>
           <XLink className="-ml-3" />
           <div className="max-w-[34ch] space-y-1.5 border-t border-mist/10 pt-3">
             <p className="text-[0.8125rem] font-semibold text-snow">$QPAY</p>
@@ -179,10 +188,10 @@ export function SiteFooter() {
         <FooterCol
           title="Use QuietPay"
           links={[
-            { href: "/home", label: "Your balance" },
-            { href: "/create", label: "Create a link" },
-            { href: "/pay", label: "Pay a link" },
-            { href: "/receive", label: "Receive and claim" },
+            { href: "/", label: "Your balance" },
+            { href: "/receive", label: "Receive" },
+            { href: "/send", label: "Send" },
+            { href: "/activity", label: "Activity" },
             { href: "/pool", label: "Shielded pool" },
             { href: "/names", label: "Claim your name" },
           ]}

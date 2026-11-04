@@ -16,30 +16,52 @@ import { VaultGate, WalletGate } from "@/components/WalletGate";
 
 const HIDE_KEY = "quietpay:hide-balance";
 
-export function HomeFlow() {
+/**
+ * The app part of the front page: your balance and actions. Shown to people who use QuietPay on
+ * this device (or who tapped "Get started"); everyone else sees the landing hero instead.
+ */
+export function HomeApp() {
   const { network } = useSelectedNetwork();
   const { status } = useVault();
-  return (
-    <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
-      <h1 className="mb-6 font-display text-[2rem] font-bold leading-[1.08] tracking-[-0.03em] text-snow sm:text-[2.6rem]">Home</h1>
-      {status === "unlocked" ? (
-        <WalletGate network={network} purpose="Connect the wallet you use with QuietPay.">
-          <VaultGate>
-            <Home network={network} />
-          </VaultGate>
-        </WalletGate>
-      ) : (
-        <div className="panel p-5 sm:p-7">
-          <WalletGate network={network} purpose="Connect the wallet you use with QuietPay. Its signature unlocks your keys on this device.">
-            <VaultGate>
-              <Home network={network} />
-            </VaultGate>
-          </WalletGate>
-        </div>
-      )}
+  useEffect(() => {
+    // "Get started" links here with ?app=1; keep the hero hidden from now on.
+    if (new URLSearchParams(window.location.search).get("app") === "1") {
+      document.documentElement.dataset.app = "1";
+      try {
+        localStorage.setItem(APP_HINT, "1");
+      } catch {
+        /* storage blocked */
+      }
+    }
+  }, []);
+  useEffect(() => {
+    if (status !== "unlocked") return;
+    document.documentElement.dataset.app = "1";
+    try {
+      localStorage.setItem(APP_HINT, "1");
+    } catch {
+      /* storage blocked */
+    }
+  }, [status]);
+  return status === "unlocked" ? (
+    <WalletGate network={network} purpose="Connect the wallet you use with QuietPay.">
+      <VaultGate>
+        <Home network={network} />
+      </VaultGate>
+    </WalletGate>
+  ) : (
+    <div className="panel p-5 sm:p-7">
+      <WalletGate network={network} purpose="Connect the wallet you use with QuietPay. Its signature unlocks your keys on this device.">
+        <VaultGate>
+          <Home network={network} />
+        </VaultGate>
+      </WalletGate>
     </div>
   );
 }
+
+/** Set once someone has used QuietPay on this device: the front page then opens on their balance. */
+export const APP_HINT = "quietpay:app";
 
 /**
  * One balance: everything QuietPay holds for you. Mostly the shielded pool (payments go in and are
@@ -148,9 +170,9 @@ function Home({ network }: { network: NetworkConfig }) {
       </section>
 
       <nav aria-label="Actions" className="grid grid-cols-3 gap-3">
-        <Action href="/create" label="Receive" icon={<ArrowIcon down />} />
-        <Action href="/pool" label="Send" icon={<ArrowIcon />} />
-        <Action href="/pay" label="Pay a link" icon={<LinkIcon />} />
+        <Action href="/receive" label="Receive" icon={<ArrowIcon down />} />
+        <Action href="/send" label="Send" icon={<ArrowIcon />} />
+        <Action href="/scan" label="Scan" icon={<ScanIcon />} />
       </nav>
 
       {/* Only shown when something needs attention. */}
@@ -219,11 +241,11 @@ function ArrowIcon({ down }: { down?: boolean }) {
   );
 }
 
-function LinkIcon() {
+function ScanIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-      <path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" />
-      <path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" />
+      <path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" />
+      <path d="M7 12h10" />
     </svg>
   );
 }
@@ -235,5 +257,28 @@ function EyeIcon({ off }: { off: boolean }) {
       <circle cx="12" cy="12" r="3" />
       {off && <path d="M3 3l18 18" />}
     </svg>
+  );
+}
+
+/** The landing page's "Get started": switches the front page to the app on this device. */
+export function GetStarted({ className }: { className?: string }) {
+  return (
+    <a
+      href="/?app=1"
+      className={className}
+      onClick={(e) => {
+        e.preventDefault();
+        try {
+          localStorage.setItem(APP_HINT, "1");
+        } catch {
+          /* storage blocked: the page still switches for this visit */
+        }
+        document.documentElement.dataset.app = "1";
+        window.history.replaceState(null, "", "/?app=1");
+        window.scrollTo({ top: 0 });
+      }}
+    >
+      Get started
+    </a>
   );
 }

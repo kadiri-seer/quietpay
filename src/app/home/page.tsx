@@ -1,11 +1,6 @@
-import type { Metadata } from "next";
-import { HomeFlow } from "./HomeFlow";
+import { redirect } from "next/navigation";
 
-export const metadata: Metadata = {
-  title: "Home | QuietPay",
-  description: "Your QuietPay balance in one place: money in the shielded pool and payments still at one-time addresses, worked out on your device.",
-};
-
+// Home is the front page now.
 export default function HomePage() {
-  return <HomeFlow />;
+  redirect("/?app=1");
 }

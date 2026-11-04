@@ -23,6 +23,7 @@ import { prepareWithdrawal, serializeWithdrawal, verifyPool, type PoolInfo } fro
 import { refreshApprovals, relayWithdrawal } from "@/lib/pool/relayer";
 import { screenDeposit } from "@/lib/screening/screen";
 import { createPaymentRequest } from "@/lib/request";
+import { personalLock, PERSONAL_INDEX_BASE, signLock, verifyLock } from "@/lib/pool/locks";
 import { validatePaymentLink } from "@/lib/link";
 import { EXPIRY_OPTIONS } from "@/config/networks";
 import { creditedAmount, poolPayPreflight, verifyPoolRouter, payIntoPool, poolRouterAbi, prepareTransfer, receiveLock, refundAccount, refundUnapproved, transferArgs, encodeTransferData } from "@/lib/pool/receive";
@@ -337,6 +338,66 @@ describe.skipIf(!existsSync(ANVIL))("paying straight into the pool", () => {
     expect(found?.value).toBe(6_000_000n);
     expect(creditedAmount(6_000_000n, 0n)).toBe(6_000_000n);
     expect(creditedAmount(6_000_000n, 50n)).toBe(5_970_000n);
+  });
+
+  it("a @username or personal link: signed lock from the recipient, verified by the payer, found by the recipient", async () => {
+    const nameKey = generatePrivateKey();
+    const key = privateKeyToAccount(nameKey).address;
+    const lock = personalLock(alice, info.scope, 3n);
+    const signedLock = await signLock(nameKey, { chainId: 46630, pool: network.pool!.pool, precommitment: lock.precommitment, refund: lock.refund });
+    // The payer checks the signature before paying; a lock from anyone else is refused.
+    const ok = await verifyLock(signedLock, { key, chainId: 46630, pool: network.pool!.pool });
+    await expect(verifyLock(signedLock, { key: privateKeyToAccount(generatePrivateKey()).address, chainId: 46630, pool: network.pool!.pool })).rejects.toThrow();
+    const { hash } = await payIntoPool(deployer, client, { network, router, token: network.token!, lock: ok, amount: 8_000_000n });
+    await client.waitForTransactionReceipt({ hash });
+    const ev = await events();
+    // Found in the personal range (4 locks issued), not mixed with one-time links.
+    const mine = reconstructReceived(alice, info.scope, ev, 4n, 20, PERSONAL_INDEX_BASE).notes;
+    expect(mine.map((n) => n.value)).toEqual([8_000_000n]);
+    expect(mine[0].depositIndex).toBe((1n << 64n) + PERSONAL_INDEX_BASE + 3n);
+    // Even with no record of how many were issued (a new device), the gap scan finds it.
+    expect(reconstructReceived(alice, info.scope, ev, 0n, 20, PERSONAL_INDEX_BASE).notes).toHaveLength(1);
+  });
+
+  it("the relayer submits a pool-to-pool transfer only with its own fee, and can't change it", async () => {
+    await approveAll();
+    const ev = await events();
+    const net = { ...network, pool: { ...network.pool!, router } };
+    const note = reconstructReceived(alice, info.scope, ev, 40n).notes.find((x) => x.status === "spendable" && x.value >= 6_000_000n)!;
+    const carol = masterKeysFromSeeds(31n, 32n);
+    const to = receiveLock(carol, info.scope, 0n);
+    const policy = { feeRecipient: relayer.account!.address, feeBPS: FEE_BPS, gasDrop: 0n, tokenUnitsPerEth: 1n };
+    const body = async (fee: bigint, feeRecipient = relayer.account!.address) => {
+      const t = await prepareTransfer(load, { info, events: ev, keys: alice, note, router, amount: 5_000_000n, to, feeRecipient, fee });
+      return { kind: "transfer", ...JSON.parse(JSON.stringify(serializeWithdrawal({ ...t, scope: info.scope, recipient: router, amount: 5_000_000n, fee }))) };
+    };
+    const { relayTransfer, RelayRejected } = await import("@/lib/pool/relayer");
+    await expect(relayTransfer(client, relayer, net, info, policy, await body(1n))).rejects.toBeInstanceOf(RelayRejected);
+    await expect(relayTransfer(client, relayer, net, info, policy, await body(25_000n, privateKeyToAccount(generatePrivateKey()).address))).rejects.toBeInstanceOf(RelayRejected);
+    const ok = await relayTransfer(client, relayer, net, info, policy, await body(25_000n));
+    expect(ok).toMatchObject({ amount: 5_000_000n, fee: 25_000n });
+    const carols = reconstructReceived(carol, info.scope, await events(), 1n).notes;
+    expect(carols.map((x) => x.value)).toEqual([4_975_000n]);
+  }, 180_000);
+
+  it("moves a one-time payment into the pool when it holds the minimum and gas, and leaves it otherwise", async () => {
+    const { shieldOneTime } = await import("@/lib/pool/actions");
+    const fund = async (tokens: bigint, eth: bigint) => {
+      const acct = privateKeyToAccount(generatePrivateKey());
+      if (tokens) await client.waitForTransactionReceipt({ hash: await deployer.writeContract({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [acct.address, tokens], account: deployer.account!, chain: network.chain }) });
+      if (eth) await client.waitForTransactionReceipt({ hash: await deployer.sendTransaction({ to: acct.address, value: eth, account: deployer.account!, chain: network.chain }) });
+      return acct;
+    };
+    const dave = masterKeysFromSeeds(41n, 42n);
+    // Below the pool minimum, or without gas: nothing happens.
+    expect(await shieldOneTime(client, network, info, { account: await fund(500_000n, parseEther("0.001")), keys: dave, depositIndex: 0n })).toBeNull();
+    expect(await shieldOneTime(client, network, info, { account: await fund(3_000_000n, 0n), keys: dave, depositIndex: 0n })).toBeNull();
+    // Enough of both: the whole amount goes into the pool under the owner's keys.
+    const ok = await fund(3_000_000n, parseEther("0.001"));
+    const r = await shieldOneTime(client, network, info, { account: ok, keys: dave, depositIndex: 0n });
+    expect(r).toMatchObject({ amount: 3_000_000n, value: 3_000_000n });
+    expect(await bal(ok.address)).toBe(0n);
+    expect(reconstructNotes(dave, info.scope, await events()).notes.map((n) => n.value)).toEqual([3_000_000n]);
   });
 
   it("has no owner or admin functions", () => {

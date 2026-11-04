@@ -1,5 +1,5 @@
 export const PRIVACY_STATEMENT =
-  "QuietPay gives each payment a fresh receiving address. Robinhood Chain is public: the payer, amount, destination address, and transaction time can be visible. This is not full anonymity.";
+  "Payments go into a shielded pool under a one-time lock. Robinhood Chain is public: who paid in, the amount and the time can be visible, and so can sends to a wallet address. Who was paid isn't shown onchain. This is not full anonymity.";
 
 export function PrivacyStatement({ compact = false }: { compact?: boolean }) {
   return (

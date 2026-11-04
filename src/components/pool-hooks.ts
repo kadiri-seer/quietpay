@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { NetworkConfig } from "@/config/networks";
 import { verifyPool } from "@/lib/pool/actions";
 import { refundAccount, verifyPoolRouter } from "@/lib/pool/receive";
+import { PERSONAL_INDEX_BASE } from "@/lib/pool/locks";
 import { erc20Abi } from "@/config/contracts";
 import type { OnchainHoldings } from "@/lib/balance";
 import type { PoolMasterKeys } from "@/lib/pool/crypto";
@@ -86,8 +87,10 @@ export function usePoolSnapshot(network: NetworkConfig) {
   const { vault } = useVault();
   // Payment links that pay into the pool use lock i = link number i.
   const issued = BigInt(vault?.nextLinkIndex ?? 0);
+  // Locks uploaded for @username and personal-link payments.
+  const locksIssued = BigInt(vault?.lockCount ?? 0);
   return useQuery<PoolSnapshot>({
-    queryKey: ["pool-snapshot", network.key, info.data?.pool, info.data?.aspRoot?.toString(), keys.map((k) => k.masterNullifier.toString()).join(","), issued.toString()],
+    queryKey: ["pool-snapshot", network.key, info.data?.pool, info.data?.aspRoot?.toString(), keys.map((k) => k.masterNullifier.toString()).join(","), issued.toString(), locksIssued.toString()],
     enabled: !!info.data && keys.length > 0,
     staleTime: 15_000,
     queryFn: async () => {
@@ -115,7 +118,9 @@ export function usePoolSnapshot(network: NetworkConfig) {
         // Payments received straight into the pool through payment links.
         const rr = reconstructReceived(k, info.data!.scope, events, i === 0 ? issued : 0n);
         if (i === 0) nextReceiveIndex = rr.nextReceiveIndex;
-        for (const n of rr.notes) {
+        // Payments to your @username or personal link (only the first key set signs locks).
+        const personal = i === 0 ? reconstructReceived(k, info.data!.scope, events, locksIssued, 20, PERSONAL_INDEX_BASE).notes : [];
+        for (const n of [...rr.notes, ...personal]) {
           const ok = approved.has(String(n.label));
           notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)), received: { receiveIndex: n.depositIndex - RECEIVE_INDEX_BASE } });
         }

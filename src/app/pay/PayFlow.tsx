@@ -35,6 +35,9 @@ import { Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton
 import { WalletGate } from "@/components/WalletGate";
 import { formatEthCeil } from "@/components/ui";
 import { PoolPayPanel } from "./PoolPayPanel";
+import { PersonalPay } from "./PersonalPay";
+import { parsePayTarget } from "@/lib/pool/locks";
+import { useSelectedNetwork } from "@/components/Providers";
 import { prepareSpend } from "@/lib/one-confirmation";
 
 export function PayFlow() {
@@ -47,14 +50,16 @@ export function PayFlow() {
     return () => window.removeEventListener("hashchange", read);
   }, []);
 
+  const { network: selected } = useSelectedNetwork();
+  const target = useMemo(() => (code ? parsePayTarget(code) : null), [code]);
   const validation = useMemo<{ ok: LinkValidation } | { error: string } | null>(() => {
-    if (!code) return null;
+    if (!code || target) return null;
     try {
       return { ok: validatePaymentLink(code) };
     } catch (e) {
       return { error: (e as Error).message };
     }
-  }, [code]);
+  }, [code, target]);
 
   return (
     <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
@@ -65,6 +70,8 @@ export function PayFlow() {
       <div className="panel p-5 sm:p-7">
         {code === null ? (
           <LoadingRows label="Reading the payment link" rows={3} />
+        ) : target ? (
+          <PersonalPay target={target} network={selected} />
         ) : !validation ? (
           <PasteLink />
         ) : "error" in validation ? (

@@ -19,6 +19,7 @@ import { treeRoot } from "./crypto";
 import { relayArgs, type PoolInfo, type SerializedWithdrawal } from "./actions";
 import { aspLabels, encodeAspDescriptor, parseAspDescriptor, type PoolDeposit, type PoolEvents } from "./state";
 import type { Verdict } from "@/lib/screening/screen";
+import { decodeTransferData, poolRouterAbi, transferArgs } from "./receive";
 
 const uint = z.string().regex(/^\d{1,78}$/);
 export const relayBodySchema = z.object({
@@ -272,4 +273,82 @@ export async function refreshApprovals(
   const r = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
   if (r.status !== "success") throw new Error("Approval update reverted.");
   return { hash: r.transactionHash, uptoBlock: upto, approved: labels.length, excluded: excludedHere.length };
+}
+
+/**
+ * Relays a pool-to-pool transfer (QuietPayPoolRouter.transfer): money moves from the sender's note
+ * into the recipient's lock in one transaction. The proof fixes the lock, the refund address, the
+ * fee and its recipient, so the relayer can only submit it as is. The fee must be this relayer's
+ * fee on the amount and must pay for the transaction.
+ */
+export async function relayTransfer(
+  client: PublicClient,
+  wallet: WalletClient,
+  network: NetworkConfig,
+  info: PoolInfo,
+  policy: RelayerPolicy,
+  raw: unknown,
+  guard: RelayGuard = noGuard,
+): Promise<{ hash: Hash; amount: bigint; fee: bigint }> {
+  const router = network.pool?.router;
+  if (!router) throw new RelayRejected("Transfers aren't available here.");
+  const parsed = relayBodySchema.safeParse(raw);
+  if (!parsed.success) throw new RelayRejected("Malformed transfer request.");
+  const body = parsed.data as SerializedWithdrawal;
+  if (getAddress(body.withdrawal.processooor) !== getAddress(router)) throw new RelayRejected("Wrong processor.");
+  if (BigInt(body.scope) !== info.scope) throw new RelayRejected("Wrong pool.");
+  let data: ReturnType<typeof decodeTransferData>;
+  try {
+    data = decodeTransferData(body.withdrawal.data as `0x${string}`);
+  } catch {
+    throw new RelayRejected("Malformed transfer data.");
+  }
+  const args = transferArgs({
+    withdrawal: { processooor: getAddress(body.withdrawal.processooor), data: body.withdrawal.data as `0x${string}` },
+    proof: {
+      pA: body.proof.pA.map(BigInt) as [bigint, bigint],
+      pB: body.proof.pB.map((r) => r.map(BigInt)) as [[bigint, bigint], [bigint, bigint]],
+      pC: body.proof.pC.map(BigInt) as [bigint, bigint],
+      pubSignals: body.proof.pubSignals.map(BigInt),
+    },
+  });
+  const amount = args[1].pubSignals[2];
+  if (amount === 0n) throw new RelayRejected("Nothing to send.");
+  if (getAddress(data.feeRecipient) !== getAddress(policy.feeRecipient)) throw new RelayRejected("Fee must go to this relayer.");
+  if (data.fee !== (amount * policy.feeBPS) / 10_000n) throw new RelayRejected("Fee does not match this relayer's fee.");
+
+  const release = await guard.claim(args[1].pubSignals[1]);
+  if (!release) throw new RelayRejected("This payment is already being submitted. Wait a moment and check again.");
+  let submitted = false;
+  try {
+    try {
+      await client.simulateContract({ address: router, abi: poolRouterAbi, functionName: "transfer", args, account: wallet.account! });
+    } catch (e) {
+      const msg = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
+      throw new RelayRejected(
+        /IncorrectASPRoot/.test(msg)
+          ? "The approval list changed. Generate the proof again."
+          : /NullifierAlreadySpent/.test(msg)
+            ? "This note was already spent."
+            : /PrecommitmentAlreadyUsed/.test(msg)
+              ? "The recipient's payment details were already used. Try again."
+              : "The pool rejected this payment.",
+      );
+    }
+    const [gas, gasPrice] = await Promise.all([
+      client.estimateContractGas({ address: router, abi: poolRouterAbi, functionName: "transfer", args, account: wallet.account! }),
+      client.getGasPrice(),
+    ]);
+    const econ = relayEconomics({ amount, feeBPS: policy.feeBPS, tokenUnitsPerEth: policy.tokenUnitsPerEth, relayCost: ((gas * 6n) / 5n) * gasPrice, gasPrice, wantDrop: 0n });
+    if (!econ.ok) throw new RelayRejected("This amount is too small to send right now: its fee wouldn't cover the network fee.", econ.minWithdrawal);
+    const hash = await guard.send(() =>
+      wallet.writeContract({ address: router, abi: poolRouterAbi, functionName: "transfer", args, account: wallet.account!, chain: network.chain, gas: (gas * 6n) / 5n }),
+    );
+    const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: network.confirmations });
+    if (receipt.status !== "success") throw new Error("The transfer transaction reverted.");
+    submitted = true;
+    return { hash: receipt.transactionHash, amount, fee: data.fee };
+  } finally {
+    if (!submitted) await release().catch(() => undefined);
+  }
 }

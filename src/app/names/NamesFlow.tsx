@@ -61,8 +61,8 @@ export function NamesFlow() {
   return (
     <div className="mx-auto max-w-3xl px-4 pt-6 sm:px-6">
       <PageTitle light="Claim your" bold="name">
-        Pay-by-username is coming: people will pay <span className="text-snow">@you</span>, and every payment will still land at a fresh
-        address. Reserve your name now. It&apos;s free, nothing goes onchain, and your wallet address is never stored.
+        People pay <span className="text-snow">@you</span>, and every payment goes straight into your shielded balance. It&apos;s free,
+        nothing goes onchain, and your wallet address is never stored.
       </PageTitle>
 
       {closed ? (
@@ -134,8 +134,12 @@ export function NamesFlow() {
           so the list never shows which wallet owns which name. QuietPay does not store your wallet address, email or IP address with it.
         </p>
         <p>
-          Your name comes back when you connect the same wallet on any device. Reserved names are
-          held for the launch of pay-by-username; QuietPay may remove names that impersonate others.
+          Your name comes back when you connect the same wallet on any device. QuietPay may remove names that impersonate others.
+        </p>
+        <p>
+          To take payments, your device leaves one-time payment locks with QuietPay&apos;s server, signed by your name key. A payer&apos;s
+          device checks the signature before paying, so the server can&apos;t redirect a payment. The server does see which pool payments
+          were made to your username.
         </p>
       </section>
     </div>
@@ -191,7 +195,7 @@ function Reserve({ name, onChange }: { name: string | null; onChange: () => void
     return (
       <div className="space-y-4">
         <p className="font-display text-2xl font-semibold tracking-[-0.02em] text-snow">@{mine.name} is yours</p>
-        <p className="text-sm text-haze">Reserved {new Date(mine.at).toLocaleDateString(undefined, { dateStyle: "medium" })}. You&apos;ll be able to use it when pay-by-username launches.</p>
+        <p className="text-sm text-haze">Reserved {new Date(mine.at).toLocaleDateString(undefined, { dateStyle: "medium" })}. People can pay you at @{mine.name} now.</p>
         <div className="flex flex-wrap gap-2">
           <a href={share} target="_blank" rel="noopener noreferrer" className="btn btn-sm btn-primary">
             Share on X<span className="sr-only"> (opens in a new tab)</span>

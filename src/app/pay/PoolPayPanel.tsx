@@ -101,7 +101,11 @@ export function PoolPayPanel({ v }: { v: LinkValidation }) {
       try {
         const r = await client.waitForTransactionReceipt({ hash: phase.hash, timeout: 120_000 });
         if (stop) return;
-        if (r.status === "success") setPhase({ k: "done", hash: phase.hash });
+        if (r.status === "success") {
+          setPhase({ k: "done", hash: phase.hash });
+          // Ask the pool's approver to look at it now, so it's spendable for the recipient sooner.
+          void fetch("/api/pool/approvals", { method: "POST" }).catch(() => null);
+        }
         else {
           saveSent(request.requestId, null);
           setPhase({ k: "failed", message: "The payment reverted onchain. No tokens moved." });

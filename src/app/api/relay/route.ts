@@ -1,12 +1,12 @@
 /**
- * Pool withdrawal relayer. GET returns the relayer's terms; POST submits a withdrawal that the
+ * Pool withdrawal relayer (and pool-to-pool transfers, body.kind = "transfer"). GET returns the relayer's terms; POST submits a withdrawal that the
  * user proved in their browser. The proof fixes the recipient, fee address and fee, so this
  * endpoint cannot change where funds go. No request data is stored or logged.
  */
 import { NextResponse } from "next/server";
 import { formatEther } from "viem";
 import { verifyPool } from "@/lib/pool/actions";
-import { quoteMinWithdrawal, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
+import { quoteMinWithdrawal, relayTransfer, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
 import { relayerContext, withPrice } from "@/lib/pool/server";
 import { kv, rateLimit, readJson, withLock } from "@/lib/server/guard";
 import type { RelayGuard } from "@/lib/pool/relayer";
@@ -68,6 +68,11 @@ export async function POST(req: Request) {
   try {
     const info = await verifyPool(ctx.client, ctx.network);
     if (!info) return NextResponse.json({ error: "No pool is configured." }, { status: 503, headers: noStore });
+    // A pool-to-pool transfer (paying a @username or personal link from your balance).
+    if ((body as { kind?: unknown } | null)?.kind === "transfer") {
+      const t = await relayTransfer(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guard);
+      return NextResponse.json({ hash: t.hash, amount: t.amount.toString(), fee: t.fee.toString() }, { headers: noStore });
+    }
     const r = await relayWithdrawal(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guard);
     return NextResponse.json(
       { hash: r.hash, recipient: r.recipient, amount: r.amount.toString(), fee: r.fee.toString(), gasDropHash: r.gasDropHash },

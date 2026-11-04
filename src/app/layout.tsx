@@ -13,6 +13,10 @@ import { Providers } from "@/components/Providers";
 import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import { DeliveryRunner } from "@/components/DeliveryRunner";
+import { LockKeeper } from "@/components/LockKeeper";
+import { AutoShield } from "@/components/AutoShield";
+import { ApprovalNudge } from "@/components/ApprovalNudge";
+import { AppTabs } from "@/components/AppTabs";
 
 export const metadata: Metadata = {
   title: "QuietPay | A fresh address for every payment",
@@ -44,7 +48,7 @@ export const viewport: Viewport = {
  * Applies the saved theme (or the device setting) before the first paint, so pages never flash
  * the wrong colours. Kept tiny and inline; it reads one localStorage key and nothing else.
  */
-const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("quietpay:theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme="dark"}})();`;
+const THEME_SCRIPT = `(function(){try{var t=localStorage.getItem("quietpay:theme");if(t!=="light"&&t!=="dark"){t=matchMedia("(prefers-color-scheme: light)").matches?"light":"dark"}document.documentElement.dataset.theme=t;}catch(e){document.documentElement.dataset.theme="dark"}try{if(localStorage.getItem("quietpay:app")==="1"||/[?&]app=1/.test(location.search))document.documentElement.dataset.app="1"}catch(e){}})();`;
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Per-request nonce from src/proxy.ts; the page's CSP only runs scripts that carry it.
@@ -60,6 +64,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <main className="relative flex-1">{children}</main>
           <SiteFooter />
           <DeliveryRunner />
+          <LockKeeper />
+          <AutoShield />
+          <ApprovalNudge />
+          <AppTabs />
         </Providers>
         <ServiceWorker />
       </body>
