@@ -25,6 +25,7 @@ const CONTRACTS = [
   { file: "QuietPayTestUSDG.sol", name: "QuietPayTestUSDG" },
   { file: "QuietPayRouter.sol", name: "QuietPayRouter" },
   { file: "QuietPayRouterV2.sol", name: "QuietPayRouterV2" },
+  { file: "QuietPayPoolRouter.sol", name: "QuietPayPoolRouter" },
 ] as const;
 
 /** Hostile contracts for the router tests only (contracts/test). Written to contracts/artifacts/test. */

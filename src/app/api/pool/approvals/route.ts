@@ -56,6 +56,7 @@ async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
             token: ctx.network.token!,
             fromBlock: ctx.network.announcerFromBlock ?? ctx.network.pool!.fromBlock,
             ignore: [info.pool, info.entrypoint],
+            poolRouters: ctx.network.pool!.router ? [ctx.network.pool!.router] : [],
           })
         : undefined,
       // The approver signs with the relayer's key, so its transaction takes the relayer's send lock

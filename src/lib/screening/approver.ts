@@ -19,7 +19,7 @@ export interface PublishedExclusions {
   at: string;
 }
 
-export function approverScreening(client: PublicClient, p: { token: Address; fromBlock: bigint; ignore: Address[] }): ApprovalScreening {
+export function approverScreening(client: PublicClient, p: { token: Address; fromBlock: bigint; ignore: Address[]; poolRouters?: Address[] }): ApprovalScreening {
   const kv = durableKv();
   const reasons = new Map<string, Address>();
   return {
@@ -35,7 +35,7 @@ export function approverScreening(client: PublicClient, p: { token: Address; fro
         v = JSON.parse(cached) as Verdict;
       } else {
         const list = await sanctionsList();
-        v = await screenDeposit(client, { deposit, token: p.token, list, fromBlock: p.fromBlock, ignore: p.ignore });
+        v = await screenDeposit(client, { deposit, token: p.token, list, fromBlock: p.fromBlock, ignore: p.ignore, poolRouters: p.poolRouters });
         await kv.set(key, JSON.stringify(v));
       }
       if (!v.ok) {

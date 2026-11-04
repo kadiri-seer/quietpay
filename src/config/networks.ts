@@ -57,13 +57,24 @@ export interface PoolConfig {
   relayerUrl: string;
   /** Where the approver publishes exclusion lists (deposits that failed screening). */
   exclusionsUrl: string;
+  /**
+   * QuietPay's pool router (contracts/src/QuietPayPoolRouter.sol): pays straight into the pool
+   * for someone else. Null until it is deployed for this pool.
+   */
+  router: Address | null;
 }
 
 function optionalBlock(v: string | undefined): bigint | null {
   return v && /^\d+$/.test(v.trim()) ? BigInt(v.trim()) : null;
 }
 
-function poolConfig(entrypoint: string | undefined, pool: string | undefined, fromBlock: string | undefined, relayerUrl: string | undefined): PoolConfig | null {
+function poolConfig(
+  entrypoint: string | undefined,
+  pool: string | undefined,
+  fromBlock: string | undefined,
+  relayerUrl: string | undefined,
+  router?: string | undefined,
+): PoolConfig | null {
   const e = optionalAddress(entrypoint);
   const p = optionalAddress(pool);
   if (!e || !p) return null;
@@ -73,6 +84,7 @@ function poolConfig(entrypoint: string | undefined, pool: string | undefined, fr
     fromBlock: BigInt(positiveInt(fromBlock, 0) || 0),
     relayerUrl: relayerUrl?.trim() || "/api/relay",
     exclusionsUrl: "/api/pool/exclusions",
+    router: optionalAddress(router),
   };
 }
 
@@ -139,6 +151,7 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
       process.env.NEXT_PUBLIC_TESTNET_POOL_ADDRESS,
       process.env.NEXT_PUBLIC_TESTNET_POOL_FROM_BLOCK,
       process.env.NEXT_PUBLIC_TESTNET_RELAYER_URL,
+      process.env.NEXT_PUBLIC_TESTNET_POOL_ROUTER_ADDRESS,
     ),
     confirmations: positiveInt(process.env.NEXT_PUBLIC_TESTNET_CONFIRMATIONS, 1),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),

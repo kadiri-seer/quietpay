@@ -91,7 +91,7 @@ describe.skipIf(!existsSync(ANVIL))("shielded pool on a local EVM", () => {
       vettingFeeBPS: 0n,
       maxRelayFeeBPS: 100n,
     });
-    network = { ...network, pool: { entrypoint: d.entrypoint, pool: d.pool, fromBlock: d.fromBlock, relayerUrl: "/api/relay", exclusionsUrl: "/api/pool/exclusions" } };
+    network = { ...network, pool: { entrypoint: d.entrypoint, pool: d.pool, fromBlock: d.fromBlock, relayerUrl: "/api/relay", exclusionsUrl: "/api/pool/exclusions", router: null } };
   }, 120_000);
   afterAll(() => anvil?.kill());
 

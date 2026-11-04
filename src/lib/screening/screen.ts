@@ -11,7 +11,8 @@
  * Chainalysis) can be added as another check in `screenDeposit` for that.
  */
 import { erc20Abi } from "@/config/contracts";
-import type { Address, PublicClient } from "viem";
+import { getAddress, parseEventLogs, type Address, type PublicClient } from "viem";
+import { poolRouterAbi } from "@/lib/pool/receive";
 import type { PoolDeposit } from "@/lib/pool/state";
 import type { SanctionsList } from "./sanctions";
 
@@ -43,13 +44,34 @@ export async function tokenSendersTo(
   return [...out];
 }
 
-/** Checks one deposit: its depositor and everyone who sent it the token before the deposit. */
+/**
+ * Checks one deposit: its depositor and everyone who sent it the token before the deposit.
+ *
+ * Deposits made through QuietPay's pool router (`poolRouters`) are different: the router is the
+ * depositor for everyone, so its own token history would mix every payer together. For those,
+ * the payer named in the router's Paid event for this exact deposit is checked instead; a
+ * Transferred deposit (moved from one pool note to another) carries money that already left the
+ * pool through an approved withdrawal, so there is no outside address to check.
+ */
 export async function screenDeposit(
   client: PublicClient,
-  p: { deposit: PoolDeposit; token: Address; list: SanctionsList; fromBlock: bigint; ignore: Address[] },
+  p: { deposit: PoolDeposit; token: Address; list: SanctionsList; fromBlock: bigint; ignore: Address[]; poolRouters?: Address[] },
 ): Promise<Verdict> {
   const ignore = new Set(p.ignore.map((a) => a.toLowerCase()));
   ignore.add("0x0000000000000000000000000000000000000000"); // mints
+  const routers = new Set((p.poolRouters ?? []).map((a) => getAddress(a)));
+  if (routers.has(getAddress(p.deposit.depositor))) {
+    const receipt = await client.getTransactionReceipt({ hash: p.deposit.txHash });
+    const logs = parseEventLogs({ abi: poolRouterAbi, logs: receipt.logs.filter((l) => getAddress(l.address) === getAddress(p.deposit.depositor)) });
+    const mine = logs.filter((l) => (l.eventName === "Paid" || l.eventName === "Transferred") && l.args.label === p.deposit.label);
+    if (mine.length !== 1) throw new Error("Could not find the router event for this deposit.");
+    const ev = mine[0];
+    if (ev.eventName === "Transferred") return { ok: true, checked: 0 };
+    const payer = (ev.args as { payer: Address }).payer;
+    const check = [payer].filter((a) => !ignore.has(a.toLowerCase()));
+    const hit = check.find((a) => p.list.has(a));
+    return hit ? { ok: false, flagged: hit, checked: check.length } : { ok: true, checked: check.length };
+  }
   const senders = await tokenSendersTo(client, { token: p.token, holder: p.deposit.depositor, fromBlock: p.fromBlock, toBlock: p.deposit.blockNumber });
   const check = [p.deposit.depositor, ...senders].filter((a) => !ignore.has(a.toLowerCase()));
   const hit = check.find((a) => p.list.has(a));

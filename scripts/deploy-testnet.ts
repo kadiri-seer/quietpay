@@ -8,6 +8,7 @@
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=announcer npm run contracts:deploy   # announcer only
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=router npm run contracts:deploy      # router only
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=pool POSTMAN_ADDRESS=0x... npm run contracts:deploy
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=poolrouter npm run contracts:deploy  # pays straight into the pool
  *     Shielded pool (Privacy Pools contracts, unchanged) for the configured testnet token.
  *     POSTMAN_ADDRESS is the relayer's address: it publishes approval roots. The deployer
  *     stays the pool owner, so keep its key out of the web host.
@@ -146,7 +147,23 @@ async function main() {
     console.log(`  ✓ pool scope ${d.scope}`);
     env.push(`${prefix}_POOL_ENTRYPOINT=${d.entrypoint}`, `${prefix}_POOL_ADDRESS=${d.pool}`, `${prefix}_POOL_FROM_BLOCK=${d.fromBlock}`);
   }
-  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router, pool.`);
+  if (what.includes("poolrouter")) {
+    // Pays straight into the pool for someone else (contracts/src/QuietPayPoolRouter.sol).
+    if (chainId !== TESTNET_ID) fail("The pool router is testnet only, like the pool.");
+    const pool = process.env.NEXT_PUBLIC_TESTNET_POOL_ADDRESS;
+    const entrypoint = process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT;
+    const token = process.env.NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS;
+    if (!pool || !isAddress(pool) || !entrypoint || !isAddress(entrypoint) || !token || !isAddress(token))
+      fail("Set NEXT_PUBLIC_TESTNET_POOL_ADDRESS, NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT and NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS before deploying the pool router.");
+    const r = await deploy("QuietPayPoolRouter", [getAddress(pool)]);
+    const read = (fn: "pool" | "entrypoint" | "token") =>
+      client.readContract({ address: r, abi: [{ type: "function", name: fn, stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const, functionName: fn });
+    if ((await read("pool")) !== getAddress(pool) || (await read("entrypoint")) !== getAddress(entrypoint) || (await read("token")) !== getAddress(token))
+      fail(`Pool router ${r} is not bound to the expected pool, entrypoint and token.`);
+    console.log(`  ✓ bound to pool ${getAddress(pool)}, entrypoint ${getAddress(entrypoint)}, token ${getAddress(token)}`);
+    env.push(`${prefix}_POOL_ROUTER_ADDRESS=${r}`);
+  }
+  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router, pool, poolrouter.`);
 
   console.log("\nAdd to .env.local (and your hosting provider's env settings):\n");
   for (const l of env) console.log(`  ${l}`);

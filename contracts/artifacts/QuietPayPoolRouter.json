@@ -1,0 +1,414 @@
+{
+  "contractName": "QuietPayPoolRouter",
+  "sourceFile": "contracts/src/QuietPayPoolRouter.sol",
+  "compiler": "0.8.23+commit.f704f362.Emscripten.clang",
+  "settings": {
+    "optimizer": {
+      "enabled": true,
+      "runs": 200
+    },
+    "evmVersion": "paris"
+  },
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "address",
+          "name": "pool_",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "constructor"
+    },
+    {
+      "inputs": [],
+      "name": "AmountMismatch",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "FeeTooLarge",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "LabelMismatch",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "NotAContract",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "Reentrancy",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "TokenTransferFailed",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "UnknownDeposit",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "WrongPool",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAddress",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroAmount",
+      "type": "error"
+    },
+    {
+      "inputs": [],
+      "name": "ZeroPrecommitment",
+      "type": "error"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "payer",
+          "type": "address"
+        },
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "commitment",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "precommitment",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "refund",
+          "type": "address"
+        }
+      ],
+      "name": "Paid",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        },
+        {
+          "indexed": true,
+          "internalType": "address",
+          "name": "refund",
+          "type": "address"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        }
+      ],
+      "name": "Refunded",
+      "type": "event"
+    },
+    {
+      "anonymous": false,
+      "inputs": [
+        {
+          "indexed": true,
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "commitment",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "precommitment",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "uint256",
+          "name": "fee",
+          "type": "uint256"
+        },
+        {
+          "indexed": false,
+          "internalType": "address",
+          "name": "refund",
+          "type": "address"
+        }
+      ],
+      "name": "Transferred",
+      "type": "event"
+    },
+    {
+      "inputs": [],
+      "name": "entrypoint",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "precommitment",
+          "type": "uint256"
+        },
+        {
+          "internalType": "uint256",
+          "name": "amount",
+          "type": "uint256"
+        },
+        {
+          "internalType": "address",
+          "name": "refund",
+          "type": "address"
+        }
+      ],
+      "name": "pay",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "pool",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "uint256[2]",
+              "name": "pA",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2][2]",
+              "name": "pB",
+              "type": "uint256[2][2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "pC",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[4]",
+              "name": "pubSignals",
+              "type": "uint256[4]"
+            }
+          ],
+          "internalType": "struct IPrivacyPoolMin.RagequitProof",
+          "name": "proof",
+          "type": "tuple"
+        }
+      ],
+      "name": "ragequit",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        }
+      ],
+      "name": "refundTo",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "refund",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "scope",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "token",
+      "outputs": [
+        {
+          "internalType": "address",
+          "name": "",
+          "type": "address"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "processooor",
+              "type": "address"
+            },
+            {
+              "internalType": "bytes",
+              "name": "data",
+              "type": "bytes"
+            }
+          ],
+          "internalType": "struct IPrivacyPoolMin.Withdrawal",
+          "name": "withdrawal",
+          "type": "tuple"
+        },
+        {
+          "components": [
+            {
+              "internalType": "uint256[2]",
+              "name": "pA",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[2][2]",
+              "name": "pB",
+              "type": "uint256[2][2]"
+            },
+            {
+              "internalType": "uint256[2]",
+              "name": "pC",
+              "type": "uint256[2]"
+            },
+            {
+              "internalType": "uint256[8]",
+              "name": "pubSignals",
+              "type": "uint256[8]"
+            }
+          ],
+          "internalType": "struct IPrivacyPoolMin.WithdrawProof",
+          "name": "proof",
+          "type": "tuple"
+        }
+      ],
+      "name": "transfer",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "label",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x608060405260016005553480156200001657600080fd5b50604051620011ab380380620011ab833981016040819052620000399162000247565b6001600160a01b038116620000615760405163d92e233d60e01b815260040160405180910390fd5b806001600160a01b03163b6000036200008d576040516309ee12d560e01b815260040160405180910390fd5b6000816001600160a01b031663e8eb3cc66040518163ffffffff1660e01b8152600401602060405180830381865afa158015620000ce573d6000803e3d6000fd5b505050506040513d601f19601f82011682018060405250810190620000f4919062000247565b90506000826001600160a01b0316634800d97f6040518163ffffffff1660e01b8152600401602060405180830381865afa15801562000137573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906200015d919062000247565b90506001600160a01b0382163b15806200017f57506001600160a01b0381163b155b156200019e576040516369e489f560e11b815260040160405180910390fd5b600080546001600160a01b038086166001600160a01b03199283168117909355600180548683169084161790556002805491851691909216179055604080516219e84960e91b815290516333d09200916004808201926020929091908290030181865afa15801562000214573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906200023a919062000279565b6003555062000293915050565b6000602082840312156200025a57600080fd5b81516001600160a01b03811681146200027257600080fd5b9392505050565b6000602082840312156200028c57600080fd5b5051919050565b610f0880620002a36000396000f3fe608060405234801561001057600080fd5b50600436106100885760003560e01c806371235b341161005b57806371235b3414610110578063a65d69d414610125578063d22ae3ca14610138578063fc0c546a1461014b57600080fd5b80630ad6ac851461008d57806316f0115b146100b357806362289883146100de5780636e62d0a814610107575b600080fd5b6100a061009b366004610b57565b61015e565b6040519081526020015b60405180910390f35b6000546100c6906001600160a01b031681565b6040516001600160a01b0390911681526020016100aa565b6100c66100ec366004610b90565b6004602052600090815260409020546001600160a01b031681565b6100a060035481565b61012361011e366004610ba9565b6102bb565b005b6001546100c6906001600160a01b031681565b6100a0610146366004610bc2565b610479565b6002546100c6906001600160a01b031681565b60006005546001146101835760405163558a1e0360e11b815260040160405180910390fd5b600260055560008390036101aa57604051631f2a200560e01b815260040160405180910390fd5b6002546001600160a01b031660006101c18261068b565b6040513360248201523060448201526064810187905290915061021290839060840160408051601f198184030181529190526020810180516001600160e01b03166323b872dd60e01b1790526106fc565b848161021d8461068b565b6102279190610c39565b14610245576040516355e97b0d60e01b815260040160405180910390fd5b6000610253838789886107b7565b60408051828152602081018b90529081018990526001600160a01b03881660608201529195509150849033907fbf0beb65f8eff43fd438332dc8052f4b08030a1f9a1f0fdbed4391b2294ce9059060800160405180910390a350506001600555509392505050565b6005546001146102de5760405163558a1e0360e11b815260040160405180910390fd5b60026005556101608101356000818152600460205260409020546001600160a01b03168061031f576040516305fcb45960e31b815260040160405180910390fd5b6002546001600160a01b031660006103368261068b565b600054604051631c48d6cd60e21b81529192506001600160a01b0316906371235b3490610367908890600401610c70565b600060405180830381600087803b15801561038157600080fd5b505af1158015610395573d6000803e3d6000fd5b505050506000816103a58461068b565b6103af9190610c39565b905061014086013581146103d6576040516355e97b0d60e01b815260040160405180910390fd5b6040516001600160a01b0385166024820152604481018290526104289084906064015b60408051601f198184030181529190526020810180516001600160e01b031663a9059cbb60e01b1790526106fc565b836001600160a01b0316857f7ca5472b7ea78c2c0141c5a12ee6d170cf4ce8ed06be3d22c8252ddfc7a6a2c48360405161046491815260200190565b60405180910390a35050600160055550505050565b600060055460011461049e5760405163558a1e0360e11b815260040160405180910390fd5b600260055560008080806104b56020880188610ca8565b8101906104c29190610cf6565b600254939750919550935091506001600160a01b031660006104e38261068b565b6000546040516330c0766d60e01b81529192506001600160a01b0316906330c0766d90610516908c908c90600401610d6e565b600060405180830381600087803b15801561053057600080fd5b505af1158015610544573d6000803e3d6000fd5b505050506000816105548461068b565b61055e9190610c39565b90506101408901358114610585576040516355e97b0d60e01b815260040160405180910390fd5b8084106105a557604051637e2df70960e11b815260040160405180910390fd5b83156105f9576001600160a01b0385166105d25760405163d92e233d60e01b815260040160405180910390fd5b6040516001600160a01b0386166024820152604481018590526105f99084906064016103f9565b6000610610846106098785610c39565b8a8a6107b7565b9099509050887fc666de06da7eea1366460b2d2c75fafc53bf609756696398255277f3517e34e8828a6106438987610c39565b60408051938452602084019290925290820152606081018890526001600160a01b038a16608082015260a00160405180910390a2505060016005555094979650505050505050565b6040516370a0823160e01b81523060048201526000906001600160a01b038316906370a0823190602401602060405180830381865afa1580156106d2573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906106f69190610e16565b92915050565b600080836001600160a01b0316836040516107179190610e2f565b6000604051808303816000865af19150503d8060008114610754576040519150601f19603f3d011682016040523d82523d6000602084013e610759565b606091505b509150915081158061079357508051158015906107935750805160201415806107935750808060200190518101906107919190610e5e565b155b156107b15760405163022e258160e11b815260040160405180910390fd5b50505050565b600080836000036107db576040516324d7adb360e21b815260040160405180910390fd5b6001600160a01b0383166108025760405163d92e233d60e01b815260040160405180910390fd5b6001546040516001600160a01b0390911660248201819052604482018790529061085a90889060640160408051601f198184030181529190526020810180516001600160e01b031663095ea7b360e01b1790526106fc565b60008060009054906101000a90046001600160a01b031690507f30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001600354826001600160a01b031663affed0e06040518163ffffffff1660e01b8152600401602060405180830381865afa1580156108d5573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906108f99190610e16565b610904906001610e80565b6040805160208101939093528201526060016040516020818303038152906040528051906020012060001c6109399190610e93565b935060006109468961068b565b604051630efe6a8b60e01b81526001600160a01b038b81166004830152602482018b9052604482018a905291925090841690630efe6a8b906064016020604051808303816000875af11580156109a0573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906109c49190610e16565b60405163e4b2fb7960e01b81526004810187905290945030906001600160a01b0384169063e4b2fb7990602401602060405180830381865afa158015610a0e573d6000803e3d6000fd5b505050506040513d601f19601f82011682018060405250810190610a329190610eb5565b6001600160a01b031614610a5957604051630c393fcf60e41b815260040160405180910390fd5b87610a638a61068b565b610a6d9083610c39565b141580610ae85750604051636eb1769f60e11b81523060048201526001600160a01b0384811660248301528a169063dd62ed3e90604401602060405180830381865afa158015610ac1573d6000803e3d6000fd5b505050506040513d601f19601f82011682018060405250810190610ae59190610e16565b15155b15610b06576040516355e97b0d60e01b815260040160405180910390fd5b505050600082815260046020526040902080546001600160a01b0319166001600160a01b03949094169390931790925594909350915050565b6001600160a01b0381168114610b5457600080fd5b50565b600080600060608486031215610b6c57600080fd5b83359250602084013591506040840135610b8581610b3f565b809150509250925092565b600060208284031215610ba257600080fd5b5035919050565b60006101808284031215610bbc57600080fd5b50919050565b600080828403610220811215610bd757600080fd5b833567ffffffffffffffff811115610bee57600080fd5b840160408187031215610c0057600080fd5b9250610200601f1982011215610c1557600080fd5b506020830190509250929050565b634e487b7160e01b600052601160045260246000fd5b818103818111156106f6576106f6610c23565b8060005b60028110156107b157604080838637938401939190910190600101610c50565b61018081016040838337610c8a6040830160408501610c4c565b604060c0840160c08401376101006080818501828501375092915050565b6000808335601e19843603018112610cbf57600080fd5b83018035915067ffffffffffffffff821115610cda57600080fd5b602001915036819003821315610cef57600080fd5b9250929050565b60008060008060808587031215610d0c57600080fd5b843593506020850135610d1e81610b3f565b92506040850135610d2e81610b3f565b9396929550929360600135925050565b6040818337610d536040830160408301610c4c565b604060c0820160c08401376101008081830182850137505050565b60006102208083528435610d8181610b3f565b6001600160a01b031690830152602084013536859003601e19018112610da657600080fd5b840160208101903567ffffffffffffffff811115610dc357600080fd5b803603821315610dd257600080fd5b6040610240850152806102608501526102808183828701376000858301820152601f909101601f19168401019150610e0f90506020830184610d3e565b9392505050565b600060208284031215610e2857600080fd5b5051919050565b6000825160005b81811015610e505760208186018101518583015201610e36565b506000920191825250919050565b600060208284031215610e7057600080fd5b81518015158114610e0f57600080fd5b808201808211156106f6576106f6610c23565b600082610eb057634e487b7160e01b600052601260045260246000fd5b500690565b600060208284031215610ec757600080fd5b8151610e0f81610b3f56fea264697066735822122023230d4329e9c79b47c62705fef6b263f09eb1070b39c22fd6166b0908775ed664736f6c63430008170033",
+  "deployedBytecode": "0x608060405234801561001057600080fd5b50600436106100885760003560e01c806371235b341161005b57806371235b3414610110578063a65d69d414610125578063d22ae3ca14610138578063fc0c546a1461014b57600080fd5b80630ad6ac851461008d57806316f0115b146100b357806362289883146100de5780636e62d0a814610107575b600080fd5b6100a061009b366004610b57565b61015e565b6040519081526020015b60405180910390f35b6000546100c6906001600160a01b031681565b6040516001600160a01b0390911681526020016100aa565b6100c66100ec366004610b90565b6004602052600090815260409020546001600160a01b031681565b6100a060035481565b61012361011e366004610ba9565b6102bb565b005b6001546100c6906001600160a01b031681565b6100a0610146366004610bc2565b610479565b6002546100c6906001600160a01b031681565b60006005546001146101835760405163558a1e0360e11b815260040160405180910390fd5b600260055560008390036101aa57604051631f2a200560e01b815260040160405180910390fd5b6002546001600160a01b031660006101c18261068b565b6040513360248201523060448201526064810187905290915061021290839060840160408051601f198184030181529190526020810180516001600160e01b03166323b872dd60e01b1790526106fc565b848161021d8461068b565b6102279190610c39565b14610245576040516355e97b0d60e01b815260040160405180910390fd5b6000610253838789886107b7565b60408051828152602081018b90529081018990526001600160a01b03881660608201529195509150849033907fbf0beb65f8eff43fd438332dc8052f4b08030a1f9a1f0fdbed4391b2294ce9059060800160405180910390a350506001600555509392505050565b6005546001146102de5760405163558a1e0360e11b815260040160405180910390fd5b60026005556101608101356000818152600460205260409020546001600160a01b03168061031f576040516305fcb45960e31b815260040160405180910390fd5b6002546001600160a01b031660006103368261068b565b600054604051631c48d6cd60e21b81529192506001600160a01b0316906371235b3490610367908890600401610c70565b600060405180830381600087803b15801561038157600080fd5b505af1158015610395573d6000803e3d6000fd5b505050506000816103a58461068b565b6103af9190610c39565b905061014086013581146103d6576040516355e97b0d60e01b815260040160405180910390fd5b6040516001600160a01b0385166024820152604481018290526104289084906064015b60408051601f198184030181529190526020810180516001600160e01b031663a9059cbb60e01b1790526106fc565b836001600160a01b0316857f7ca5472b7ea78c2c0141c5a12ee6d170cf4ce8ed06be3d22c8252ddfc7a6a2c48360405161046491815260200190565b60405180910390a35050600160055550505050565b600060055460011461049e5760405163558a1e0360e11b815260040160405180910390fd5b600260055560008080806104b56020880188610ca8565b8101906104c29190610cf6565b600254939750919550935091506001600160a01b031660006104e38261068b565b6000546040516330c0766d60e01b81529192506001600160a01b0316906330c0766d90610516908c908c90600401610d6e565b600060405180830381600087803b15801561053057600080fd5b505af1158015610544573d6000803e3d6000fd5b505050506000816105548461068b565b61055e9190610c39565b90506101408901358114610585576040516355e97b0d60e01b815260040160405180910390fd5b8084106105a557604051637e2df70960e11b815260040160405180910390fd5b83156105f9576001600160a01b0385166105d25760405163d92e233d60e01b815260040160405180910390fd5b6040516001600160a01b0386166024820152604481018590526105f99084906064016103f9565b6000610610846106098785610c39565b8a8a6107b7565b9099509050887fc666de06da7eea1366460b2d2c75fafc53bf609756696398255277f3517e34e8828a6106438987610c39565b60408051938452602084019290925290820152606081018890526001600160a01b038a16608082015260a00160405180910390a2505060016005555094979650505050505050565b6040516370a0823160e01b81523060048201526000906001600160a01b038316906370a0823190602401602060405180830381865afa1580156106d2573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906106f69190610e16565b92915050565b600080836001600160a01b0316836040516107179190610e2f565b6000604051808303816000865af19150503d8060008114610754576040519150601f19603f3d011682016040523d82523d6000602084013e610759565b606091505b509150915081158061079357508051158015906107935750805160201415806107935750808060200190518101906107919190610e5e565b155b156107b15760405163022e258160e11b815260040160405180910390fd5b50505050565b600080836000036107db576040516324d7adb360e21b815260040160405180910390fd5b6001600160a01b0383166108025760405163d92e233d60e01b815260040160405180910390fd5b6001546040516001600160a01b0390911660248201819052604482018790529061085a90889060640160408051601f198184030181529190526020810180516001600160e01b031663095ea7b360e01b1790526106fc565b60008060009054906101000a90046001600160a01b031690507f30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001600354826001600160a01b031663affed0e06040518163ffffffff1660e01b8152600401602060405180830381865afa1580156108d5573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906108f99190610e16565b610904906001610e80565b6040805160208101939093528201526060016040516020818303038152906040528051906020012060001c6109399190610e93565b935060006109468961068b565b604051630efe6a8b60e01b81526001600160a01b038b81166004830152602482018b9052604482018a905291925090841690630efe6a8b906064016020604051808303816000875af11580156109a0573d6000803e3d6000fd5b505050506040513d601f19601f820116820180604052508101906109c49190610e16565b60405163e4b2fb7960e01b81526004810187905290945030906001600160a01b0384169063e4b2fb7990602401602060405180830381865afa158015610a0e573d6000803e3d6000fd5b505050506040513d601f19601f82011682018060405250810190610a329190610eb5565b6001600160a01b031614610a5957604051630c393fcf60e41b815260040160405180910390fd5b87610a638a61068b565b610a6d9083610c39565b141580610ae85750604051636eb1769f60e11b81523060048201526001600160a01b0384811660248301528a169063dd62ed3e90604401602060405180830381865afa158015610ac1573d6000803e3d6000fd5b505050506040513d601f19601f82011682018060405250810190610ae59190610e16565b15155b15610b06576040516355e97b0d60e01b815260040160405180910390fd5b505050600082815260046020526040902080546001600160a01b0319166001600160a01b03949094169390931790925594909350915050565b6001600160a01b0381168114610b5457600080fd5b50565b600080600060608486031215610b6c57600080fd5b83359250602084013591506040840135610b8581610b3f565b809150509250925092565b600060208284031215610ba257600080fd5b5035919050565b60006101808284031215610bbc57600080fd5b50919050565b600080828403610220811215610bd757600080fd5b833567ffffffffffffffff811115610bee57600080fd5b840160408187031215610c0057600080fd5b9250610200601f1982011215610c1557600080fd5b506020830190509250929050565b634e487b7160e01b600052601160045260246000fd5b818103818111156106f6576106f6610c23565b8060005b60028110156107b157604080838637938401939190910190600101610c50565b61018081016040838337610c8a6040830160408501610c4c565b604060c0840160c08401376101006080818501828501375092915050565b6000808335601e19843603018112610cbf57600080fd5b83018035915067ffffffffffffffff821115610cda57600080fd5b602001915036819003821315610cef57600080fd5b9250929050565b60008060008060808587031215610d0c57600080fd5b843593506020850135610d1e81610b3f565b92506040850135610d2e81610b3f565b9396929550929360600135925050565b6040818337610d536040830160408301610c4c565b604060c0820160c08401376101008081830182850137505050565b60006102208083528435610d8181610b3f565b6001600160a01b031690830152602084013536859003601e19018112610da657600080fd5b840160208101903567ffffffffffffffff811115610dc357600080fd5b803603821315610dd257600080fd5b6040610240850152806102608501526102808183828701376000858301820152601f909101601f19168401019150610e0f90506020830184610d3e565b9392505050565b600060208284031215610e2857600080fd5b5051919050565b6000825160005b81811015610e505760208186018101518583015201610e36565b506000920191825250919050565b600060208284031215610e7057600080fd5b81518015158114610e0f57600080fd5b808201808211156106f6576106f6610c23565b600082610eb057634e487b7160e01b600052601260045260246000fd5b500690565b600060208284031215610ec757600080fd5b8151610e0f81610b3f56fea264697066735822122023230d4329e9c79b47c62705fef6b263f09eb1070b39c22fd6166b0908775ed664736f6c63430008170033",
+  "runtimeCodeHash": "0xb7daf1530d7c3c8c0d850f784168cae50cf45b5618abbd3c9d709b8ebc42f8b6",
+  "standardJsonInput": {
+    "language": "Solidity",
+    "sources": {
+      "QuietPayPoolRouter.sol": {
+        "content": "// SPDX-License-Identifier: AGPL-3.0-or-later\n\npragma solidity 0.8.23;\n\ninterface IERC20Pool {\n  function transferFrom(address from, address to, uint256 amount) external returns (bool);\n  function transfer(address to, uint256 amount) external returns (bool);\n  function approve(address spender, uint256 amount) external returns (bool);\n  function allowance(address owner, address spender) external view returns (uint256);\n  function balanceOf(address account) external view returns (uint256);\n}\n\ninterface IEntrypointMin {\n  function deposit(address asset, uint256 value, uint256 precommitment) external returns (uint256 commitment);\n}\n\n/// @dev The parts of the 0xbow Privacy Pool this router uses. Struct layouts match\n///   IPrivacyPool.Withdrawal and ProofLib.WithdrawProof / ProofLib.RagequitProof.\ninterface IPrivacyPoolMin {\n  struct Withdrawal {\n    address processooor;\n    bytes data;\n  }\n\n  struct WithdrawProof {\n    uint256[2] pA;\n    uint256[2][2] pB;\n    uint256[2] pC;\n    uint256[8] pubSignals;\n  }\n\n  struct RagequitProof {\n    uint256[2] pA;\n    uint256[2][2] pB;\n    uint256[2] pC;\n    uint256[4] pubSignals;\n  }\n\n  function ASSET() external view returns (address);\n  function ENTRYPOINT() external view returns (address);\n  function SCOPE() external view returns (uint256);\n  function nonce() external view returns (uint256);\n  function depositors(uint256 label) external view returns (address);\n  function withdraw(Withdrawal calldata withdrawal, WithdrawProof calldata proof) external;\n  function ragequit(RagequitProof calldata proof) external;\n}\n\n/// @title QuietPay Pool Router\n/// @notice Pays straight into the Privacy Pool for someone else. The payer supplies the\n///   recipient's precommitment (a hash of secrets only the recipient knows), so only the recipient\n///   can ever withdraw. The router is the pool depositor, which lets it give every deposit a\n///   refund address chosen by the recipient: if the pool's approver never approves a deposit, the\n///   recipient's ragequit proof returns it to that address, and to no other.\n///\n///   It also moves money from one pool note to a new note for another person in one\n///   transaction (`transfer`), so it never sits in a public wallet in between.\n///\n/// @dev No owner, no admin functions, no upgrade path; it never holds funds between calls. The\n///   pool and token are written once in the constructor, keeping the runtime bytecode identical\n///   across deployments so clients can verify it by code hash.\ncontract QuietPayPoolRouter {\n  /// @notice The Privacy Pool this router deposits into.\n  address public pool;\n  /// @notice The pool's entrypoint (deposits go through it).\n  address public entrypoint;\n  /// @notice The pool's asset; the only token this router moves.\n  address public token;\n  /// @notice The pool's scope (used to work out each deposit's label).\n  uint256 public scope;\n  /// @notice Where each deposit made through this router can be ragequit to, by deposit label.\n  ///   Keyed by label (not commitment) so it also covers a deposit's later change notes.\n  mapping(uint256 label => address refund) public refundTo;\n\n  uint256 private _lock = 1;\n  uint256 private constant SNARK_SCALAR_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;\n\n  /// @notice A payment into the pool. `amount` is before the pool's vetting fee.\n  event Paid(address indexed payer, uint256 indexed label, uint256 commitment, uint256 precommitment, uint256 amount, address refund);\n  /// @notice Money moved from one pool note into a new note, through `transfer`.\n  event Transferred(uint256 indexed label, uint256 commitment, uint256 precommitment, uint256 amount, uint256 fee, address refund);\n  /// @notice An unapproved deposit returned to its refund address.\n  event Refunded(uint256 indexed label, address indexed refund, uint256 amount);\n\n  error ZeroAddress();\n  error NotAContract();\n  error WrongPool();\n  error ZeroAmount();\n  error ZeroPrecommitment();\n  error TokenTransferFailed();\n  error AmountMismatch();\n  error UnknownDeposit();\n  error FeeTooLarge();\n  error Reentrancy();\n  error LabelMismatch();\n\n  constructor(address pool_) {\n    if (pool_ == address(0)) revert ZeroAddress();\n    if (pool_.code.length == 0) revert NotAContract();\n    address ep = IPrivacyPoolMin(pool_).ENTRYPOINT();\n    address asset = IPrivacyPoolMin(pool_).ASSET();\n    if (ep.code.length == 0 || asset.code.length == 0) revert WrongPool();\n    pool = pool_;\n    entrypoint = ep;\n    token = asset;\n    scope = IPrivacyPoolMin(pool_).SCOPE();\n  }\n\n  modifier nonReentrant() {\n    if (_lock != 1) revert Reentrancy();\n    _lock = 2;\n    _;\n    _lock = 1;\n  }\n\n  /// @notice Pays `amount` of the pool asset from the caller into the pool, under `precommitment`.\n  /// @param refund The recipient's address for a refund if the deposit is never approved.\n  /// @dev The entrypoint rejects a precommitment that was used before, so a one-time link can only\n  ///   be paid once.\n  function pay(uint256 precommitment, uint256 amount, address refund) external nonReentrant returns (uint256 label) {\n    if (amount == 0) revert ZeroAmount();\n    address t = token;\n    uint256 before = _balance(t);\n    _call(t, abi.encodeCall(IERC20Pool.transferFrom, (msg.sender, address(this), amount)));\n    if (_balance(t) - before != amount) revert AmountMismatch();\n    uint256 commitment;\n    (label, commitment) = _deposit(t, amount, precommitment, refund);\n    emit Paid(msg.sender, label, commitment, precommitment, amount, refund);\n  }\n\n  /// @notice Withdraws from a pool note and deposits the result under a new precommitment, in\n  ///   one transaction. Anyone may submit it: every parameter is bound by the withdrawal proof.\n  /// @dev `withdrawal.data` is abi.encode(newPrecommitment, refund, feeRecipient, fee). The pool\n  ///   checks that the proof's context commits to the whole `withdrawal`, so none of these can be\n  ///   changed by whoever submits it.\n  function transfer(\n    IPrivacyPoolMin.Withdrawal calldata withdrawal,\n    IPrivacyPoolMin.WithdrawProof calldata proof\n  ) external nonReentrant returns (uint256 label) {\n    (uint256 precommitment, address refund, address feeRecipient, uint256 fee) =\n      abi.decode(withdrawal.data, (uint256, address, address, uint256));\n    address t = token;\n    uint256 before = _balance(t);\n    IPrivacyPoolMin(pool).withdraw(withdrawal, proof);\n    uint256 got = _balance(t) - before;\n    if (got != proof.pubSignals[2]) revert AmountMismatch();\n    if (fee >= got) revert FeeTooLarge();\n    if (fee != 0) {\n      if (feeRecipient == address(0)) revert ZeroAddress();\n      _call(t, abi.encodeCall(IERC20Pool.transfer, (feeRecipient, fee)));\n    }\n    uint256 commitment;\n    (label, commitment) = _deposit(t, got - fee, precommitment, refund);\n    emit Transferred(label, commitment, precommitment, got - fee, fee, refund);\n  }\n\n  /// @notice Returns an unapproved deposit made through this router to its refund address.\n  ///   Anyone may submit it; the proof can only be made by whoever holds the deposit's secrets,\n  ///   and the money can only go to the refund address recorded at deposit time.\n  function ragequit(IPrivacyPoolMin.RagequitProof calldata proof) external nonReentrant {\n    uint256 label = proof.pubSignals[3];\n    address refund = refundTo[label];\n    if (refund == address(0)) revert UnknownDeposit();\n    address t = token;\n    uint256 before = _balance(t);\n    IPrivacyPoolMin(pool).ragequit(proof);\n    uint256 got = _balance(t) - before;\n    if (got != proof.pubSignals[2]) revert AmountMismatch();\n    _call(t, abi.encodeCall(IERC20Pool.transfer, (refund, got)));\n    emit Refunded(label, refund, got);\n  }\n\n  function _deposit(address t, uint256 amount, uint256 precommitment, address refund) private returns (uint256 label, uint256 commitment) {\n    if (precommitment == 0) revert ZeroPrecommitment();\n    if (refund == address(0)) revert ZeroAddress();\n    address ep = entrypoint;\n    _call(t, abi.encodeCall(IERC20Pool.approve, (ep, amount)));\n    address p = pool;\n    // The label the pool will give this deposit (PrivacyPool.deposit: keccak(SCOPE, ++nonce) mod field).\n    label = uint256(keccak256(abi.encodePacked(scope, IPrivacyPoolMin(p).nonce() + 1))) % SNARK_SCALAR_FIELD;\n    uint256 before = _balance(t);\n    commitment = IEntrypointMin(ep).deposit(t, amount, precommitment);\n    if (IPrivacyPoolMin(p).depositors(label) != address(this)) revert LabelMismatch();\n    // The entrypoint must have taken exactly `amount`, leaving nothing approved or held here.\n    if (before - _balance(t) != amount || IERC20Pool(t).allowance(address(this), ep) != 0) revert AmountMismatch();\n    refundTo[label] = refund;\n  }\n\n  function _balance(address t) private view returns (uint256) {\n    return IERC20Pool(t).balanceOf(address(this));\n  }\n\n  /// @dev Tolerates tokens that return no value; rejects ones that return false or revert.\n  function _call(address t, bytes memory data) private {\n    (bool ok, bytes memory ret) = t.call(data);\n    if (!ok || (ret.length != 0 && (ret.length != 32 || !abi.decode(ret, (bool))))) revert TokenTransferFailed();\n  }\n}\n"
+      }
+    },
+    "settings": {
+      "optimizer": {
+        "enabled": true,
+        "runs": 200
+      },
+      "evmVersion": "paris",
+      "metadata": {
+        "bytecodeHash": "ipfs"
+      },
+      "outputSelection": {
+        "*": {
+          "*": [
+            "abi",
+            "evm.bytecode.object",
+            "evm.deployedBytecode.object"
+          ]
+        }
+      }
+    }
+  }
+}

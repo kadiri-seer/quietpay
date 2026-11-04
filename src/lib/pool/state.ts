@@ -171,47 +171,96 @@ export interface PoolNote {
  * following each deposit's withdrawal chain through the published nullifier hashes.
  */
 export function reconstructNotes(keys: PoolMasterKeys, scope: bigint, ev: PoolEvents, maxGap = 3): { notes: PoolNote[]; nextDepositIndex: bigint } {
-  const byPrecommitment = new Map(ev.deposits.map((d) => [d.precommitment, d]));
-  const withdrawalByNullifier = new Map(ev.withdrawals.map((w) => [w.spentNullifier, w]));
-  const ragequitByCommitment = new Map(ev.ragequits.map((r) => [r.commitment, r]));
+  const m = noteMaps(ev);
   const notes: PoolNote[] = [];
   let misses = 0;
   let nextDepositIndex = 0n;
   for (let i = 0n; misses < maxGap; i++) {
     const s = depositSecrets(keys, scope, i);
-    const dep = byPrecommitment.get(precommitmentHash(s));
+    const dep = m.byPrecommitment.get(precommitmentHash(s));
     if (!dep) {
       misses++;
       continue;
     }
     misses = 0;
     nextDepositIndex = i + 1n;
-    let secrets = s;
-    let value = dep.value;
-    let commitment = dep.commitment;
-    let count = 0n;
-    const history: PoolWithdrawal[] = [];
-    let status: NoteStatus = "spendable";
-    for (;;) {
-      if (ragequitByCommitment.has(commitment)) {
-        status = "ragequit";
-        break;
-      }
-      const w = withdrawalByNullifier.get(nullifierHash(secrets));
-      if (!w) break;
-      const next = withdrawalSecrets(keys, dep.label, count);
-      const nextValue = value - w.value;
-      if (commitmentHash(nextValue, dep.label, next) !== w.newCommitment) throw new Error("Pool note chain does not match the chain history.");
-      history.push(w);
-      secrets = next;
-      value = nextValue;
-      commitment = w.newCommitment;
-      count++;
-    }
-    if (status === "spendable" && value === 0n) status = "spent";
-    notes.push({ depositIndex: i, label: dep.label, value, secrets, commitment, withdrawalCount: count, status, deposit: dep, history });
+    notes.push(followNote(keys, m, dep, s, i));
   }
   return { notes, nextDepositIndex };
+}
+
+/**
+ * Payments received straight into the pool use their own index range, so handing out locks
+ * (some never paid) can't leave gaps in the user's own deposits. Receive lock i uses deposit
+ * index RECEIVE_INDEX_BASE + i.
+ */
+export const RECEIVE_INDEX_BASE = 1n << 64n;
+export const receiveSecrets = (keys: PoolMasterKeys, scope: bigint, i: bigint) => depositSecrets(keys, scope, RECEIVE_INDEX_BASE + i);
+
+/**
+ * Notes for payments received into the pool: checks every lock handed out so far (`issued`),
+ * then keeps going until `maxGap` locks in a row are unused, which finds locks handed out on
+ * another device.
+ */
+export function reconstructReceived(
+  keys: PoolMasterKeys,
+  scope: bigint,
+  ev: PoolEvents,
+  issued: bigint,
+  maxGap = 20,
+): { notes: PoolNote[]; nextReceiveIndex: bigint } {
+  const m = noteMaps(ev);
+  const notes: PoolNote[] = [];
+  let next = issued;
+  let misses = 0;
+  for (let i = 0n; i < issued || misses < maxGap; i++) {
+    const s = receiveSecrets(keys, scope, i);
+    const dep = m.byPrecommitment.get(precommitmentHash(s));
+    if (!dep) {
+      if (i >= issued) misses++;
+      continue;
+    }
+    misses = 0;
+    if (i + 1n > next) next = i + 1n;
+    notes.push(followNote(keys, m, dep, s, RECEIVE_INDEX_BASE + i));
+  }
+  return { notes, nextReceiveIndex: next };
+}
+
+function noteMaps(ev: PoolEvents) {
+  return {
+    byPrecommitment: new Map(ev.deposits.map((d) => [d.precommitment, d])),
+    withdrawalByNullifier: new Map(ev.withdrawals.map((w) => [w.spentNullifier, w])),
+    ragequitByCommitment: new Map(ev.ragequits.map((r) => [r.commitment, r])),
+  };
+}
+
+/** Follows a deposit's withdrawal chain through the published nullifier hashes. */
+function followNote(keys: PoolMasterKeys, m: ReturnType<typeof noteMaps>, dep: PoolDeposit, s: NoteSecrets, depositIndex: bigint): PoolNote {
+  let secrets = s;
+  let value = dep.value;
+  let commitment = dep.commitment;
+  let count = 0n;
+  const history: PoolWithdrawal[] = [];
+  let status: NoteStatus = "spendable";
+  for (;;) {
+    if (m.ragequitByCommitment.has(commitment)) {
+      status = "ragequit";
+      break;
+    }
+    const w = m.withdrawalByNullifier.get(nullifierHash(secrets));
+    if (!w) break;
+    const next = withdrawalSecrets(keys, dep.label, count);
+    const nextValue = value - w.value;
+    if (commitmentHash(nextValue, dep.label, next) !== w.newCommitment) throw new Error("Pool note chain does not match the chain history.");
+    history.push(w);
+    secrets = next;
+    value = nextValue;
+    commitment = w.newCommitment;
+    count++;
+  }
+  if (status === "spendable" && value === 0n) status = "spent";
+  return { depositIndex, label: dep.label, value, secrets, commitment, withdrawalCount: count, status, deposit: dep, history };
 }
 
 /**

@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "What to deploy, comma separated: announcer, token, router, pool"
+        description: "What to deploy, comma separated: announcer, token, router, pool, poolrouter"
         required: true
         default: "router"
       postman:
