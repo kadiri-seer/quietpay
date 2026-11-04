@@ -6,6 +6,8 @@
  *     (payments received straight into the pool through links, and deposits you made yourself);
  *   - at one-time addresses: payments to links that haven't been moved yet.
  *
+ *   - at refund addresses: link payments returned from the pool after failing screening.
+ *
  * Money already moved from a one-time address into the pool is counted once, as a pool note.
  * Notes that failed screening are shown separately: they can only go back to where they came from.
  */
@@ -26,6 +28,8 @@ export interface HomeBalance {
   oneTime: bigint;
   /** How many one-time-address payments still hold money. */
   oneTimeCount: number;
+  /** Returned from the pool to refund addresses (read from the chain). */
+  refunds: bigint;
 }
 
 /** What is still at a one-time address: received, minus what was sent out, plus what came back. */
@@ -37,7 +41,19 @@ export function paymentRemaining(p: StoredRequest["payments"][number]): bigint {
   return left > 0n ? left : 0n;
 }
 
-export function homeBalance(notes: BalanceNote[], requests: StoredRequest[], chainId: number): HomeBalance {
+/**
+ * Token balances read from the chain, which win over the vault's records when known: they are
+ * right even if a send, a return or a payment was never recorded on this device.
+ */
+export interface OnchainHoldings {
+  /** Total held at the one-time addresses of this wallet's link payments. */
+  oneTime: bigint;
+  oneTimeCount: number;
+  /** Total at refund addresses of link payments returned from the pool. */
+  refunds: bigint;
+}
+
+export function homeBalance(notes: BalanceNote[], requests: StoredRequest[], chainId: number, onchain?: OnchainHoldings | null): HomeBalance {
   const pool = { ready: 0n, waiting: 0n, notApproved: 0n };
   for (const n of notes) {
     if (n.status !== "spendable" || n.value === 0n) continue;
@@ -57,8 +73,13 @@ export function homeBalance(notes: BalanceNote[], requests: StoredRequest[], cha
       }
     }
   }
+  const refunds = onchain?.refunds ?? 0n;
+  if (onchain) {
+    oneTime = onchain.oneTime;
+    oneTimeCount = onchain.oneTimeCount;
+  }
   // Notes that failed screening aren't spendable money, so they stay out of the total.
-  return { total: pool.ready + pool.waiting + oneTime, pool, oneTime, oneTimeCount };
+  return { total: pool.ready + pool.waiting + oneTime + refunds, pool, oneTime, oneTimeCount, refunds };
 }
 
 export type ActivityItem =

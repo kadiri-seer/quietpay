@@ -8,7 +8,6 @@ import { PAYMENT_LIMITS } from "@/config/networks";
 import { AmountError, checkLimits, formatAmount, limitsFor, parseAmount } from "@/lib/amount";
 import { extractLinkCode, validatePaymentLink, type LinkValidation } from "@/lib/link";
 import {
-  approveRouterIfNeeded,
   checkPaymentFate,
   clearPayerRecord,
   confirmAnnouncement,
@@ -18,6 +17,7 @@ import {
   loadPayerRecord,
   newPayerRecord,
   preflight,
+  routedPaymentCall,
   savePayerRecord,
   submitAnnouncement,
   submitPayment,
@@ -35,6 +35,7 @@ import { Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton
 import { WalletGate } from "@/components/WalletGate";
 import { formatEthCeil } from "@/components/ui";
 import { PoolPayPanel } from "./PoolPayPanel";
+import { prepareSpend } from "@/lib/one-confirmation";
 
 export function PayFlow() {
   const [code, setCode] = useState<string | null>(null);
@@ -331,16 +332,42 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     let cur = newPayerRecord(request, address, derivation, token.address, { amount, mode: pf.mode, stipend: pf.stipend });
     setNotice(null);
 
-    // Router mode: exact approval first if needed (moves no funds).
-    if (pf.mode === "router") {
+    // Router mode: the first payment approves QuietPay's router once, for any amount, so every later
+    // payment is a single confirmation. Wallets that support batched calls do both in one.
+    const routed = pf.mode === "router";
+    const payArgs = {
+      network,
+      token: token.address,
+      stealthAddress: cur.stealthAddress,
+      amount,
+      ephemeralPublicKey: cur.ephemeralPublicKey,
+      metadata: cur.metadata,
+      stipend: pf.stipend,
+      routerVersion: pf.routerVersion,
+      requestId: request.kind === "fixed" ? request.requestId : null,
+    };
+    let batchedHash: Hash | null = null;
+    if (routed) {
       try {
-        setBusy("approve");
-        const approveTx = await approveRouterIfNeeded(wallet, client, { network, token: token.address, owner: address, amount });
-        if (approveTx) cur = { ...cur, approveTx };
+        setBusy(pf.needsApproval ? "approve" : "pay");
+        // Persist first: a batched approval + payment may land before this page hears back.
+        persist(cur);
+        const plan = await prepareSpend(wallet, client, {
+          chain: network.chain,
+          token: token.address,
+          spender: network.router!,
+          amount,
+          payment: routedPaymentCall(payArgs),
+          confirmations: network.confirmations,
+        });
+        if (plan.kind === "approved") cur = { ...cur, approveTx: plan.approveTx };
+        if (plan.kind === "batched") batchedHash = plan.hash;
       } catch (e) {
         const c = classifyTxError(e);
         setBusy(null);
-        setNotice(c.kind === "user_rejected" ? "You rejected the approval. Nothing was sent." : c.message);
+        if (store) clearPayerRecord(store, request.requestId);
+        setRec(null);
+        setNotice(c.kind === "user_rejected" ? "You rejected it in your wallet. Nothing was sent." : c.message);
         return;
       }
     }
@@ -350,20 +377,12 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
     setBusy("pay");
     let hash: Hash | null = null;
     try {
-      if (pf.mode === "router") {
-        hash = await submitRoutedPayment(wallet, {
-          network,
-          token: token.address,
-          stealthAddress: cur.stealthAddress,
-          amount,
-          ephemeralPublicKey: cur.ephemeralPublicKey,
-          metadata: cur.metadata,
-          stipend: pf.stipend,
-          routerVersion: pf.routerVersion,
-          requestId: request.kind === "fixed" ? request.requestId : null,
-        });
+      if (routed) {
+        hash = batchedHash ?? (await submitRoutedPayment(wallet, payArgs));
         cur = apply(cur, { type: "SUBMIT_PAYMENT", txHash: hash });
-        cur = await recordNonce(cur, hash);
+        // A batched payment is already confirmed (and may come from a smart account's bundle), so
+        // there is no nonce of the payer's to watch.
+        if (!batchedHash) cur = await recordNonce(cur, hash);
         const receipt = await confirmRoutedPayment(client, hash, {
           network,
           token: token.address,
@@ -684,7 +703,7 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
           </>
         ) : busy === "approve" ? (
           <>
-            <Spinner /> Approve in your wallet
+            <Spinner /> Confirm in your wallet
           </>
         ) : (
           <>
@@ -692,6 +711,9 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
           </>
         )}
       </button>
+      {pf?.ok && pf.mode === "router" && pf.needsApproval && !busy && (
+        <p className="text-center text-xs text-haze">First time only: your wallet asks you to allow QuietPay, then to pay. After that, paying takes one confirmation.</p>
+      )}
     </div>
   );
 }

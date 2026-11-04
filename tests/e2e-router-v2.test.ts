@@ -293,6 +293,27 @@ describe.skipIf(!existsSync(ANVIL))("router v2 on a local EVM", () => {
     expect(await checkPaymentFate(client, network, rec2)).toMatchObject({ status: "landed", hash: h2, announced: true });
   });
 
+  it("a standing approval can only be used by the payer: nobody else can spend it through the router", async () => {
+    const owner = payer.account!.address;
+    await approveRouterIfNeeded(payer, client, { network, token: network.token!, owner, amount: 1n });
+    const allowance = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "allowance", args: [owner, network.router!] });
+    expect(allowance).toBeGreaterThan(10n ** 60n);
+    const before = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [owner] });
+    // Someone else (with no allowance of their own) tries to pay with the payer's approval.
+    const d = deriveStealthPayment(createPaymentRequest({ kind: "open", chainId: 46630, token: network.token!, amount: 0n, decimals: 6, symbol: "tUSDG", expirySeconds: 0, fromBlock: 0n }).keys.stealthMetaAddress);
+    const rec = newPayerRecord(validatePaymentLink(createPaymentRequest({ kind: "open", chainId: 46630, token: network.token!, amount: 0n, decimals: 6, symbol: "tUSDG", expirySeconds: 0, fromBlock: 0n }).link, { networks }).request, payer2.account!.address, d, network.token!, { amount: 1_000_000n, mode: "router" });
+    await expect(
+      client.simulateContract({
+        address: network.router!,
+        abi: routerV2Abi,
+        functionName: "pay",
+        args: [rec.stealthAddress, 1_000_000n, rec.ephemeralPublicKey, rec.metadata],
+        account: privateKeyToAccount(generatePrivateKey()),
+      }),
+    ).rejects.toThrow();
+    expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [owner] })).toBe(before);
+  });
+
   it("never holds funds and has no owner functions", async () => {
     expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [router] })).toBe(0n);
     expect(await client.getBalance({ address: router })).toBe(0n);

@@ -61,6 +61,15 @@ describe("one balance", () => {
     expect(b.pool.notApproved).toBe(9n);
   });
 
+  it("uses balances read from the chain over the vault's records, and adds refund addresses", () => {
+    const notes = [note(20_000_000n), note(4_000_000n, { status: "ragequit", received: { receiveIndex: 2n } })];
+    // The records think 10 is still at a one-time address; the chain says 3 is (7 left in an unrecorded send).
+    const b = homeBalance(notes, [req([payment()])], 46630, { oneTime: 3_000_000n, oneTimeCount: 1, refunds: 4_000_000n });
+    expect(b).toMatchObject({ oneTime: 3_000_000n, refunds: 4_000_000n, total: 27_000_000n });
+    // Without chain data, the records are used.
+    expect(homeBalance(notes, [req([payment()])], 46630).total).toBe(30_000_000n);
+  });
+
   it("counts a one-time payment once, whatever was sent, shielded or returned", () => {
     expect(paymentRemaining(payment())).toBe(10_000_000n);
     expect(paymentRemaining(payment({ claimTx: h(1) }))).toBe(0n);

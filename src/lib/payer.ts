@@ -9,7 +9,7 @@
  * Direct mode (fallback): token transfer, then the announcement as a second transaction that can
  * be retried on its own without ever resending the payment.
  */
-import { formatEther, getAddress, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
+import { encodeFunctionData, formatEther, getAddress, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { PAYMENT_LIMITS, CLOCK_SKEW_SECONDS, MAX_EXPIRY_SECONDS, type NetworkConfig } from "@/config/networks";
 import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerAbi, routerV2Abi } from "@/config/contracts";
 import { SHIELD_GAS_BUDGET } from "./pool/constants";
@@ -31,6 +31,7 @@ import type { LinkKind, PaymentRequestLink } from "./link";
 import { buildPaymentMetadata, parsePaymentMetadata } from "./metadata";
 import { initialMachine, type PaymentMachine } from "./payment-state";
 import type { StealthDerivation } from "./stealth";
+import { ONCE_ALLOWANCE } from "./one-confirmation";
 import { receivedAmount } from "./receive";
 import type { KeyValueStore } from "./vault";
 
@@ -531,11 +532,35 @@ export async function approveRouterIfNeeded(
     address: p.token,
     abi: erc20Abi,
     functionName: "approve",
-    args: [p.network.router, p.amount],
+    // Once, for any amount: later payments then need a single confirmation (src/lib/one-confirmation.ts).
+    args: [p.network.router, ONCE_ALLOWANCE],
   });
   const receipt = await waitForConfirmedReceipt(client, hash, { confirmations: p.network.confirmations });
   if (receipt.status !== "success") throw new Error("The approval transaction failed.");
   return receipt.transactionHash;
+}
+
+/** The routed payment as a raw call (for sending it together with the one-time approval). */
+export function routedPaymentCall(p: {
+  network: NetworkConfig;
+  token: Address;
+  stealthAddress: Address;
+  amount: bigint;
+  ephemeralPublicKey: Hex;
+  metadata: Hex;
+  stipend: bigint;
+  routerVersion?: 1 | 2;
+  requestId?: Hex | null;
+}): { to: Address; data: Hex; value: bigint } {
+  if (!p.network.router || !p.network.announcer) throw new Error("Router or announcer not configured.");
+  if (p.stipend > MAX_GAS_STIPEND) throw new Error("Gas stipend is above the router's limit.");
+  const data =
+    p.routerVersion === 2
+      ? p.requestId
+        ? encodeFunctionData({ abi: routerV2Abi, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
+        : encodeFunctionData({ abi: routerV2Abi, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
+      : encodeFunctionData({ abi: routerAbi, functionName: "pay", args: [p.token, p.network.announcer, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
+  return { to: p.network.router, data, value: p.stipend };
 }
 
 export async function submitRoutedPayment(

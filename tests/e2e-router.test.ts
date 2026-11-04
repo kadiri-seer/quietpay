@@ -72,9 +72,10 @@ async function routedPay(link: string, chosen?: bigint) {
     stipend: pf.stipend,
   });
   await confirmRoutedPayment(client, hash, { network, token: network.token!, stealthAddress: rec.stealthAddress, amount, payer: from });
-  // The router leaves no lingering allowance (exact approval was fully used).
+  // The first payment allows the router once, for any amount, so later payments are one
+  // confirmation. The router only moves tokens of whoever calls it.
   const left = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "allowance", args: [from, network.router!] });
-  expect(left).toBe(0n);
+  expect(left).toBeGreaterThan(10n ** 60n);
   return { rec, amount, stipend: pf.stipend, request };
 }
 

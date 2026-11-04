@@ -12,6 +12,7 @@
  */
 import {
   encodeAbiParameters,
+  encodeFunctionData,
   decodeAbiParameters,
   getAddress,
   keccak256,
@@ -34,6 +35,7 @@ import { currentApprovalSet, receiveSecrets, type PoolEvents, type PoolNote } fr
 import { proveRagequit, proveWithdrawal, withdrawalContext, type ArtifactLoader, type Withdrawal, type WithdrawProof } from "./prover";
 import { NotApprovedYetError, type PoolInfo } from "./actions";
 import { VerificationError } from "@/lib/chain";
+import { prepareSpend } from "@/lib/one-confirmation";
 
 /** Runtime code hash of contracts/src/QuietPayPoolRouter.sol (identical for every deployment). */
 export const POOL_ROUTER_CODE_HASH = "0xb7daf1530d7c3c8c0d850f784168cae50cf45b5618abbd3c9d709b8ebc42f8b6";
@@ -217,13 +219,17 @@ export async function payIntoPool(
   client: PublicClient,
   p: { network: NetworkConfig; router: Address; token: Address; lock: Pick<ReceiveLock, "precommitment" | "refund">; amount: bigint },
 ): Promise<{ hash: Hash; approveHash: Hash | null }> {
-  const owner = wallet.account!.address;
-  let approveHash: Hash | null = null;
-  const allowance = await client.readContract({ address: p.token, abi: erc20Abi, functionName: "allowance", args: [owner, p.router] });
-  if (allowance < p.amount) {
-    approveHash = await wallet.writeContract({ address: p.token, abi: erc20Abi, functionName: "approve", args: [p.router, p.amount], account: wallet.account!, chain: p.network.chain });
-    await client.waitForTransactionReceipt({ hash: approveHash });
-  }
+  // The first payment allows the pool router once, for any amount (it can only move tokens of
+  // whoever calls it); wallets that batch calls do the approval and payment in one confirmation.
+  const plan = await prepareSpend(wallet, client, {
+    chain: p.network.chain,
+    token: p.token,
+    spender: p.router,
+    amount: p.amount,
+    payment: { to: p.router, data: encodeFunctionData({ abi: poolRouterAbi, functionName: "pay", args: [p.lock.precommitment, p.amount, getAddress(p.lock.refund)] }) },
+  });
+  if (plan.kind === "batched") return { hash: plan.hash, approveHash: null };
+  const approveHash: Hash | null = plan.kind === "approved" ? plan.approveTx : null;
   const { request } = await client.simulateContract({
     address: p.router,
     abi: poolRouterAbi,

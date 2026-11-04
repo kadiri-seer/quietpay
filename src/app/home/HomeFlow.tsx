@@ -1,15 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { NetworkConfig } from "@/config/networks";
 import { formatAmount } from "@/lib/amount";
 import { homeBalance } from "@/lib/balance";
 import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness } from "@/components/hooks";
-import { usePoolSnapshot } from "@/components/pool-hooks";
+import { useOnchainHoldings, usePoolInfo, usePoolSnapshot } from "@/components/pool-hooks";
+import { usePaymentScan } from "@/components/scan-hooks";
 import { useSelectedNetwork } from "@/components/Providers";
-import { Notice, Skeleton } from "@/components/ui";
+import { Notice, Skeleton, Spinner } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 
@@ -41,14 +42,27 @@ export function HomeFlow() {
 }
 
 /**
- * One balance: what you hold in the shielded pool. Payments go into the pool and are approved
- * there (in seconds on testnet), so money awaiting approval is part of it. Worked out on this
- * device from your keys and public pool history.
+ * One balance: everything QuietPay holds for you. Mostly the shielded pool (payments go in and are
+ * approved there, in seconds on testnet, so money awaiting approval counts), plus anything still
+ * at one-time addresses or returned to a refund address, read from the chain. On open, Home looks
+ * for new link payments, so the total is current. Worked out on this device.
  */
 function Home({ network }: { network: NetworkConfig }) {
   const { vault } = useVault();
   const readiness = useNetworkReadiness(network);
   const snap = usePoolSnapshot(network);
+  const info = usePoolInfo(network);
+  const holdings = useOnchainHoldings(network, snap.data?.notes, info.data?.scope);
+  const payments = usePaymentScan(network);
+  // Look for new payments to your links each time Home opens (only blocks not checked yet).
+  const scanned = useRef(false);
+  useEffect(() => {
+    if (scanned.current || !payments.ready) return;
+    scanned.current = true;
+    void payments.scan(false).then(() => {
+      void snap.refetch();
+    });
+  }, [payments, snap]);
   const token = readiness.data?.token;
   const decimals = token?.decimals ?? 6;
   const symbol = token?.symbol ?? "tUSDG";
@@ -73,10 +87,19 @@ function Home({ network }: { network: NetworkConfig }) {
     });
   };
 
-  const balance = useMemo(() => homeBalance(snap.data?.notes ?? [], vault?.requests ?? [], network.chain.id), [snap.data, vault, network.chain.id]);
+  const balance = useMemo(
+    () => homeBalance(snap.data?.notes ?? [], vault?.requests ?? [], network.chain.id, holdings.data ?? null),
+    [snap.data, vault, network.chain.id, holdings.data],
+  );
   const poolBalance = balance.pool.ready + balance.pool.waiting;
-  const loading = !!network.pool && (snap.isLoading || readiness.isLoading);
-  const [whole, frac] = formatAmount(poolBalance, decimals, { group: true, minFraction: 2 }).split(".");
+  const loading = (!!network.pool && snap.isLoading) || readiness.isLoading || holdings.isLoading;
+  const [whole, frac] = formatAmount(balance.total, decimals, { group: true, minFraction: 2 }).split(".");
+  const f = (v: bigint) => formatAmount(v, decimals, { group: true });
+  const parts = [
+    poolBalance > 0n || (balance.oneTime === 0n && balance.refunds === 0n) ? `${f(poolBalance)} in the shielded pool` : "",
+    balance.oneTime > 0n ? `${f(balance.oneTime)} at one-time addresses` : "",
+    balance.refunds > 0n ? `${f(balance.refunds)} at refund addresses` : "",
+  ].filter(Boolean);
 
   return (
     <div className="space-y-5">
@@ -87,7 +110,7 @@ function Home({ network }: { network: NetworkConfig }) {
       >
         <div className="flex items-center gap-2">
           <h2 id="balance-h" className="text-[0.95rem] text-haze">
-            Shielded balance
+            Total balance
           </h2>
           <button
             type="button"
@@ -113,7 +136,15 @@ function Home({ network }: { network: NetworkConfig }) {
             </>
           )}
         </p>
-        <p className="mt-3 text-sm text-haze">In the shielded pool{mock ? " · test token, no value" : ""}</p>
+        <p className="mt-3 text-sm text-haze">
+          {hidden ? "Hidden" : parts.join(" · ")}
+          {mock ? " · test token, no value" : ""}
+        </p>
+        {payments.scanning && (
+          <p className="mt-2 flex items-center gap-2 text-xs text-haze" aria-live="polite">
+            <Spinner className="h-3 w-3" /> Checking for new payments
+          </p>
+        )}
       </section>
 
       <nav aria-label="Actions" className="grid grid-cols-3 gap-3">
@@ -125,11 +156,11 @@ function Home({ network }: { network: NetworkConfig }) {
       {/* Only shown when something needs attention. */}
       {balance.oneTime > 0n && (
         <Notice tone="warn">
-          {formatAmount(balance.oneTime, decimals, { group: true })} {symbol} arrived at one-time addresses and isn&apos;t in your balance yet.{" "}
+          {f(balance.oneTime)} {symbol} is at one-time addresses, outside the pool.{" "}
           <Link href="/receive" className="underline underline-offset-4">
             Move it into the pool
-          </Link>
-          .
+          </Link>{" "}
+          to keep it private.
         </Notice>
       )}
       {balance.pool.notApproved > 0n && (
@@ -159,7 +190,7 @@ function Home({ network }: { network: NetworkConfig }) {
               <p className="text-sm text-haze">{symbol}</p>
             </div>
             <p className="text-right font-display text-lg font-semibold text-snow">
-              {loading ? <Skeleton className="h-6 w-20" /> : hidden ? "••••" : formatAmount(poolBalance, decimals, { group: true })}
+              {loading ? <Skeleton className="h-6 w-20" /> : hidden ? "••••" : formatAmount(balance.total, decimals, { group: true })}
             </p>
           </li>
         </ul>
