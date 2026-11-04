@@ -22,7 +22,10 @@ import { type ArtifactLoader } from "@/lib/pool/prover";
 import { prepareWithdrawal, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
 import { refreshApprovals, relayWithdrawal } from "@/lib/pool/relayer";
 import { screenDeposit } from "@/lib/screening/screen";
-import { payIntoPool, poolRouterAbi, prepareTransfer, receiveLock, refundAccount, refundUnapproved, transferArgs, encodeTransferData } from "@/lib/pool/receive";
+import { createPaymentRequest } from "@/lib/request";
+import { validatePaymentLink } from "@/lib/link";
+import { EXPIRY_OPTIONS } from "@/config/networks";
+import { creditedAmount, poolPayPreflight, verifyPoolRouter, payIntoPool, poolRouterAbi, prepareTransfer, receiveLock, refundAccount, refundUnapproved, transferArgs, encodeTransferData } from "@/lib/pool/receive";
 
 const ROOT = join(__dirname, "..");
 const ANVIL = join(ROOT, "node_modules", "@foundry-rs", "anvil", "bin.mjs");
@@ -105,6 +108,11 @@ describe.skipIf(!existsSync(ANVIL))("paying straight into the pool", () => {
     expect(await client.readContract({ address: router, abi: poolRouterAbi, functionName: "entrypoint" })).toBe(getAddress(network.pool!.entrypoint));
     expect(await client.readContract({ address: router, abi: poolRouterAbi, functionName: "token" })).toBe(getAddress(network.token!));
     expect(await client.readContract({ address: router, abi: poolRouterAbi, functionName: "scope" })).toBe(info.scope);
+    // The app checks the deployed code and its bindings before paying through it.
+    expect(await verifyPoolRouter(client, { ...network, pool: { ...network.pool!, router } })).toBe(router);
+    expect(await verifyPoolRouter(client, network)).toBeNull();
+    await expect(verifyPoolRouter(client, { ...network, pool: { ...network.pool!, router: network.pool!.pool } })).rejects.toThrow(/published code/);
+    await expect(verifyPoolRouter(client, { ...network, token: network.pool!.pool, pool: { ...network.pool!, router } })).rejects.toThrow(/different pool/);
   });
 
   it("pays into the pool under the recipient's lock; only the recipient finds it; a lock pays once", async () => {
@@ -294,6 +302,42 @@ describe.skipIf(!existsSync(ANVIL))("paying straight into the pool", () => {
     // nothing between calls, but its token history includes every payer.
     expect((await screen(byPre(cleanLock.precommitment), [])).ok).toBe(false);
   }, 120_000);
+
+  it("a one-time link carries the lock end to end: create, validate, preflight, pay, find; then it reads as paid", async () => {
+    const index = 30;
+    const lock = receiveLock(alice, info.scope, BigInt(index));
+    const rec = createPaymentRequest({
+      kind: "fixed",
+      chainId: 46630,
+      token: network.token!,
+      amount: 6_000_000n,
+      decimals: 6,
+      symbol: "tUSDG",
+      expirySeconds: EXPIRY_OPTIONS[1].seconds,
+      fromBlock: 0n,
+      index,
+      poolLock: { precommitment: lock.precommitment, refund: lock.refund, receiveIndex: index },
+    });
+    expect(rec.pool).toEqual({ precommitment: lock.precommitment.toString(), refund: lock.refund, receiveIndex: index });
+    const { request } = validatePaymentLink(rec.link, { networks: { testnet: network, mainnet: { ...NETWORKS.mainnet, enabled: false } } as never });
+    expect(request.poolLock).toEqual({ precommitment: lock.precommitment, refund: lock.refund });
+
+    const payer = deployer.account!.address;
+    const base = { info, token: network.token!, symbol: "tUSDG", decimals: 6, payer, lock: request.poolLock! };
+    const pf = await poolPayPreflight(client, { ...base, amount: request.amount });
+    expect(pf).toMatchObject({ ok: true, alreadyPaid: false });
+    expect((await poolPayPreflight(client, { ...base, amount: 999_999n })).checks.find((c) => c.id === "minimum")?.status).toBe("fail");
+    expect((await poolPayPreflight(client, { ...base, payer: privateKeyToAccount(generatePrivateKey()).address, amount: request.amount })).ok).toBe(false);
+
+    const { hash } = await payIntoPool(deployer, client, { network, router, token: network.token!, lock: request.poolLock!, amount: request.amount });
+    await client.waitForTransactionReceipt({ hash });
+    const after = await poolPayPreflight(client, { ...base, amount: request.amount });
+    expect(after).toMatchObject({ ok: false, alreadyPaid: true });
+    const found = reconstructReceived(alice, info.scope, await events(), BigInt(index + 1)).notes.find((n) => n.depositIndex === (1n << 64n) + BigInt(index));
+    expect(found?.value).toBe(6_000_000n);
+    expect(creditedAmount(6_000_000n, 0n)).toBe(6_000_000n);
+    expect(creditedAmount(6_000_000n, 50n)).toBe(5_970_000n);
+  });
 
   it("has no owner or admin functions", () => {
     const fns = art("QuietPayPoolRouter").abi.filter((x: { type: string }) => x.type === "function").map((x: { name: string }) => x.name).sort();

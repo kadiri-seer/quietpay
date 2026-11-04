@@ -12,6 +12,13 @@
  *   [63..128]  stealthMetaAddress 66 bytes (33-byte compressed spending key || 33-byte viewing key)
  *   [129..132] checksum           first 4 bytes of keccak256(bytes[0..128])
  *
+ * With flag bit 1 (pays into the shielded pool), 185 bytes: the same fields, then before the
+ * checksum the recipient's pool lock:
+ *   [129..160] precommitment      uint256 (Poseidon(nullifier, secret); only the recipient knows the secrets)
+ *   [161..180] refund             20 bytes (the recipient's refund address if the deposit is never approved)
+ *   [181..184] checksum           first 4 bytes of keccak256(bytes[0..180])
+ * Only fixed (one-time) links carry a lock: the pool accepts each lock once.
+ *
  * v1 (still accepted): fixed amount only, 132 bytes, same fields without the flags byte.
  *
  * Links carry public data only, never private keys or viewing secrets. The code lives in the URL
@@ -32,6 +39,8 @@ import { isValidCompressedPoint } from "./stealth";
 
 export const LINK_VERSION = 2;
 const FLAG_OPEN = 0x01;
+const FLAG_POOL = 0x02;
+const SNARK_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
 const MAX_U128 = (1n << 128n) - 1n;
 const MAX_U40 = (1n << 40n) - 1n;
 
@@ -48,6 +57,8 @@ export interface PaymentRequestLink {
   expiresAt: number;
   requestId: Hex; // 16 bytes
   stealthMetaAddress: Hex; // 66 bytes
+  /** Present when the link pays straight into the recipient's shielded pool balance. */
+  poolLock?: { precommitment: bigint; refund: Address };
 }
 
 export class LinkError extends Error {
@@ -70,10 +81,12 @@ export const linkSchema = z
     expiresAt: z.number().int().min(0),
     requestId: hexBytes(16),
     stealthMetaAddress: hexBytes(66),
+    poolLock: z.object({ precommitment: z.bigint().min(1n).max(SNARK_FIELD - 1n), refund: hexBytes(20) }).optional(),
   })
   .refine((r) => (r.kind === "fixed" ? r.amount > 0n && r.expiresAt > 0 : r.amount === 0n), {
     message: "Fixed links need an amount and expiry; open links carry no amount.",
-  });
+  })
+  .refine((r) => !r.poolLock || r.kind === "fixed", { message: "Only one-time links can pay into the pool." });
 
 function writeUint(target: Uint8Array, offset: number, size: number, value: bigint) {
   let v = value;
@@ -115,16 +128,22 @@ export function encodePaymentLink(req: Omit<PaymentRequestLink, "version"> & { v
   const parsed = linkSchema.safeParse(full);
   if (!parsed.success) throw new LinkError(`Invalid payment request: ${parsed.error.issues[0]?.message}`);
   if (BigInt(req.expiresAt) > MAX_U40) throw new LinkError("Expiry out of range.");
-  const buf = new Uint8Array(133);
+  const pool = req.poolLock;
+  const buf = new Uint8Array(pool ? 185 : 133);
   buf[0] = LINK_VERSION;
-  buf[1] = req.kind === "open" ? FLAG_OPEN : 0;
+  buf[1] = (req.kind === "open" ? FLAG_OPEN : 0) | (pool ? FLAG_POOL : 0);
   writeUint(buf, 2, 4, BigInt(req.chainId));
   buf.set(hexToBytes(req.token), 6);
   writeUint(buf, 26, 16, req.amount);
   writeUint(buf, 42, 5, BigInt(req.expiresAt));
   buf.set(hexToBytes(req.requestId), 47);
   buf.set(hexToBytes(req.stealthMetaAddress), 63);
-  buf.set(checksum(buf.subarray(0, 129)), 129);
+  if (pool) {
+    writeUint(buf, 129, 32, pool.precommitment);
+    buf.set(hexToBytes(pool.refund), 161);
+  }
+  const body = buf.length - 4;
+  buf.set(checksum(buf.subarray(0, body)), body);
   return toBase64Url(buf);
 }
 
@@ -152,11 +171,14 @@ export function decodePaymentLink(code: string): PaymentRequestLink {
       stealthMetaAddress: bytesToHex(buf.subarray(62, 128)),
     };
   } else if (version === 2) {
-    if (buf.length !== 133) throw new LinkError("This link is incomplete or was copied incorrectly.");
-    if (!checksum(buf.subarray(0, 129)).every((b, i) => b === buf[129 + i])) {
+    if (buf.length < 2) throw new LinkError("This link is incomplete or was copied incorrectly.");
+    if ((buf[1] & ~(FLAG_OPEN | FLAG_POOL)) !== 0) throw new LinkError("This link uses features this version of QuietPay doesn't support.");
+    const pool = (buf[1] & FLAG_POOL) !== 0;
+    if (buf.length !== (pool ? 185 : 133)) throw new LinkError("This link is incomplete or was copied incorrectly.");
+    const body = buf.length - 4;
+    if (!checksum(buf.subarray(0, body)).every((b, i) => b === buf[body + i])) {
       throw new LinkError("This link is damaged (checksum mismatch). Ask the recipient to share it again.");
     }
-    if ((buf[1] & ~FLAG_OPEN) !== 0) throw new LinkError("This link uses features this version of QuietPay doesn't support.");
     req = {
       version: 2,
       kind: buf[1] & FLAG_OPEN ? "open" : "fixed",
@@ -166,6 +188,7 @@ export function decodePaymentLink(code: string): PaymentRequestLink {
       expiresAt: Number(readUint(buf, 42, 5)),
       requestId: bytesToHex(buf.subarray(47, 63)),
       stealthMetaAddress: bytesToHex(buf.subarray(63, 129)),
+      ...(pool ? { poolLock: { precommitment: readUint(buf, 129, 32), refund: getAddress(bytesToHex(buf.subarray(161, 181))) } } : {}),
     };
   } else if (buf.length === 0) {
     throw new LinkError("This link is empty.");

@@ -25,7 +25,10 @@ export function createPaymentRequest(p: {
   /** Wallet-derived keys for link number `index`. */
   keys?: RequestKeys;
   index?: number;
+  /** The recipient's pool lock for this link (fixed links only): it then pays into the pool. */
+  poolLock?: { precommitment: bigint; refund: Address; receiveIndex: number };
 }): StoredRequest {
+  if (p.poolLock && (p.kind ?? "fixed") !== "fixed") throw new Error("Only one-time links can pay into the pool.");
   const kind: LinkKind = p.kind ?? "fixed";
   const options: readonly { seconds: number }[] = kind === "fixed" ? EXPIRY_OPTIONS : OPEN_EXPIRY_OPTIONS;
   if (!options.some((o) => o.seconds === p.expirySeconds)) throw new Error("Unsupported expiry.");
@@ -43,6 +46,7 @@ export function createPaymentRequest(p: {
     expiresAt,
     requestId: id,
     stealthMetaAddress: keys.stealthMetaAddress,
+    ...(p.poolLock ? { poolLock: { precommitment: p.poolLock.precommitment, refund: p.poolLock.refund } } : {}),
   });
   return {
     id,
@@ -58,6 +62,7 @@ export function createPaymentRequest(p: {
     link,
     keys,
     ...(p.index !== undefined ? { index: p.index } : {}),
+    ...(p.poolLock ? { pool: { precommitment: p.poolLock.precommitment.toString(), refund: p.poolLock.refund, receiveIndex: p.poolLock.receiveIndex } } : {}),
     payments: [],
   };
 }

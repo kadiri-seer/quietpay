@@ -222,6 +222,12 @@ export default function SecurityPage() {
                   href={n.pool ? explorerAddressUrl(n, n.pool.pool) : null}
                   emptyLabel={n.chain.testnet ? "Not deployed yet." : "Testnet only for now."}
                 />
+                <ContractRow
+                  label="QuietPay pool router (pays one-time links straight into the pool)"
+                  address={n.pool?.router ?? null}
+                  href={n.pool?.router ? explorerAddressUrl(n, n.pool.router) : null}
+                  emptyLabel={n.chain.testnet ? "Not deployed yet." : "Testnet only for now."}
+                />
                 <div>
                   <dt className="text-haze">Expected announcer bytecode hash</dt>
                   <dd className="mt-1 break-all font-mono text-xs text-mist">{KNOWN_ANNOUNCER_CODE_HASHES.join(", ")}</dd>

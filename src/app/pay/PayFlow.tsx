@@ -35,6 +35,7 @@ import { SetupBlocker } from "@/components/SetupBlocker";
 import { CheckList, Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton, Spinner, StatusPill, shorten } from "@/components/ui";
 import { WalletGate } from "@/components/WalletGate";
 import { formatEthCeil } from "@/components/ui";
+import { PoolPayPanel } from "./PoolPayPanel";
 
 export function PayFlow() {
   const [code, setCode] = useState<string | null>(null);
@@ -58,7 +59,8 @@ export function PayFlow() {
   return (
     <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
       <PageTitle light="Pay a" bold="payment link">
-        Your payment goes to an address created for this payment alone. QuietPay checks the link before you connect anything.
+        Your payment goes to an address created for this payment alone, or straight into the recipient&apos;s shielded pool. QuietPay checks
+        the link before you connect anything.
       </PageTitle>
       <div className="panel p-5 sm:p-7">
         {code === null ? (
@@ -142,7 +144,7 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
             </Notice>
           )}
           <WalletGate network={network} purpose="Connect the wallet you'll pay from. You'll review everything before anything is sent.">
-            <PayerPanel v={v} code={code} />
+            {request.poolLock ? <PoolPayPanel v={v} /> : <PayerPanel v={v} code={code} />}
           </WalletGate>
         </>
       ) : (

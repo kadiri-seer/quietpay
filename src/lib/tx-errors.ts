@@ -92,7 +92,8 @@ export function classifyTxError(err: unknown): ClassifiedError {
     };
   }
   // Router v2's onchain one-time check: someone else paid this link first.
-  if (text.includes("alreadypaid")) {
+  // The same for a link that pays into the pool: its lock was already used.
+  if (text.includes("alreadypaid") || text.includes("precommitmentalreadyused")) {
     return { kind: "reverted", message: "This one-time link was already paid. Nothing was sent from your wallet." };
   }
   if (n.includes("ContractFunctionRevertedError") || text.includes("reverted") || text.includes("execution reverted")) {

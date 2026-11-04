@@ -17,6 +17,10 @@ import { CopyButton, Countdown, Notice, PageTitle, QR, Skeleton, Spinner, format
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 import { SetupBlocker } from "@/components/SetupBlocker";
+import { usePoolInfo, usePoolKeys, usePoolRouter } from "@/components/pool-hooks";
+import { Entrypoint } from "@/config/pool-contracts.generated";
+import { fetchPoolEvents, reconstructReceived } from "@/lib/pool/state";
+import { receiveLock } from "@/lib/pool/receive";
 
 export function CreateFlow() {
   const { network } = useSelectedNetwork();
@@ -61,6 +65,9 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const token = data!.token!;
   const client = usePublicClient(network);
   const { vault, update } = useVault();
+  const poolInfo = usePoolInfo(network);
+  const poolRouter = usePoolRouter(network);
+  const poolKeys = usePoolKeys();
   const [kind, setKind] = useState<LinkKind>("fixed");
   const [amount, setAmount] = useState("");
   const [expiry, setExpiry] = useState<number>(EXPIRY_OPTIONS[1].seconds);
@@ -84,6 +91,16 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
       return { error: e instanceof AmountError ? e.message : "Invalid amount." };
     }
   }, [amount, token.decimals, token.symbol, limits]);
+
+  // One-time links pay straight into the shielded pool when this network has the pool router and
+  // the amount meets the pool's minimum deposit. Reusable links (and smaller amounts) still use a
+  // one-time address: the pool accepts each lock only once.
+  const poolMin = poolInfo.data?.minimumDeposit ?? null;
+  // Wait for the pool check before creating a one-time link, so whether it pays into the pool
+  // never depends on how fast the page loaded. (If the check fails, links use one-time addresses.)
+  const poolPending = kind === "fixed" && !!network.pool?.router && (poolInfo.isLoading || poolRouter.isLoading);
+  const poolEligible =
+    kind === "fixed" && !!poolRouter.data && !!poolInfo.data && poolKeys.length > 0 && "value" in parsed && parsed.value !== undefined && parsed.value >= (poolMin ?? 0n);
 
   async function create() {
     setTouched(true);
@@ -109,6 +126,15 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         setBusy("Creating link");
       }
       const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
+      // Pool links: locks are numbered like links. A link made on another device leaves no trace
+      // until it is paid, so skip every lock the pool has already seen.
+      let poolFloor = 0;
+      if (poolEligible) {
+        setBusy("Checking the pool");
+        const ev = await fetchPoolEvents(client, { entrypoint: poolInfo.data!.entrypoint, pool: poolInfo.data!.pool, fromBlock: network.pool!.fromBlock, chunkSize: network.logChunkSize });
+        poolFloor = Number(reconstructReceived(poolKeys[0], poolInfo.data!.scope, ev, BigInt(vault.nextLinkIndex ?? 0)).nextReceiveIndex);
+        setBusy("Creating link");
+      }
       // Take the link number from the latest saved vault, inside the update, so two tabs (or a
       // scan running elsewhere) can never hand out the same number twice.
       let record: StoredRequest | null = null;
@@ -123,7 +149,15 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
             linksCheckedAt: Date.now(),
           };
         }
-        const index = cur.nextLinkIndex ?? 0;
+        let index = Math.max(cur.nextLinkIndex ?? 0, poolFloor);
+        let lock = poolEligible ? receiveLock(poolKeys[0], poolInfo.data!.scope, BigInt(index)) : null;
+        // Last check onchain: never hand out a lock the pool has already accepted.
+        for (let tries = 0; lock && tries < 50; tries++) {
+          const used = await client.readContract({ address: poolInfo.data!.entrypoint, abi: Entrypoint.abi, functionName: "usedPrecommitments", args: [lock.precommitment] });
+          if (!used) break;
+          index++;
+          lock = receiveLock(poolKeys[0], poolInfo.data!.scope, BigInt(index));
+        }
         const keys = await deriveLinkKeys(cur.linkSeed!, network.chain.id, index);
         record = createPaymentRequest({
           kind,
@@ -136,6 +170,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           fromBlock,
           keys,
           index,
+          ...(lock ? { poolLock: { precommitment: lock.precommitment, refund: lock.refund, receiveIndex: index } } : {}),
         });
         // The link is shown only after it is saved; its keys can always be re-derived from the wallet.
         return { ...cur, requests: [record, ...cur.requests], nextLinkIndex: index + 1 };
@@ -236,7 +271,26 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         </div>
       </fieldset>
 
-      <button type="submit" className="btn btn-primary w-full" disabled={!!busy}>
+      {kind === "fixed" && poolRouter.data && poolInfo.data && (
+        <p className="rounded-xl border border-harbor px-4 py-3 text-sm leading-relaxed text-mist" aria-live="polite">
+          {poolEligible ? (
+            <>
+              <span className="font-medium text-snow">Pays straight into your pool balance.</span> Nobody can see onchain who it&apos;s for.
+            </>
+          ) : poolMin !== null && "value" in parsed && parsed.value !== undefined ? (
+            <>
+              Payments of {formatAmount(poolMin, token.decimals)} {token.symbol} or more go straight into your pool balance. This one lands at a
+              one-time address instead.
+            </>
+          ) : (
+            <>
+              Payments of {formatAmount(poolMin ?? 0n, token.decimals)} {token.symbol} or more go straight into your pool balance.
+            </>
+          )}
+        </p>
+      )}
+
+      <button type="submit" className="btn btn-primary w-full" disabled={!!busy || poolPending}>
         {busy ? (
           <>
             <Spinner /> {busy}…
@@ -287,6 +341,9 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
             ? "The link holds public keys only. Anyone with it can pay you, as many times as they like."
             : "The link holds public keys only. Anyone with it can pay it once, so share it with the intended payer."}
         </p>
+        {request.pool && (
+          <p className="mt-2 text-xs text-haze">The payment goes straight into your shielded pool balance. You&apos;ll see it on the Pool page.</p>
+        )}
       </div>
       <Notice tone="info" title="Recoverable from your wallet">
         This link&apos;s keys come from your wallet. On any device, connect the same wallet and QuietPay finds its payments again.

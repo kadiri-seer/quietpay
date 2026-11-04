@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useAccount } from "wagmi";
+import { useAccount, useWalletClient } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { getAddress, isAddress } from "viem";
 import type { NetworkConfig } from "@/config/networks";
@@ -10,6 +10,7 @@ import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, 
 import { exclusionsFrom, fetchPoolEvents } from "@/lib/pool/state";
 import { ArtifactIntegrityError, fetchArtifact } from "@/lib/pool/prover";
 import { stealthAccount } from "@/lib/receive";
+import { refundAccount, refundUnapproved, verifyPoolRouter } from "@/lib/pool/receive";
 import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { usePoolInfo, usePoolSnapshot, useRelayerTerms, type PoolSnapshot, type RelayerTerms } from "@/components/pool-hooks";
@@ -57,7 +58,8 @@ export function PoolFlow() {
         <p>
           Every deposit must be approved before it can be withdrawn privately. On mainnet, the pool first checks the deposit and the wallet
           that paid it against the US sanctions list (OFAC); a clean deposit is approved within seconds. On testnet, deposits are approved
-          automatically as soon as they land. If a deposit is never approved, its one-time address can always take the funds back.
+          automatically as soon as they land. If a deposit is never approved, it can always be taken back: to its one-time address, or for a
+          payment received through a link, to that link&apos;s refund address.
         </p>
       </section>
     </div>
@@ -187,7 +189,7 @@ function PoolDashboard({ network }: { network: NetworkConfig }) {
           <Notice tone="bad">{classifyTxError(snap.error).message}</Notice>
         ) : notes.length === 0 ? (
           <div className="rounded-xl border border-dashed border-harbor px-5 py-8 text-center text-sm text-haze">
-            Nothing shielded yet. On the{" "}
+            Nothing shielded yet. One-time links you create now pay straight in here. Or, on the{" "}
             <a href="/receive" className="text-signal underline underline-offset-4">
               Receive page
             </a>
@@ -226,7 +228,8 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
         <div className="min-w-0">
           <p className="font-display text-xl font-semibold tracking-[-0.02em] text-snow">{fmt(note.value)}</p>
           <p className="mt-1 text-xs text-haze">
-            Deposited {fmt(note.deposit.value)} · <ExplorerLink network={network} tx={note.deposit.txHash} />
+            {note.received ? "Received through a payment link" : "Deposited"} {fmt(note.deposit.value)} ·{" "}
+            <ExplorerLink network={network} tx={note.deposit.txHash} />
           </p>
         </div>
         <StatusPill state={status.state} label={status.label} />
@@ -242,8 +245,9 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
       )}
       {note.status === "spendable" && note.excluded && (
         <p className="mt-3 text-sm leading-relaxed text-mist">
-          This deposit didn&apos;t pass the pool&apos;s sanctions screening, so it can&apos;t be withdrawn privately. Exit takes it back to
-          its one-time address.
+          {note.received
+            ? "This payment didn't pass the pool's sanctions screening, so it can't be withdrawn privately. Return sends it to this link's refund address."
+            : "This deposit didn't pass the pool's sanctions screening, so it can't be withdrawn privately. Exit takes it back to its one-time address."}
         </p>
       )}
       {note.status === "spendable" && (
@@ -253,13 +257,15 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
               {open === "withdraw" ? "Close" : "Withdraw"}
             </button>
           )}
-          <button type="button" className="btn btn-sm btn-quiet" onClick={() => setOpen(open === "exit" ? null : "exit")}>
-            {open === "exit" ? "Close" : "Exit to one-time address"}
-          </button>
+          {(!note.received || note.excluded) && (
+            <button type="button" className="btn btn-sm btn-quiet" onClick={() => setOpen(open === "exit" ? null : "exit")}>
+              {open === "exit" ? "Close" : note.received ? "Return to refund address" : "Exit to one-time address"}
+            </button>
+          )}
         </div>
       )}
       {open === "withdraw" && <WithdrawForm {...p} onDone={() => setOpen(null)} />}
-      {open === "exit" && <ExitForm {...p} />}
+      {open === "exit" && (note.received ? <RefundForm {...p} /> : <ExitForm {...p} />)}
     </li>
   );
 }
@@ -521,6 +527,57 @@ function ExitForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) 
       ) : (
         <button type="button" className="btn btn-sm" onClick={exit} disabled={busy}>
           {busy ? <Spinner /> : null} Exit {fmt(note.value)}
+        </button>
+      )}
+      {error && <Notice tone="bad">{error}</Notice>}
+    </div>
+  );
+}
+
+/**
+ * A payment received straight into the pool that was never approved: returns it to the refund
+ * address its link recorded. Only that address can receive it, whoever submits the transaction.
+ */
+function RefundForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) {
+  const { data: wallet } = useWalletClient({ chainId: network.chain.id });
+  const client = usePublicClient(network);
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<`0x${string}` | null>(null);
+  const refund = note.received ? refundAccount(note.keys, info.scope, note.received.receiveIndex).address : null;
+
+  async function run() {
+    if (!wallet || !network.pool?.router) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const router = await verifyPoolRouter(client, network);
+      if (!router) throw new Error("The pool payment contract isn't configured on this site.");
+      const hash = await refundUnapproved(wallet, loadArtifacts, { network, router, note });
+      await client.waitForTransactionReceipt({ hash });
+      setDone(hash);
+      await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
+    } catch (e) {
+      setError(e instanceof Error && !("shortMessage" in e) ? e.message : classifyTxError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-3 rounded-xl border border-harbor p-4 text-sm">
+      <p className="leading-relaxed text-mist">
+        Sends the full {fmt(note.value)} to this link&apos;s refund address{refund && <> (<Mono>{shorten(refund, 4)}</Mono>)</>}. Your connected
+        wallet pays the network fee, so this transaction is public and ties your wallet to this payment.
+      </p>
+      {done ? (
+        <Notice tone="ok">
+          Returned to the refund address · <ExplorerLink network={network} tx={done} />
+        </Notice>
+      ) : (
+        <button type="button" className="btn btn-sm" onClick={run} disabled={busy || !wallet}>
+          {busy ? <Spinner /> : null} Return {fmt(note.value)}
         </button>
       )}
       {error && <Notice tone="bad">{error}</Notice>}

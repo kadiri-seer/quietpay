@@ -4,8 +4,9 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { NetworkConfig } from "@/config/networks";
 import { verifyPool } from "@/lib/pool/actions";
+import { verifyPoolRouter } from "@/lib/pool/receive";
 import type { PoolMasterKeys } from "@/lib/pool/crypto";
-import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes, type PoolNote } from "@/lib/pool/state";
+import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes, reconstructReceived, RECEIVE_INDEX_BASE, type PoolNote } from "@/lib/pool/state";
 import { useVault } from "./VaultProvider";
 import { usePublicClient } from "./hooks";
 
@@ -17,6 +18,18 @@ export function usePoolInfo(network: NetworkConfig) {
     enabled: !!network.pool,
     staleTime: 30_000,
     queryFn: () => verifyPool(client, network),
+  });
+}
+
+/** The pool router after checking its code and bindings; null when none is configured. */
+export function usePoolRouter(network: NetworkConfig) {
+  const client = usePublicClient(network);
+  return useQuery({
+    queryKey: ["pool-router", network.key, network.pool?.router],
+    enabled: !!network.pool?.router,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: () => verifyPoolRouter(client, network),
   });
 }
 
@@ -55,8 +68,10 @@ export function usePoolKeys(): PoolMasterKeys[] {
 
 export interface PoolSnapshot {
   /** `excluded`: the deposit failed screening; it can only exit back to its depositor. */
-  notes: (PoolNote & { keys: PoolMasterKeys; approved: boolean; excluded: boolean })[];
+  notes: (PoolNote & { keys: PoolMasterKeys; approved: boolean; excluded: boolean; received?: { receiveIndex: bigint } })[];
   nextDepositIndex: bigint;
+  /** First receive lock not seen in the pool (locks below it have been paid, possibly from another device). */
+  nextReceiveIndex: bigint;
   events: Awaited<ReturnType<typeof fetchPoolEvents>>;
   approvalsReadable: boolean;
 }
@@ -66,8 +81,11 @@ export function usePoolSnapshot(network: NetworkConfig) {
   const client = usePublicClient(network);
   const info = usePoolInfo(network);
   const keys = usePoolKeys();
+  const { vault } = useVault();
+  // Payment links that pay into the pool use lock i = link number i.
+  const issued = BigInt(vault?.nextLinkIndex ?? 0);
   return useQuery<PoolSnapshot>({
-    queryKey: ["pool-snapshot", network.key, info.data?.pool, info.data?.aspRoot?.toString(), keys.map((k) => k.masterNullifier.toString()).join(",")],
+    queryKey: ["pool-snapshot", network.key, info.data?.pool, info.data?.aspRoot?.toString(), keys.map((k) => k.masterNullifier.toString()).join(","), issued.toString()],
     enabled: !!info.data && keys.length > 0,
     staleTime: 15_000,
     queryFn: async () => {
@@ -84,6 +102,7 @@ export function usePoolSnapshot(network: NetworkConfig) {
       for (const l of await latestExclusions(network.pool!.exclusionsUrl)) excluded.add(l);
       const notes: PoolSnapshot["notes"] = [];
       let nextDepositIndex = 0n;
+      let nextReceiveIndex = 0n;
       keys.forEach((k, i) => {
         const r = reconstructNotes(k, info.data!.scope, events);
         if (i === 0) nextDepositIndex = r.nextDepositIndex;
@@ -91,9 +110,16 @@ export function usePoolSnapshot(network: NetworkConfig) {
           const ok = approved.has(String(n.label));
           notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)) });
         }
+        // Payments received straight into the pool through payment links.
+        const rr = reconstructReceived(k, info.data!.scope, events, i === 0 ? issued : 0n);
+        if (i === 0) nextReceiveIndex = rr.nextReceiveIndex;
+        for (const n of rr.notes) {
+          const ok = approved.has(String(n.label));
+          notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)), received: { receiveIndex: n.depositIndex - RECEIVE_INDEX_BASE } });
+        }
       });
       notes.sort((a, b) => (a.deposit.blockNumber > b.deposit.blockNumber ? -1 : 1));
-      return { notes, nextDepositIndex, events, approvalsReadable: !!approvals || events.rootUpdates.length === 0 };
+      return { notes, nextDepositIndex, nextReceiveIndex, events, approvalsReadable: !!approvals || events.rootUpdates.length === 0 };
     },
   });
 }

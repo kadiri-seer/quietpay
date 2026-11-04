@@ -192,3 +192,43 @@ describe("link kinds and backward compatibility", () => {
     expect(() => decodePaymentLink(toBase64Url(bytes))).toThrow(/doesn't support/);
   });
 });
+
+describe("links that pay into the shielded pool", () => {
+  const lock = { precommitment: 123456789012345678901234567890n, refund: getAddress("0x1111111111111111111111111111111111111111") };
+
+  it("round-trips the recipient's pool lock in a one-time link", () => {
+    const req = sample({ poolLock: lock });
+    const code = encodePaymentLink(req);
+    expect(code.length).toBeLessThan(260);
+    const back = decodePaymentLink(code);
+    expect(back.poolLock).toEqual(lock);
+    expect(back.amount).toBe(req.amount);
+    // Links without a lock are unchanged.
+    expect(decodePaymentLink(encodePaymentLink(sample())).poolLock).toBeUndefined();
+  });
+
+  it("refuses a lock on a reusable link, and out-of-range locks", () => {
+    expect(() => encodePaymentLink(sample({ kind: "open", amount: 0n, expiresAt: 0, poolLock: lock }))).toThrow(LinkError);
+    expect(() => encodePaymentLink(sample({ poolLock: { ...lock, precommitment: 0n } }))).toThrow(LinkError);
+    expect(() =>
+      encodePaymentLink(sample({ poolLock: { ...lock, precommitment: 21888242871839275222246405745257275088548364400416034343698204186575808495617n } })),
+    ).toThrow(LinkError);
+  });
+
+  it("detects a swapped lock, a dropped lock and a forged flag", () => {
+    const bytes = fromBase64Url(encodePaymentLink(sample({ poolLock: lock })));
+    const swapped = bytes.slice();
+    swapped[170] ^= 0x01; // the refund address
+    expect(() => decodePaymentLink(toBase64Url(swapped))).toThrow(/checksum/);
+    // Cutting the lock off leaves a link whose length doesn't match its flag.
+    expect(() => decodePaymentLink(toBase64Url(bytes.slice(0, 133)))).toThrow(/incomplete/);
+    // Setting the pool flag on an ordinary link doesn't conjure a lock.
+    const plain = fromBase64Url(encodePaymentLink(sample()));
+    plain[1] |= 0x02;
+    expect(() => decodePaymentLink(toBase64Url(plain))).toThrow(/incomplete/);
+    // Unknown flags are refused.
+    const unknown = fromBase64Url(encodePaymentLink(sample()));
+    unknown[1] |= 0x04;
+    expect(() => decodePaymentLink(toBase64Url(unknown))).toThrow(/doesn't support/);
+  });
+});

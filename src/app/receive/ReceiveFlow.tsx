@@ -8,6 +8,7 @@ import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
 import { applyScan, discoverLinks, estimateSweepCost, leftoverEth, recordSend, scanRequest, sendFromStealthPayment, stealthBalances, sweepLeftoverEth } from "@/lib/receive";
 import { classifyTxError } from "@/lib/tx-errors";
+import { usePoolSnapshot } from "@/components/pool-hooks";
 import { isExpired, requestStatus, type StoredPayment, type StoredRequest } from "@/lib/vault";
 import { STATE_LABELS } from "@/lib/payment-state";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
@@ -190,13 +191,17 @@ function Dashboard({ network }: { network: NetworkConfig }) {
 }
 
 function RequestCard({ request, network }: { request: StoredRequest; network: NetworkConfig }) {
-  const status = requestStatus(request);
+  // A link that pays into the pool: its payment is a pool note (found by its lock), not a
+  // payment at a one-time address.
+  const snap = usePoolSnapshot(network);
+  const poolNote = request.pool ? snap.data?.notes.find((n) => n.received && n.received.receiveIndex === BigInt(request.pool!.receiveIndex)) : undefined;
+  const status = poolNote ? "claimed" : requestStatus(request);
   const open = request.kind === "open";
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
   const fmt = (v: bigint) => `${formatAmount(v, request.decimals, { group: true })} ${request.symbol}`;
   const total = request.payments.reduce((sum, p) => sum + (p.transferVerified && p.receivedAmount ? BigInt(p.receivedAmount) : 0n), 0n);
-  const shareable = !!request.link && !request.recovered && !isExpired(request) && (open || status === "created");
+  const shareable = !poolNote && !!request.link && !request.recovered && !isExpired(request) && (open || status === "created");
   return (
     <li className="rounded-xl border border-harbor bg-abyss/40 p-4 sm:p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -226,8 +231,22 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
             </p>
           )}
         </div>
-        <StatusPill state={status} label={STATE_LABELS[status]} />
+        <StatusPill state={status} label={poolNote ? "In your pool balance" : STATE_LABELS[status]} />
       </div>
+      {request.pool && (
+        <p className="mt-2 text-sm text-mist">
+          {poolNote ? (
+            <>
+              Paid {fmt(poolNote.deposit.value)} straight into your shielded pool ·{" "}
+              <a href="/pool" className="underline underline-offset-4 hover:text-snow">
+                Pool
+              </a>
+            </>
+          ) : (
+            "Pays straight into your shielded pool balance."
+          )}
+        </p>
+      )}
       {shareable && origin && (
         <div className="mt-3">
           <CopyButton value={buildPayUrl(origin, request.link)} label="Copy link" />

@@ -65,6 +65,11 @@ export interface StoredRequest {
    * expiry are not known (they only lived in the link), but its payments and funds are.
    */
   recovered?: boolean;
+  /**
+   * Set when the link pays straight into the shielded pool: the lock it carries (receive index =
+   * link index). Its payment shows up as a pool note, not at a one-time address.
+   */
+  pool?: { precommitment: string; refund: Address; receiveIndex: number };
   payments: StoredPayment[];
 }
 
@@ -206,6 +211,7 @@ const requestShellSchema = z.strictObject({
   keys: requestKeysSchema,
   index: z.number().int().min(0).max(1_000_000).optional(),
   recovered: z.boolean().optional(),
+  pool: z.strictObject({ precommitment: uintStr, refund: address, receiveIndex: z.number().int().min(0).max(1_000_000) }).optional(),
   payments: z.array(z.unknown()).max(1000),
 });
 
