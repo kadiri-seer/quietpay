@@ -30,9 +30,8 @@ import { deriveStealthPayment, type StealthDerivation } from "@/lib/stealth";
 import { classifyTxError } from "@/lib/tx-errors";
 import { browserStore } from "@/lib/vault";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
-import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { SetupBlocker } from "@/components/SetupBlocker";
-import { CheckList, Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton, Spinner, StatusPill, shorten } from "@/components/ui";
+import { Countdown, ExplorerLink, LoadingRows, Mono, Notice, PageTitle, Skeleton, Spinner, StatusPill, shorten } from "@/components/ui";
 import { WalletGate } from "@/components/WalletGate";
 import { formatEthCeil } from "@/components/ui";
 import { PoolPayPanel } from "./PoolPayPanel";
@@ -77,9 +76,6 @@ export function PayFlow() {
         ) : (
           <PayLink v={validation.ok} code={code} />
         )}
-      </div>
-      <div className="mt-8">
-        <PrivacyStatement compact />
       </div>
     </div>
   );
@@ -132,17 +128,13 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
         </p>
         <p className="mt-2 text-sm text-haze">
           {network.label} · {request.expiresAt === 0 ? "never expires" : <Countdown to={request.expiresAt} />}
+          {token?.isMock && " · test token, no value"}
         </p>
       </div>
       {readiness.isLoading ? (
         <LoadingRows label="Verifying the token and announcer contracts" rows={2} />
       ) : token && readiness.data?.announcer ? (
         <>
-          {token.isMock && (
-            <Notice tone="warn" title="Testnet mock token">
-              {token.symbol} is a QuietPay test token with no value. It is not USDG.
-            </Notice>
-          )}
           <WalletGate network={network} purpose="Connect the wallet you'll pay from. You'll review everything before anything is sent.">
             {request.poolLock ? <PoolPayPanel v={v} /> : <PayerPanel v={v} code={code} />}
           </WalletGate>
@@ -172,7 +164,6 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
   const [amountConfirmed, setAmountConfirmed] = useState<bigint | null>(open ? null : request.amount);
   const [pf, setPf] = useState<PreflightResult | null>(null);
   const [checking, setChecking] = useState(false);
-  const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const resumed = useRef(false);
@@ -180,7 +171,6 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
   const freshStart = useCallback(() => {
     setRec(null);
     setPf(null);
-    setAck(false);
     setNotice(null);
     setAmountInput("");
     setAmountConfirmed(open ? null : request.amount);
@@ -657,13 +647,17 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
         )}
       </dl>
 
-      <div className="border-t border-harbor pt-5">
-        {checking || !pf ? <LoadingRows label="Running checks onchain" rows={6} /> : <CheckList checks={pf.checks} />}
-        {pf && !checking && (
-          <div className="mt-4 flex flex-wrap gap-3">
-            <button type="button" className="btn btn-sm btn-quiet" onClick={() => setPf(null)}>
-              Run checks again
-            </button>
+      {/* Checks run in the background. Only a problem is shown. */}
+      {pf && !checking && pf.checks.some((c) => c.status === "fail") && (
+        <div className="space-y-3">
+          {pf.checks
+            .filter((c) => c.status === "fail")
+            .map((c) => (
+              <Notice key={c.id} tone="bad">
+                {c.detail ?? c.label}
+              </Notice>
+            ))}
+          <div className="flex flex-wrap gap-3">
             {balanceFail && token.isMock && (
               <button type="button" className="btn btn-sm" onClick={faucet} disabled={!!busy}>
                 {busy === "faucet" ? <Spinner /> : null} Get test <span className="normal-case tracking-[0.02em]">{token.symbol}</span>
@@ -674,26 +668,21 @@ function PayerPanel({ v }: { v: LinkValidation; code: string }) {
                 Testnet ETH faucet
               </a>
             )}
+            <button type="button" className="btn btn-sm btn-quiet" onClick={() => setPf(null)}>
+              Try again
+            </button>
           </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {notice && <Notice tone="bad">{notice}</Notice>}
 
-      <label className="flex cursor-pointer gap-3 text-sm leading-relaxed text-mist">
-        <input type="checkbox" className="mt-1 h-4 w-4 shrink-0 accent-[var(--color-signal)]" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-        <span>
-          I understand this is not anonymous: my wallet, the amount, the one-time address and the time will be public.{" "}
-          {routed
-            ? pf?.needsApproval
-              ? `Send ${amountText} after approving exactly that amount for the QuietPay router.`
-              : `Send ${amountText} in one transaction.`
-            : `Send ${amountText} in two transactions: the payment, then an announcement so the recipient can find it.`}
-        </span>
-      </label>
-
-      <button type="button" className="btn btn-primary w-full" disabled={!ack || !pf?.ok || !!busy || !wallet} onClick={doPay}>
-        {busy === "approve" ? (
+      <button type="button" className="btn btn-primary w-full" disabled={!pf?.ok || checking || !!busy || !wallet} onClick={doPay}>
+        {checking || !pf ? (
+          <>
+            <Spinner /> Getting ready
+          </>
+        ) : busy === "approve" ? (
           <>
             <Spinner /> Approve in your wallet
           </>

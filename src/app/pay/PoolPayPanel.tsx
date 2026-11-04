@@ -10,7 +10,8 @@ import { creditedAmount, payIntoPool, poolPayPreflight, verifyPoolRouter } from 
 import type { PreflightCheck } from "@/lib/payer";
 import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
-import { CheckList, ExplorerLink, LoadingRows, Notice, Spinner } from "@/components/ui";
+import { ExplorerLink, Notice, Spinner } from "@/components/ui";
+import { mockTokenFaucetAbi } from "@/config/contracts";
 
 /** Remembers a submitted pool payment per link, so a reload resumes instead of paying twice. */
 const storeKey = (requestId: string) => `quietpay:poolpay:${requestId.toLowerCase()}`;
@@ -53,7 +54,7 @@ export function PoolPayPanel({ v }: { v: LinkValidation }) {
   const { data: readiness } = useNetworkReadiness(network);
   const token = readiness!.token!;
   const [phase, setPhase] = useState<Phase>({ k: "checking" });
-  const [ack, setAck] = useState(false);
+  const [faucetBusy, setFaucetBusy] = useState(false);
   const fmt = useMemo(() => (x: bigint) => `${formatAmount(x, token.decimals, { group: true })} ${token.symbol}`, [token]);
 
   const check = useCallback(async () => {
@@ -114,6 +115,28 @@ export function PoolPayPanel({ v }: { v: LinkValidation }) {
     };
   }, [phase, client, request.requestId]);
 
+  async function faucet() {
+    if (!wallet) return;
+    setFaucetBusy(true);
+    try {
+      const base = 10n ** BigInt(token.decimals) * 1000n;
+      const hash = await wallet.writeContract({
+        chain: network.chain,
+        account: wallet.account,
+        address: token.address,
+        abi: mockTokenFaucetAbi,
+        functionName: "faucet",
+        args: [request.amount > base ? request.amount : base],
+      });
+      await client.waitForTransactionReceipt({ hash });
+      await check();
+    } catch (e) {
+      setPhase({ k: "failed", message: classifyTxError(e).message });
+    } finally {
+      setFaucetBusy(false);
+    }
+  }
+
   async function pay() {
     if (phase.k !== "review" || !wallet) return;
     const { router } = phase;
@@ -128,7 +151,12 @@ export function PoolPayPanel({ v }: { v: LinkValidation }) {
     }
   }
 
-  if (phase.k === "checking") return <LoadingRows label="Checking the link and the pool" rows={3} />;
+  if (phase.k === "checking")
+    return (
+      <button type="button" className="btn btn-primary w-full" disabled>
+        <Spinner /> Getting ready
+      </button>
+    );
   if (phase.k === "blocked") return <Notice tone="bad">{phase.reason}</Notice>;
   if (phase.k === "done")
     return (
@@ -167,24 +195,40 @@ export function PoolPayPanel({ v }: { v: LinkValidation }) {
     );
 
   const credited = creditedAmount(request.amount, phase.info.vettingFeeBPS);
+  const problems = phase.checks.filter((c) => c.status === "fail");
+  const lowBalance = problems.some((c) => c.id === "balance");
+  const lowGas = problems.some((c) => c.id === "gas");
   return (
-    <div className="space-y-5">
-      <CheckList checks={phase.checks} />
-      <div className="rounded-xl border border-harbor p-4 text-sm leading-relaxed text-mist">
-        <p>
-          <span className="font-medium text-snow">You pay {fmt(request.amount)}</span>, straight into the recipient&apos;s shielded pool balance.
-          {credited !== request.amount && <> The pool keeps a {fmt(request.amount - credited)} fee, so they receive {fmt(credited)}.</>}
+    <div className="space-y-4">
+      {/* Checks run in the background. Only a problem is shown. */}
+      {problems.map((c) => (
+        <Notice key={c.id} tone="bad">
+          {c.id === "balance" ? `Not enough ${token.symbol}. ${c.detail ?? ""}` : (c.detail ?? c.label)}
+        </Notice>
+      ))}
+      {(lowBalance || lowGas) && (
+        <div className="flex flex-wrap gap-3">
+          {lowBalance && token.isMock && (
+            <button type="button" className="btn btn-sm" onClick={() => void faucet()} disabled={faucetBusy}>
+              {faucetBusy ? <Spinner /> : null} Get test <span className="normal-case tracking-[0.02em]">{token.symbol}</span>
+            </button>
+          )}
+          {lowGas && network.chain.testnet && (
+            <a className="btn btn-sm btn-quiet" href="https://faucet.testnet.chain.robinhood.com" target="_blank" rel="noopener noreferrer">
+              Testnet ETH faucet
+            </a>
+          )}
+          <button type="button" className="btn btn-sm btn-quiet" onClick={() => void check()}>
+            Try again
+          </button>
+        </div>
+      )}
+      {credited !== request.amount && (
+        <p className="text-sm text-haze">
+          The pool keeps a {fmt(request.amount - credited)} fee, so the recipient gets {fmt(credited)}.
         </p>
-        <p className="mt-2 text-haze">
-          Onchain, anyone can see that your wallet paid {fmt(request.amount)} into the pool. Nothing shows who it&apos;s for. Your wallet asks
-          you to approve {token.symbol} first if it hasn&apos;t before, then to pay.
-        </p>
-      </div>
-      <label className="flex items-start gap-3 text-sm text-mist">
-        <input type="checkbox" className="mt-1" checked={ack} onChange={(e) => setAck(e.target.checked)} />
-        <span>I checked the amount and I want to pay this link.</span>
-      </label>
-      <button type="button" className="btn btn-primary w-full" disabled={!phase.ok || !ack || !wallet} onClick={() => void pay()}>
+      )}
+      <button type="button" className="btn btn-primary w-full" disabled={!phase.ok || !wallet} onClick={() => void pay()}>
         Pay {fmt(request.amount)}
       </button>
     </div>
