@@ -13,6 +13,7 @@ import { CopyButton, Mono, shorten } from "./ui";
 import { QPAY_CONTRACT } from "@/config/token";
 
 const NAV = [
+  { href: "/home", label: "Home" },
   { href: "/create", label: "Create" },
   { href: "/pay", label: "Pay" },
   { href: "/receive", label: "Receive" },
@@ -178,6 +179,7 @@ export function SiteFooter() {
         <FooterCol
           title="Use QuietPay"
           links={[
+            { href: "/home", label: "Your balance" },
             { href: "/create", label: "Create a link" },
             { href: "/pay", label: "Pay a link" },
             { href: "/receive", label: "Receive and claim" },
