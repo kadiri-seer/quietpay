@@ -80,6 +80,9 @@ function Home({ network }: { network: NetworkConfig }) {
   const scanned = useRef(false);
   useEffect(() => {
     if (scanned.current || !payments.ready) return;
+    // Only older links pay to one-time addresses; with none, there is nothing to look for (and the
+    // Receive page recovers links on a new device).
+    if (!(vault?.requests ?? []).some((r) => !r.pool && r.chainId === network.chain.id)) return;
     scanned.current = true;
     void payments.scan(false).then(() => {
       void snap.refetch();

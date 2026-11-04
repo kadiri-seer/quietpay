@@ -214,40 +214,53 @@ export async function scanAnnouncements(
     signal?: AbortSignal;
   },
 ): Promise<Announcement[]> {
-  const out: Announcement[] = [];
-  let start = opts.fromBlock;
-  let chunk = opts.chunkSize > 0n ? opts.chunkSize : 10_000n;
-  while (start <= opts.toBlock) {
+  // Chunks are fetched several at a time; one the RPC refuses is split in half and retried.
+  const size = opts.chunkSize > 0n ? opts.chunkSize : 10_000n;
+  const ranges: [bigint, bigint][] = [];
+  for (let s = opts.fromBlock; s <= opts.toBlock; s += size) ranges.push([s, s + size - 1n > opts.toBlock ? opts.toBlock : s + size - 1n]);
+  const get = async (from: bigint, to: bigint): Promise<Announcement[]> => {
     if (opts.signal?.aborted) throw new DOMException("Scan cancelled", "AbortError");
-    const end = start + chunk - 1n > opts.toBlock ? opts.toBlock : start + chunk - 1n;
     try {
       const logs = await client.getContractEvents({
         address: opts.announcer,
         abi: announcerAbi,
         eventName: "Announcement",
         args: { schemeId: ERC5564_SCHEME_ID },
-        fromBlock: start,
-        toBlock: end,
+        fromBlock: from,
+        toBlock: to,
         strict: true,
       });
-      for (const l of logs) {
-        out.push({
-          stealthAddress: getAddress(l.args.stealthAddress),
-          caller: getAddress(l.args.caller),
-          ephemeralPubKey: l.args.ephemeralPubKey,
-          metadata: l.args.metadata,
-          blockNumber: l.blockNumber,
-          transactionHash: l.transactionHash,
-          logIndex: l.logIndex,
-        });
-      }
-      opts.onProgress?.(end, opts.toBlock);
-      start = end + 1n;
+      return logs.map((l) => ({
+        stealthAddress: getAddress(l.args.stealthAddress),
+        caller: getAddress(l.args.caller),
+        ephemeralPubKey: l.args.ephemeralPubKey,
+        metadata: l.args.metadata,
+        blockNumber: l.blockNumber,
+        transactionHash: l.transactionHash,
+        logIndex: l.logIndex,
+      }));
     } catch (e) {
-      if (chunk <= 100n) throw e;
-      chunk = chunk / 2n;
+      if ((e as Error).name === "AbortError" || to - from < 100n) throw e;
+      const mid = from + (to - from) / 2n;
+      return [...(await get(from, mid)), ...(await get(mid + 1n, to))];
     }
-  }
+  };
+  const parts: Announcement[][] = new Array(ranges.length);
+  let next = 0;
+  let done = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(6, ranges.length) }, async () => {
+      while (next < ranges.length) {
+        const i = next++;
+        parts[i] = await get(ranges[i][0], ranges[i][1]);
+        done++;
+        // Progress as a share of the range (chunks finish out of order).
+        opts.onProgress?.(opts.fromBlock + ((opts.toBlock - opts.fromBlock) * BigInt(done)) / BigInt(ranges.length), opts.toBlock);
+      }
+    }),
+  );
+  const out = parts.flat();
+  out.sort((a, b) => (a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1));
   return out;
 }
 

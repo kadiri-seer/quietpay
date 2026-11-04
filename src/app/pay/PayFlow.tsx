@@ -38,6 +38,7 @@ import { PoolPayPanel } from "./PoolPayPanel";
 import { PersonalPay } from "./PersonalPay";
 import { parsePayTarget } from "@/lib/pool/locks";
 import { useSelectedNetwork } from "@/components/Providers";
+import { useVault } from "@/components/VaultProvider";
 import { prepareSpend } from "@/lib/one-confirmation";
 
 export function PayFlow() {
@@ -113,6 +114,9 @@ function PasteLink() {
 
 function PayLink({ v, code }: { v: LinkValidation; code: string }) {
   const { request, network } = v;
+  // A request this browser created (its keys are in this vault) is the user's own.
+  const { vault } = useVault();
+  const ownRequest = !!vault?.requests.some((r) => r.id.toLowerCase() === request.requestId.toLowerCase());
   const readiness = useNetworkReadiness(network);
   const token = readiness.data?.token;
   const open = request.kind === "open";
@@ -144,7 +148,13 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
       ) : token && readiness.data?.announcer ? (
         <>
           <WalletGate network={network} purpose="Connect the wallet you'll pay from. You'll review everything before anything is sent.">
-            {request.poolLock ? <PoolPayPanel v={v} /> : <PayerPanel v={v} code={code} />}
+            {ownRequest ? (
+              <Notice tone="bad">This is your own request. You can&apos;t pay yourself.</Notice>
+            ) : request.poolLock ? (
+              <PoolPayPanel v={v} />
+            ) : (
+              <PayerPanel v={v} code={code} />
+            )}
           </WalletGate>
         </>
       ) : (

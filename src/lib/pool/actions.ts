@@ -68,6 +68,39 @@ export interface PoolInfo {
  * its implementation, the pool, both verifiers and the linked Poseidon libraries, plus their
  * wiring (pool -> entrypoint, asset, verifiers; entrypoint -> pool for this token).
  */
+/**
+ * What was verified about a deployment's code. Contract code can't change, so it is checked once
+ * per browser session; only the entrypoint's implementation (an upgradeable proxy) is re-read
+ * every time, and a different implementation means checking everything again.
+ */
+interface VerifiedPool {
+  impl: Address;
+  scope: bigint;
+}
+const verified = new Map<string, VerifiedPool>();
+const sessionKey = (k: string) => `quietpay:pool-verified:v1:${k}`;
+function recallVerified(k: string): VerifiedPool | null {
+  const m = verified.get(k);
+  if (m) return m;
+  try {
+    if (typeof sessionStorage === "undefined") return null;
+    const raw = sessionStorage.getItem(sessionKey(k));
+    if (!raw) return null;
+    const j = JSON.parse(raw) as { impl: string; scope: string };
+    return { impl: getAddress(j.impl), scope: BigInt(j.scope) };
+  } catch {
+    return null;
+  }
+}
+function rememberVerified(k: string, v: VerifiedPool) {
+  verified.set(k, v);
+  try {
+    if (typeof sessionStorage !== "undefined") sessionStorage.setItem(sessionKey(k), JSON.stringify({ impl: v.impl, scope: v.scope.toString() }));
+  } catch {
+    /* storage blocked: checked again next time */
+  }
+}
+
 export async function verifyPool(client: PublicClient, network: NetworkConfig): Promise<PoolInfo | null> {
   const cfg = network.pool;
   if (!cfg) return null;
@@ -75,40 +108,59 @@ export async function verifyPool(client: PublicClient, network: NetworkConfig): 
   const fail = (m: string): never => {
     throw new VerificationError(m);
   };
-
-  if (!(await codeMatches(client, cfg.entrypoint, ERC1967Proxy))) fail("The pool entrypoint is not the expected proxy contract.");
-  const slot = await client.getStorageAt({ address: cfg.entrypoint, slot: IMPLEMENTATION_SLOT });
-  const impl = getAddress(`0x${(slot ?? "0x").slice(-40).padStart(40, "0")}`);
-  if (!(await codeMatches(client, impl, Entrypoint))) fail("The pool entrypoint runs unexpected code.");
-
-  const poolCode = await client.getCode({ address: cfg.pool });
-  if (!poolCode || !(await codeMatches(client, cfg.pool, PrivacyPoolComplex))) fail("The pool contract is not the audited Privacy Pools code.");
-  const t3 = linkedAddress(poolCode!, PrivacyPoolComplex.links.PoseidonT3[0]);
-  const t4 = linkedAddress(poolCode!, PrivacyPoolComplex.links.PoseidonT4[0]);
-  if (!(await codeMatches(client, t3, PoseidonT3)) || !(await codeMatches(client, t4, PoseidonT4))) fail("The pool's hash libraries are not the expected code.");
-
   const read = <T>(address: Address, abi: readonly unknown[], functionName: string, args: unknown[] = []) =>
     client.readContract({ address, abi: abi as never, functionName: functionName as never, args: args as never }) as Promise<T>;
-  const [ep, asset, wv, rv, scope, dead] = await Promise.all([
-    read<Address>(cfg.pool, PrivacyPoolComplex.abi, "ENTRYPOINT"),
-    read<Address>(cfg.pool, PrivacyPoolComplex.abi, "ASSET"),
-    read<Address>(cfg.pool, PrivacyPoolComplex.abi, "WITHDRAWAL_VERIFIER"),
-    read<Address>(cfg.pool, PrivacyPoolComplex.abi, "RAGEQUIT_VERIFIER"),
-    read<bigint>(cfg.pool, PrivacyPoolComplex.abi, "SCOPE"),
-    read<boolean>(cfg.pool, PrivacyPoolComplex.abi, "dead"),
-  ]);
-  if (getAddress(ep) !== getAddress(cfg.entrypoint)) fail("The pool belongs to a different entrypoint.");
-  if (getAddress(asset) !== getAddress(network.token)) fail("The pool holds a different token.");
-  if (!(await codeMatches(client, wv, WithdrawalVerifier))) fail("The withdrawal verifier is not the ceremony verifier.");
-  if (!(await codeMatches(client, rv, CommitmentVerifier))) fail("The exit verifier is not the ceremony verifier.");
+  const key = `${client.chain?.id ?? 0}:${cfg.entrypoint.toLowerCase()}:${cfg.pool.toLowerCase()}:${network.token.toLowerCase()}`;
 
-  const [registered, config, aspRoot] = await Promise.all([
-    read<Address>(cfg.entrypoint, Entrypoint.abi, "scopeToPool", [scope]),
+  const slot = await client.getStorageAt({ address: cfg.entrypoint, slot: IMPLEMENTATION_SLOT });
+  const impl = getAddress(`0x${(slot ?? "0x").slice(-40).padStart(40, "0")}`);
+  let known = recallVerified(key);
+  if (known && known.impl !== impl) known = null;
+
+  if (!known) {
+    // Everything that can be checked at once is checked at once.
+    const [proxyOk, implOk, poolCode, ep, asset, wv, rv, scope] = await Promise.all([
+      codeMatches(client, cfg.entrypoint, ERC1967Proxy),
+      codeMatches(client, impl, Entrypoint),
+      client.getCode({ address: cfg.pool }),
+      // A contract that isn't the pool can't answer these; that shows up as a code mismatch below.
+      read<Address>(cfg.pool, PrivacyPoolComplex.abi, "ENTRYPOINT").catch(() => null),
+      read<Address>(cfg.pool, PrivacyPoolComplex.abi, "ASSET").catch(() => null),
+      read<Address>(cfg.pool, PrivacyPoolComplex.abi, "WITHDRAWAL_VERIFIER").catch(() => null),
+      read<Address>(cfg.pool, PrivacyPoolComplex.abi, "RAGEQUIT_VERIFIER").catch(() => null),
+      read<bigint>(cfg.pool, PrivacyPoolComplex.abi, "SCOPE").catch(() => null),
+    ]);
+    if (!proxyOk) fail("The pool entrypoint is not the expected proxy contract.");
+    if (!implOk) fail("The pool entrypoint runs unexpected code.");
+    if (!poolCode || poolCode === "0x" || keccak256(masked(poolCode, PrivacyPoolComplex.masks)) !== PrivacyPoolComplex.maskedRuntimeCodeHash)
+      fail("The pool contract is not the audited Privacy Pools code.");
+    if (!ep || !asset || !wv || !rv || scope === null) fail("The pool contract is not the audited Privacy Pools code.");
+    if (getAddress(ep!) !== getAddress(cfg.entrypoint)) fail("The pool belongs to a different entrypoint.");
+    if (getAddress(asset!) !== getAddress(network.token)) fail("The pool holds a different token.");
+    const t3 = linkedAddress(poolCode!, PrivacyPoolComplex.links.PoseidonT3[0]);
+    const t4 = linkedAddress(poolCode!, PrivacyPoolComplex.links.PoseidonT4[0]);
+    const [t3ok, t4ok, wvOk, rvOk] = await Promise.all([
+      codeMatches(client, t3, PoseidonT3),
+      codeMatches(client, t4, PoseidonT4),
+      codeMatches(client, wv!, WithdrawalVerifier),
+      codeMatches(client, rv!, CommitmentVerifier),
+    ]);
+    if (!t3ok || !t4ok) fail("The pool's hash libraries are not the expected code.");
+    if (!wvOk) fail("The withdrawal verifier is not the ceremony verifier.");
+    if (!rvOk) fail("The exit verifier is not the ceremony verifier.");
+    known = { impl, scope: scope! };
+  }
+
+  // Settings that can change: read every time.
+  const [registered, config, aspRoot, dead] = await Promise.all([
+    read<Address>(cfg.entrypoint, Entrypoint.abi, "scopeToPool", [known.scope]),
     read<readonly [Address, bigint, bigint, bigint]>(cfg.entrypoint, Entrypoint.abi, "assetConfig", [network.token]),
     read<bigint>(cfg.entrypoint, Entrypoint.abi, "latestRoot").catch(() => 0n),
+    read<boolean>(cfg.pool, PrivacyPoolComplex.abi, "dead"),
   ]);
   if (getAddress(registered) !== getAddress(cfg.pool) || getAddress(config[0]) !== getAddress(cfg.pool)) fail("The entrypoint does not route this token to this pool.");
-  return { entrypoint: cfg.entrypoint, pool: cfg.pool, scope, minimumDeposit: config[1], vettingFeeBPS: config[2], maxRelayFeeBPS: config[3], aspRoot, dead };
+  rememberVerified(key, known);
+  return { entrypoint: cfg.entrypoint, pool: cfg.pool, scope: known.scope, minimumDeposit: config[1], vettingFeeBPS: config[2], maxRelayFeeBPS: config[3], aspRoot, dead };
 }
 
 /** Value credited to the note after the vetting fee. */

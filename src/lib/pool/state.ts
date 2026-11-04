@@ -59,93 +59,194 @@ export interface PoolEvents {
   exclusions?: { id: string; labels: bigint[] };
 }
 
+/**
+ * Splits [fromBlock, toBlock] into chunks and fetches them `parallel` at a time. A chunk the RPC
+ * refuses is split in half and retried, down to 100 blocks.
+ */
 async function chunked<T>(
   fromBlock: bigint,
   toBlock: bigint,
   chunkSize: bigint,
   fetch: (from: bigint, to: bigint) => Promise<T[]>,
+  parallel = 6,
 ): Promise<T[]> {
-  const out: T[] = [];
-  let start = fromBlock;
-  let chunk = chunkSize > 0n ? chunkSize : 10_000n;
-  while (start <= toBlock) {
-    const end = start + chunk - 1n > toBlock ? toBlock : start + chunk - 1n;
+  const size = chunkSize > 0n ? chunkSize : 10_000n;
+  const ranges: [bigint, bigint][] = [];
+  for (let s = fromBlock; s <= toBlock; s += size) ranges.push([s, s + size - 1n > toBlock ? toBlock : s + size - 1n]);
+  const get = async (from: bigint, to: bigint): Promise<T[]> => {
     try {
-      out.push(...(await fetch(start, end)));
-      start = end + 1n;
+      return await fetch(from, to);
     } catch (e) {
-      if (chunk <= 100n) throw e;
-      chunk /= 2n;
+      if (to - from < 100n) throw e;
+      const mid = from + (to - from) / 2n;
+      return [...(await get(from, mid)), ...(await get(mid + 1n, to))];
     }
-  }
-  return out;
+  };
+  const out: T[][] = new Array(ranges.length);
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(parallel, ranges.length) }, async () => {
+      while (next < ranges.length) {
+        const i = next++;
+        out[i] = await get(ranges[i][0], ranges[i][1]);
+      }
+    }),
+  );
+  return out.flat();
 }
 
 const order = (a: { blockNumber: bigint; logIndex: number }, b: { blockNumber: bigint; logIndex: number }) =>
   a.blockNumber === b.blockNumber ? a.logIndex - b.logIndex : a.blockNumber < b.blockNumber ? -1 : 1;
 
-export async function fetchPoolEvents(
-  client: PublicClient,
-  p: { entrypoint: Address; pool: Address; fromBlock: bigint; chunkSize: bigint; toBlock?: bigint; exclusions?: ExclusionLoader },
-): Promise<PoolEvents> {
-  const toBlock = p.toBlock ?? (await client.getBlockNumber({ cacheTime: 0 }));
-  const poolLogs = await chunked(p.fromBlock, toBlock, p.chunkSize, (fromBlock, to) =>
-    client.getContractEvents({ address: p.pool, abi: PrivacyPoolComplex.abi, fromBlock, toBlock: to, strict: true }),
-  );
-  const epLogs = await chunked(p.fromBlock, toBlock, p.chunkSize, (fromBlock, to) =>
-    client.getContractEvents({ address: p.entrypoint, abi: Entrypoint.abi, eventName: "RootUpdated", fromBlock, toBlock: to, strict: true }),
-  );
+/* ---------------- Cached, incremental event loading ---------------- */
+
+/**
+ * Pool history only grows, so it is loaded once and then only the new blocks are fetched
+ * (re-reading the last REORG_MARGIN blocks in case the chain reorganised). It is kept in memory
+ * and, in the browser, in localStorage: it is public chain data, so the next visit opens from
+ * the saved copy and only catches up. A copy that doesn't add up (the rebuilt tree doesn't match
+ * the chain's root, or it is ahead of the chain) is thrown away and history is loaded again.
+ */
+const REORG_MARGIN = 300n;
+const CACHE_VERSION = 1;
+
+interface LogRecords {
+  deposits: PoolDeposit[];
+  withdrawals: PoolWithdrawal[];
+  ragequits: (PoolRagequit & { blockNumber: bigint })[];
+  leafs: { index: bigint; leaf: bigint; root: bigint; blockNumber: bigint }[];
+  rootUpdates: RootUpdate[];
+  toBlock: bigint;
+}
+
+const memory = new Map<string, LogRecords>();
+const storageKey = (k: string) => `quietpay:pool-log:v${CACHE_VERSION}:${k}`;
+
+function toJson(r: LogRecords): string {
+  return JSON.stringify(r, (_k, v) => (typeof v === "bigint" ? `${v.toString()}n` : v));
+}
+function fromJson(s: string): LogRecords | null {
+  try {
+    return JSON.parse(s, (_k, v) => (typeof v === "string" && /^\d+n$/.test(v) ? BigInt(v.slice(0, -1)) : v)) as LogRecords;
+  } catch {
+    return null;
+  }
+}
+function loadCached(key: string): LogRecords | null {
+  const m = memory.get(key);
+  if (m) return m;
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem(storageKey(key));
+    return raw ? fromJson(raw) : null;
+  } catch {
+    return null;
+  }
+}
+function saveCached(key: string, r: LogRecords) {
+  memory.set(key, r);
+  try {
+    if (typeof localStorage !== "undefined") localStorage.setItem(storageKey(key), toJson(r));
+  } catch {
+    /* storage full or blocked: memory copy still helps this visit */
+  }
+}
+
+async function fetchRecords(client: PublicClient, p: { entrypoint: Address; pool: Address; chunkSize: bigint }, fromBlock: bigint, toBlock: bigint): Promise<LogRecords> {
+  const [poolLogs, epLogs] = await Promise.all([
+    chunked(fromBlock, toBlock, p.chunkSize, (from, to) => client.getContractEvents({ address: p.pool, abi: PrivacyPoolComplex.abi, fromBlock: from, toBlock: to, strict: true })),
+    chunked(fromBlock, toBlock, p.chunkSize, (from, to) =>
+      client.getContractEvents({ address: p.entrypoint, abi: Entrypoint.abi, eventName: "RootUpdated", fromBlock: from, toBlock: to, strict: true }),
+    ),
+  ]);
   poolLogs.sort(order);
   epLogs.sort(order);
-
-  const deposits: PoolDeposit[] = [];
-  const withdrawals: PoolWithdrawal[] = [];
-  const ragequits: PoolRagequit[] = [];
-  const leafByIndex = new Map<bigint, bigint>();
-  let lastRoot = 0n;
+  const r: LogRecords = { deposits: [], withdrawals: [], ragequits: [], leafs: [], rootUpdates: [], toBlock };
   for (const l of poolLogs) {
     if (l.eventName === "Deposited") {
       const a = l.args as { _depositor: Address; _commitment: bigint; _label: bigint; _value: bigint; _precommitmentHash: bigint };
-      deposits.push({
-        depositor: a._depositor,
-        commitment: a._commitment,
-        label: a._label,
-        value: a._value,
-        precommitment: a._precommitmentHash,
-        blockNumber: l.blockNumber,
-        txHash: l.transactionHash,
-      });
+      r.deposits.push({ depositor: a._depositor, commitment: a._commitment, label: a._label, value: a._value, precommitment: a._precommitmentHash, blockNumber: l.blockNumber, txHash: l.transactionHash });
     } else if (l.eventName === "Withdrawn") {
       const a = l.args as { _value: bigint; _spentNullifier: bigint; _newCommitment: bigint };
-      withdrawals.push({ value: a._value, spentNullifier: a._spentNullifier, newCommitment: a._newCommitment, blockNumber: l.blockNumber, txHash: l.transactionHash });
+      r.withdrawals.push({ value: a._value, spentNullifier: a._spentNullifier, newCommitment: a._newCommitment, blockNumber: l.blockNumber, txHash: l.transactionHash });
     } else if (l.eventName === "Ragequit") {
       const a = l.args as { _ragequitter: Address; _commitment: bigint; _label: bigint; _value: bigint };
-      ragequits.push({ ragequitter: a._ragequitter, commitment: a._commitment, label: a._label, value: a._value, txHash: l.transactionHash });
+      r.ragequits.push({ ragequitter: a._ragequitter, commitment: a._commitment, label: a._label, value: a._value, txHash: l.transactionHash, blockNumber: l.blockNumber });
     } else if (l.eventName === "LeafInserted") {
       // The contract emits the tree size after insertion, so the first leaf has _index 1.
       const a = l.args as { _index: bigint; _leaf: bigint; _root: bigint };
-      leafByIndex.set(a._index - 1n, a._leaf);
-      lastRoot = a._root;
+      r.leafs.push({ index: a._index - 1n, leaf: a._leaf, root: a._root, blockNumber: l.blockNumber });
     }
   }
+  for (const l of epLogs) {
+    const a = l.args as { _root: bigint; _ipfsCID: string; _timestamp: bigint };
+    r.rootUpdates.push({ root: a._root, cid: a._ipfsCID, timestamp: a._timestamp, blockNumber: l.blockNumber });
+  }
+  return r;
+}
+
+function merge(base: LogRecords, from: bigint, add: LogRecords): LogRecords {
+  const keep = <T extends { blockNumber: bigint }>(xs: T[]) => xs.filter((x) => x.blockNumber < from);
+  return {
+    deposits: [...keep(base.deposits), ...add.deposits],
+    withdrawals: [...keep(base.withdrawals), ...add.withdrawals],
+    ragequits: [...keep(base.ragequits), ...add.ragequits],
+    leafs: [...keep(base.leafs), ...add.leafs],
+    rootUpdates: [...keep(base.rootUpdates), ...add.rootUpdates],
+    toBlock: add.toBlock,
+  };
+}
+
+/** Rebuilds the tree's leaves and checks them against the chain's latest root. Null if they don't add up. */
+function leavesOf(r: LogRecords): bigint[] | null {
+  const byIndex = new Map<bigint, bigint>();
+  for (const l of r.leafs) byIndex.set(l.index, l.leaf);
   const leaves: bigint[] = [];
-  for (let i = 0n; i < BigInt(leafByIndex.size); i++) {
-    const leaf = leafByIndex.get(i);
-    if (leaf === undefined) throw new Error(`Pool history is incomplete: missing leaf ${i}.`);
+  for (let i = 0n; i < BigInt(byIndex.size); i++) {
+    const leaf = byIndex.get(i);
+    if (leaf === undefined) return null;
     leaves.push(leaf);
   }
-  if (leaves.length && treeRoot(leaves) !== lastRoot) throw new Error("Rebuilt pool tree does not match the onchain root.");
-  const rootUpdates = epLogs.map((l) => {
-    const a = l.args as { _root: bigint; _ipfsCID: string; _timestamp: bigint };
-    return { root: a._root, cid: a._ipfsCID, timestamp: a._timestamp, blockNumber: l.blockNumber };
-  });
+  const last = r.leafs.reduce<(typeof r.leafs)[number] | null>((m, l) => (!m || l.index > m.index ? l : m), null);
+  if (leaves.length && (!last || treeRoot(leaves) !== last.root)) return null;
+  return leaves;
+}
+
+/** Forgets saved pool history (tests, or a site switching chains). */
+export function clearPoolEventCache() {
+  memory.clear();
+}
+
+export async function fetchPoolEvents(
+  client: PublicClient,
+  p: { entrypoint: Address; pool: Address; fromBlock: bigint; chunkSize: bigint; toBlock?: bigint; exclusions?: ExclusionLoader; noCache?: boolean },
+): Promise<PoolEvents> {
+  const toBlock = p.toBlock ?? (await client.getBlockNumber({ cacheTime: 0 }));
+  const key = `${(client.chain?.id ?? 0).toString()}:${p.pool.toLowerCase()}:${p.entrypoint.toLowerCase()}:${p.fromBlock.toString()}`;
+  let cached = p.noCache || p.toBlock !== undefined ? null : loadCached(key);
+  if (cached && cached.toBlock > toBlock) cached = null; // ahead of the chain: a different chain or a reset
+  let records: LogRecords;
+  let leaves: bigint[] | null = null;
+  if (cached) {
+    const from = cached.toBlock - REORG_MARGIN + 1n > p.fromBlock ? cached.toBlock - REORG_MARGIN + 1n : p.fromBlock;
+    records = merge(cached, from, await fetchRecords(client, p, from, toBlock));
+    leaves = leavesOf(records);
+  }
+  if (!cached || !leaves) {
+    records = await fetchRecords(client, p, p.fromBlock, toBlock);
+    leaves = leavesOf(records);
+    if (!leaves) throw new Error("Rebuilt pool tree does not match the onchain root.");
+  }
+  if (!p.noCache && p.toBlock === undefined) saveCached(key, records!);
+  const { deposits, withdrawals, rootUpdates } = records!;
+  const ragequits: PoolRagequit[] = records!.ragequits.map(({ blockNumber: _b, ...r }) => r);
   let exclusions: PoolEvents["exclusions"];
   const rule = rootUpdates.length ? parseAspDescriptor(rootUpdates[rootUpdates.length - 1].cid) : null;
   if (rule?.exclusionId && p.exclusions) {
     const labels = await p.exclusions(rule.exclusionId);
     if (labels) exclusions = { id: rule.exclusionId, labels };
   }
-  return { deposits, withdrawals, ragequits, leaves, rootUpdates, toBlock, exclusions };
+  return { deposits, withdrawals, ragequits, leaves: leaves!, rootUpdates, toBlock, exclusions };
 }
 
 export type NoteStatus = "spendable" | "spent" | "ragequit";

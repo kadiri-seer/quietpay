@@ -3,7 +3,9 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "wagmi";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { privateKeyToAccount } from "viem/accounts";
+import { useVault } from "@/components/VaultProvider";
 import { getAddress, isAddress, type Address } from "viem";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
@@ -130,6 +132,18 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
   const symbol = token?.symbol ?? "tUSDG";
   const fmt = (v: bigint) => `${formatAmount(v, decimals, { group: true })} ${symbol}`;
 
+  // Your own name key: payments to your own @username or personal link aren't allowed.
+  const { vault } = useVault();
+  const ownKey = vault?.nameKey ? privateKeyToAccount(vault.nameKey).address : null;
+  const myName = useQuery({
+    queryKey: ["my-name", ownKey],
+    enabled: !!ownKey,
+    queryFn: async () => {
+      const r = await fetch(`/api/names?key=${ownKey}`, { cache: "no-store" });
+      if (!r.ok) return null;
+      return ((await r.json()) as { mine: { name: string } | null }).mine;
+    },
+  });
   const [toInput, setToInput] = useState(prefill && (mode === "address" ? isAddress(prefill) : !isAddress(prefill)) ? prefill : "");
   const [amountInput, setAmountInput] = useState("");
   const [stage, setStage] = useState<string | null>(null);
@@ -162,6 +176,7 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
   const tooSmallPart = parts?.some((p) => p.amount < minPart) ?? false;
   const costs = parts && feeBPS !== null ? afterFees(parts, feeBPS) : null;
   const toWallet = to?.kind === "address" && address && to.address === getAddress(address);
+  const toSelf = (to?.kind === "key" && !!ownKey && to.key === ownKey) || (to?.kind === "name" && !!myName.data && to.name === myName.data.name);
 
   async function lockFor(t: Exclude<SendTo, { kind: "address" }>, pool: Address) {
     const q = t.kind === "name" ? `name=${encodeURIComponent(t.name)}` : `key=${t.key}`;
@@ -169,11 +184,12 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
     const j = (await r.json().catch(() => ({}))) as { key?: Address; lock?: unknown; error?: string };
     if (!r.ok || !j.key || !j.lock) throw new Error(j.error ?? "Couldn't reach QuietPay. Try again.");
     if (t.kind === "key" && getAddress(j.key) !== t.key) throw new Error("These payment details weren't signed by the recipient. Don't pay.");
+    if (ownKey && getAddress(j.key) === ownKey) throw new Error("That's you. You can't send a payment to yourself.");
     return verifyLock(j.lock, { key: j.key, chainId: network.chain.id, pool });
   }
 
   async function send() {
-    if (!to || !parts || feeBPS === null || !terms.data?.feeRecipient || !info.data || !snap.data) return;
+    if (!to || toSelf || !parts || feeBPS === null || !terms.data?.feeRecipient || !info.data || !snap.data) return;
     if (to.kind !== "address" && !router.data) {
       setError("Sending to usernames isn't available right now.");
       return;
@@ -274,7 +290,8 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
           spellCheck={false}
         />
         {toInput.trim() && !to && <p className="mt-2 text-xs text-bad">{mode === "address" ? "That isn't a valid address." : "Enter a @username or a QuietPay personal link."}</p>}
-        {toWallet && <p className="mt-2 text-xs text-warn">This is your connected wallet. Sending here ties the money to it publicly.</p>}
+        {toSelf && <p className="mt-2 text-xs text-bad">That&apos;s you. You can&apos;t send a payment to yourself.</p>}
+        {toWallet && <p className="mt-2 text-xs text-warn">This is your connected wallet. Moving money here ties it to your wallet publicly.</p>}
         {to?.kind === "key" && (
           <p className="mt-2 text-xs text-haze">
             Personal link <Mono>{shorten(to.key, 4)}</Mono>
@@ -307,7 +324,7 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
         )}
       </div>
       {error && <Notice tone="bad">{error}</Notice>}
-      <button type="submit" className="btn btn-primary w-full" disabled={!to || !parts || tooSmallPart || !!stage || feeBPS === null || !terms.data?.available}>
+      <button type="submit" className="btn btn-primary w-full" disabled={!to || toSelf || !parts || tooSmallPart || !!stage || feeBPS === null || !terms.data?.available}>
         {stage ? (
           <>
             <Spinner /> {stage}

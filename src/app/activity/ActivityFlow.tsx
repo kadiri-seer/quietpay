@@ -45,6 +45,9 @@ function Activity({ network }: { network: NetworkConfig }) {
   const ran = useRef(false);
   useEffect(() => {
     if (ran.current || !scan.ready) return;
+    // Only older links pay to one-time addresses; with none, there is nothing to look for (and the
+    // Receive page recovers links on a new device).
+    if (!(vault?.requests ?? []).some((r) => !r.pool && r.chainId === network.chain.id)) return;
     ran.current = true;
     void scan.scan(false);
   }, [scan]);

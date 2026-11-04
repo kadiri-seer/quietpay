@@ -11,6 +11,8 @@ import { useNetworkReadiness } from "@/components/hooks";
 import { usePoolInfo } from "@/components/pool-hooks";
 import { LoadingRows, Notice, Spinner, shorten } from "@/components/ui";
 import { WalletGate } from "@/components/WalletGate";
+import { useVault } from "@/components/VaultProvider";
+import { privateKeyToAccount } from "viem/accounts";
 import { PoolPayPanel } from "./PoolPayPanel";
 
 export const targetLabel = (t: PayTarget) => (t.kind === "name" ? `@${t.name}` : shorten(t.key, 4));
@@ -45,6 +47,9 @@ export function PersonalPay({ target, network }: { target: PayTarget; network: N
 }
 
 function AmountThenPay({ target, network }: { target: PayTarget; network: NetworkConfig }) {
+  // If this browser holds the recipient's keys, it's their own link: paying yourself isn't allowed.
+  const { vault } = useVault();
+  const ownKey = vault?.nameKey ? privateKeyToAccount(vault.nameKey).address : null;
   const { data: readiness } = useNetworkReadiness(network);
   const token = readiness!.token!;
   const info = usePoolInfo(network);
@@ -77,6 +82,7 @@ function AmountThenPay({ target, network }: { target: PayTarget; network: Networ
       if (!r.ok || !j.key || !j.lock) throw new Error(j.error ?? "Couldn't reach QuietPay. Try again.");
       // A personal link names its key; never accept a lock signed by anyone else.
       if (target.kind === "key" && j.key.toLowerCase() !== target.key.toLowerCase()) throw new Error("These payment details weren't signed by the recipient. Don't pay.");
+      if (ownKey && j.key.toLowerCase() === ownKey.toLowerCase()) throw new Error("This is your own QuietPay. You can't pay yourself.");
       const lock = await verifyLock(j.lock, { key: j.key, chainId: network.chain.id, pool: info.data.pool });
       setReady({
         network,
@@ -101,6 +107,7 @@ function AmountThenPay({ target, network }: { target: PayTarget; network: Networ
   }
 
   if (ready) return <PoolPayPanel v={ready} />;
+  if (target.kind === "key" && ownKey && target.key === ownKey) return <Notice tone="bad">This is your own personal link. You can&apos;t pay yourself.</Notice>;
   return (
     <form
       className="space-y-4"
