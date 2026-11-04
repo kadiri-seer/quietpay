@@ -9,6 +9,9 @@ import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { useOnchainHoldings, usePoolInfo, usePoolSnapshot } from "@/components/pool-hooks";
 import { findOlderFunds, OLDER_FUNDS_UNTIL, usePaymentScan } from "@/components/scan-hooks";
+import { useMoveIntoPool } from "@/components/AutoShield";
+import { useQuery } from "@tanstack/react-query";
+import { erc20Abi } from "@/config/contracts";
 import { useAccount, useSignMessage } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSelectedNetwork } from "@/components/Providers";
@@ -78,6 +81,16 @@ function Home({ network }: { network: NetworkConfig }) {
   const info = usePoolInfo(network);
   const holdings = useOnchainHoldings(network, snap.data?.notes, info.data?.scope);
   const payments = usePaymentScan(network);
+  const move = useMoveIntoPool();
+  // Your connected wallet's own tokens (what the faucet shows): listed apart, never added to the balance.
+  const { address: walletAddress } = useAccount();
+  const client = usePublicClient(network);
+  const walletBal = useQuery({
+    queryKey: ["wallet-token", network.key, walletAddress, readiness.data?.token?.address],
+    enabled: !!walletAddress && !!readiness.data?.token,
+    staleTime: 15_000,
+    queryFn: () => client.readContract({ address: readiness.data!.token!.address, abi: erc20Abi, functionName: "balanceOf", args: [walletAddress!] }),
+  });
   // Look for new payments to your links each time Home opens (only blocks not checked yet).
   const scanned = useRef(false);
   useEffect(() => {
@@ -183,11 +196,21 @@ function Home({ network }: { network: NetworkConfig }) {
       {/* Only shown when something needs attention. */}
       {balance.oneTime > 0n && (
         <Notice tone="warn">
-          {f(balance.oneTime)} {symbol} is at one-time addresses, outside the pool.{" "}
-          <Link href="/receive" className="underline underline-offset-4">
-            Move it into the pool
-          </Link>{" "}
-          to keep it private.
+          <span className="block">
+            {f(balance.oneTime)} {symbol} is at one-time addresses, outside the pool. Nothing moves until you say so.
+          </span>
+          <button type="button" className="btn btn-sm mt-3" onClick={() => void move.run()} disabled={!!move.state?.busy}>
+            {move.state?.busy ? <Spinner /> : null} Move into my balance
+          </button>
+          {move.state && !move.state.busy && move.state.skipped > 0 && (
+            <span className="mt-2 block text-xs">
+              Some payments are too small for the pool or have no gas left; move those from{" "}
+              <Link href="/receive?tab=request" className="underline underline-offset-4">
+                Receive
+              </Link>
+              .
+            </span>
+          )}
         </Notice>
       )}
       {balance.refunds > 0n && (
@@ -231,6 +254,18 @@ function Home({ network }: { network: NetworkConfig }) {
               {loading ? <Skeleton className="h-6 w-20" /> : hidden ? "••••" : formatAmount(balance.total, decimals, { group: true })}
             </p>
           </li>
+          {walletBal.data !== undefined && walletBal.data > 0n && (
+            <li className="flex items-center gap-4 rounded-[1.25rem] border border-dashed border-harbor px-4 py-4">
+              <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-harbor font-display text-xl font-bold text-haze">
+                $
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-lg text-snow">In your wallet</p>
+                <p className="text-sm text-haze">Outside QuietPay, not private · not in your balance</p>
+              </div>
+              <p className="text-right font-display text-lg font-semibold text-haze">{hidden ? "••••" : formatAmount(walletBal.data, decimals, { group: true })}</p>
+            </li>
+          )}
         </ul>
       </section>
     </div>

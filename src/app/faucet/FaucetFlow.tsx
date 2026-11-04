@@ -110,13 +110,19 @@ function TokenClaim({ network }: { network: NetworkConfig }) {
     <div className="space-y-4">
       {bal && (
         <dl className="grid grid-cols-2 gap-y-1 text-sm">
-          <dt className="text-haze">Your test ETH</dt>
+          <dt className="text-haze">Test ETH in your wallet</dt>
           <dd className="text-right text-snow">{formatEthCeil(bal.eth)} ETH</dd>
-          <dt className="text-haze">Your {token.symbol}</dt>
+          <dt className="text-haze">{token.symbol} in your wallet</dt>
           <dd className="text-right text-snow">
             {formatAmount(bal.token, token.decimals, { group: true })} {token.symbol}
           </dd>
         </dl>
+      )}
+      {bal && (
+        <p className="text-xs leading-relaxed text-haze">
+          This is your wallet, outside QuietPay. Your private QuietPay balance is on Home; money gets there when someone pays your
+          username, link or request.
+        </p>
       )}
       {bal && bal.eth === 0n && (
         <Notice tone="warn" title="No test ETH yet">

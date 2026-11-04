@@ -14,7 +14,6 @@ import { SiteFooter, SiteHeader } from "@/components/SiteChrome";
 import { ServiceWorker } from "@/components/ServiceWorker";
 import { DeliveryRunner } from "@/components/DeliveryRunner";
 import { LockKeeper } from "@/components/LockKeeper";
-import { AutoShield } from "@/components/AutoShield";
 import { ApprovalNudge } from "@/components/ApprovalNudge";
 import { AppTabs } from "@/components/AppTabs";
 
@@ -65,7 +64,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           <SiteFooter />
           <DeliveryRunner />
           <LockKeeper />
-          <AutoShield />
           <ApprovalNudge />
           <AppTabs />
         </Providers>
