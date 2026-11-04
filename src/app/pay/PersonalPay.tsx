@@ -14,6 +14,7 @@ import { WalletGate } from "@/components/WalletGate";
 import { useVault } from "@/components/VaultProvider";
 import { privateKeyToAccount } from "viem/accounts";
 import { PoolPayPanel } from "./PoolPayPanel";
+import { OwnCheck } from "@/components/OwnCheck";
 
 export const targetLabel = (t: PayTarget) => (t.kind === "name" ? `@${t.name}` : shorten(t.key, 4));
 
@@ -39,7 +40,9 @@ export function PersonalPay({ target, network }: { target: PayTarget; network: N
         <Notice tone="bad">Payments to usernames aren&apos;t available on {network.label} yet.</Notice>
       ) : (
         <WalletGate network={network} purpose="Connect the wallet you'll pay from.">
-          <AmountThenPay target={target} network={network} />
+          <OwnCheck>
+            <AmountThenPay target={target} network={network} />
+          </OwnCheck>
         </WalletGate>
       )}
     </div>

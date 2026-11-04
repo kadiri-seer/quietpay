@@ -8,7 +8,7 @@ import { verifyPool } from "@/lib/pool/actions";
 import { refreshApprovals } from "@/lib/pool/relayer";
 import { relayerContext } from "@/lib/pool/server";
 import { fetchPoolEvents } from "@/lib/pool/state";
-import { rateLimit, withLock } from "@/lib/server/guard";
+import { rateLimit, watchCaller, withLock } from "@/lib/server/guard";
 import { approverScreening } from "@/lib/screening/approver";
 
 /** Calls per client per minute. The site asks at most every few seconds while a deposit waits. */
@@ -21,6 +21,7 @@ export const maxDuration = 60;
 const noStore = { "Cache-Control": "no-store" };
 
 export async function POST(req: Request) {
+  await watchCaller(req, "approvals.caller");
   if (!(await rateLimit(req, "approvals", CALLS_PER_MIN, 60))) {
     return NextResponse.json({ error: "Too many requests. Wait a minute." }, { status: 429, headers: noStore });
   }

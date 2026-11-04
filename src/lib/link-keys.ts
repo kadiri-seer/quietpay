@@ -58,3 +58,22 @@ export async function deriveLinkKeys(seed: Hex, chainId: number, index: number):
     stealthMetaAddress: `0x${spendingPublicKey.slice(2)}${viewingPublicKey.slice(2)}`,
   };
 }
+
+/**
+ * Link keys as derived before 2 November 2026 (no chain in the label), from the seed of the old
+ * sign-in message. Only used to find funds sent to links made back then.
+ */
+export async function deriveLinkKeysLegacy(seed: Hex, index: number): Promise<RequestKeys> {
+  if (!Number.isInteger(index) || index < 0) throw new Error("Invalid link index.");
+  const spendingPrivateKey = await scalar(seed, `spend|${index}`);
+  const viewingPrivateKey = await scalar(seed, `view|${index}`);
+  const spendingPublicKey = bytesToHex(getPublicKey(spendingPrivateKey.slice(2), true));
+  const viewingPublicKey = bytesToHex(getPublicKey(viewingPrivateKey.slice(2), true));
+  return {
+    spendingPrivateKey,
+    viewingPrivateKey,
+    spendingPublicKey,
+    viewingPublicKey,
+    stealthMetaAddress: `0x${spendingPublicKey.slice(2)}${viewingPublicKey.slice(2)}`,
+  };
+}

@@ -118,8 +118,9 @@ export function usePoolSnapshot(network: NetworkConfig) {
         // Payments received straight into the pool through payment links.
         const rr = reconstructReceived(k, info.data!.scope, events, i === 0 ? issued : 0n);
         if (i === 0) nextReceiveIndex = rr.nextReceiveIndex;
-        // Payments to your @username or personal link (only the first key set signs locks).
-        const personal = i === 0 ? reconstructReceived(k, info.data!.scope, events, locksIssued, 20, PERSONAL_INDEX_BASE).notes : [];
+        // Payments to your @username or personal link.
+        // (Every key set is checked: a device that unlocked before 2 November signs locks with its older keys.)
+        const personal = reconstructReceived(k, info.data!.scope, events, locksIssued, 20, PERSONAL_INDEX_BASE).notes;
         for (const n of [...rr.notes, ...personal]) {
           const ok = approved.has(String(n.label));
           notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)), received: { receiveIndex: n.depositIndex - RECEIVE_INDEX_BASE } });

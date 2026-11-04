@@ -6,9 +6,11 @@ import type { NetworkConfig } from "@/config/networks";
 import { formatAmount } from "@/lib/amount";
 import { homeBalance } from "@/lib/balance";
 import { classifyTxError } from "@/lib/tx-errors";
-import { useNetworkReadiness } from "@/components/hooks";
+import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { useOnchainHoldings, usePoolInfo, usePoolSnapshot } from "@/components/pool-hooks";
-import { usePaymentScan } from "@/components/scan-hooks";
+import { findOlderFunds, OLDER_FUNDS_UNTIL, usePaymentScan } from "@/components/scan-hooks";
+import { useAccount, useSignMessage } from "wagmi";
+import { useQueryClient } from "@tanstack/react-query";
 import { useSelectedNetwork } from "@/components/Providers";
 import { Notice, Skeleton, Spinner } from "@/components/ui";
 import { useVault } from "@/components/VaultProvider";
@@ -188,6 +190,15 @@ function Home({ network }: { network: NetworkConfig }) {
           to keep it private.
         </Notice>
       )}
+      {balance.refunds > 0n && (
+        <Notice tone="warn">
+          {f(balance.refunds)} {symbol} was returned to a refund address after failing screening.{" "}
+          <Link href="/pool" className="underline underline-offset-4">
+            Move it to a wallet
+          </Link>
+          .
+        </Notice>
+      )}
       {balance.pool.notApproved > 0n && (
         <Notice tone="bad">
           {formatAmount(balance.pool.notApproved, decimals, { group: true })} {symbol} didn&apos;t pass the pool&apos;s screening and isn&apos;t
@@ -200,6 +211,8 @@ function Home({ network }: { network: NetworkConfig }) {
       )}
       {snap.error && <Notice tone="bad">{classifyTxError(snap.error).message}</Notice>}
       {!network.pool && <Notice tone="warn">The shielded pool isn&apos;t available on {network.label}.</Notice>}
+
+      <OlderFunds network={network} />
 
       <section aria-labelledby="assets-h" className="space-y-3 pt-3">
         <h2 id="assets-h" className="font-display text-2xl font-semibold tracking-[-0.02em] text-snow">
@@ -283,5 +296,64 @@ export function GetStarted({ className }: { className?: string }) {
     >
       Get started
     </a>
+  );
+}
+
+/**
+ * For people who used QuietPay before 2 November 2026 on another device: one signature of the old
+ * message brings those funds into this device's balance. Shown until 1 February 2027, and only
+ * where this vault doesn't already hold the older keys.
+ */
+function OlderFunds({ network }: { network: NetworkConfig }) {
+  const { vault, update } = useVault();
+  const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
+  const client = usePublicClient(network);
+  const readiness = useNetworkReadiness(network);
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<"idle" | "busy" | string>("idle");
+  // (Once done, the result stays shown on this visit even though the older keys are now in the vault.)
+  if (state === "idle" && (!vault || !address || (vault.poolKeys?.length ?? 0) >= 2 || Date.now() >= OLDER_FUNDS_UNTIL || !readiness.data?.token)) return null;
+  if (!readiness.data?.token) return null;
+  const token = readiness.data.token;
+  async function run() {
+    setState("busy");
+    try {
+      const r = await findOlderFunds({
+        client,
+        network,
+        address: address!,
+        sign: (message) => signMessageAsync({ message }) as Promise<`0x${string}`>,
+        vault: vault!,
+        update,
+        token: { address: token.address, decimals: token.decimals, symbol: token.symbol },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["pool-snapshot"] });
+      await queryClient.invalidateQueries({ queryKey: ["onchain-holdings"] });
+      setState(
+        r.newKeys || r.links
+          ? `Done. Anything this wallet had before 2 November is now included in your balance${r.links ? ` (${r.links} older link${r.links === 1 ? "" : "s"} found)` : ""}.`
+          : "This device already had everything from before 2 November.",
+      );
+    } catch (e) {
+      setState(classifyTxError(e).kind === "user_rejected" ? "idle" : classifyTxError(e).message);
+    }
+  }
+  return (
+    <p className="text-center text-xs text-haze" aria-live="polite">
+      {state === "idle" ? (
+        <>
+          Used QuietPay before 2 November on another device?{" "}
+          <button type="button" className="underline underline-offset-2 hover:text-snow" onClick={() => void run()}>
+            Find older funds
+          </button>
+          . Your wallet signs QuietPay&apos;s old message once.
+        </>
+      ) : state === "busy" ? (
+        "Looking for older funds…"
+      ) : (
+        state
+      )}
+    </p>
   );
 }

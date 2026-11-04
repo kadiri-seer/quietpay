@@ -269,6 +269,17 @@ describe.skipIf(!existsSync(ANVIL))("paying straight into the pool", () => {
     expect(after.status).toBe("ragequit");
     await expect(refundUnapproved(relayer, load, { network, router, note })).rejects.toThrow();
     expect(await bal(router)).toBe(0n);
+
+    // Moving it on: the owner's wallet tops up the refund address with just the network fee, then
+    // the refund key (recreated from the pool keys) sends the tokens on.
+    const dest = privateKeyToAccount(generatePrivateKey()).address;
+    const fees = await client.estimateFeesPerGas();
+    const gas = await client.estimateContractGas({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [dest, 4_000_000n], account: refundKey });
+    await client.waitForTransactionReceipt({ hash: await deployer.sendTransaction({ to: refundKey.address, value: ((gas * 3n) / 2n) * fees.maxFeePerGas!, account: deployer.account!, chain: network.chain }) });
+    const mover = createWalletClient({ account: refundKey, chain: network.chain, transport: http(RPC) });
+    await client.waitForTransactionReceipt({ hash: await mover.writeContract({ address: network.token!, abi: erc20Abi, functionName: "transfer", args: [dest, 4_000_000n], gas: (gas * 3n) / 2n, maxFeePerGas: fees.maxFeePerGas, maxPriorityFeePerGas: fees.maxPriorityFeePerGas }) });
+    expect(await bal(dest)).toBe(4_000_000n);
+    expect(await bal(lock.refund)).toBe(0n);
   }, 120_000);
 
   it("screens the real payer of a router payment, not the router's mixed history", async () => {

@@ -4,8 +4,8 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { masterKeysFromSeeds } from "@/lib/pool/crypto";
 import { lockMessage, parsePayTarget, personalLock, PERSONAL_INDEX_BASE, signLock, verifyLock } from "@/lib/pool/locks";
 import { receiveLock } from "@/lib/pool/receive";
-import { HOLD_MS, MemoryLocks } from "@/lib/pool/lock-store";
-import { lockCounts, takeLock, uploadLocks, type LockDeps } from "@/lib/pool/lock-service";
+import { HOLD_MS, MIN_HOLD_MS, MemoryLocks } from "@/lib/pool/lock-store";
+import { HOLDS_PER_RECIPIENT, lockCounts, takeLock, uploadLocks, type LockDeps } from "@/lib/pool/lock-service";
 import { MemoryStore } from "@/lib/names/store";
 
 const POOL = getAddress("0x9d7c155c9572e9e233990de9b417c7801fd66257");
@@ -85,6 +85,29 @@ describe("lock service", () => {
     expect(new Set([c.lock.p, d.lock.p, e.lock.p]).size).toBe(2);
     // Nothing free now.
     await expect(takeLock(deps(later, used), { key }, "1.1.1.6", "s")).rejects.toThrow(/can't receive payments right now/);
+  });
+
+  it("can't be blocked by someone holding every lock: the longest-held one is shared after a minute", async () => {
+    const k2 = generatePrivateKey();
+    const key2 = privateKeyToAccount(k2).address as Address;
+    await uploadLocks(deps(0), { key: key2, locks: [await signed(k2, 0)] });
+    const t0 = 5_000_000;
+    const first = await takeLock(deps(t0), { key: key2 }, "9.9.9.1", "s");
+    // Right away, nobody else gets it...
+    await expect(takeLock(deps(t0 + 1000), { key: key2 }, "9.9.9.2", "s")).rejects.toThrow(/can't receive payments right now/);
+    // ...but after a minute it's handed out again, so a flood of unpaid holds can't stop payments.
+    const again = await takeLock(deps(t0 + MIN_HOLD_MS + 1), { key: key2 }, "9.9.9.3", "s");
+    expect(again.lock.p).toBe(first.lock.p);
+  });
+
+  it("limits how many locks one caller can hold for the same person at a time", async () => {
+    const k3 = generatePrivateKey();
+    const key3 = privateKeyToAccount(k3).address as Address;
+    const many = [];
+    for (let j = 0; j < HOLDS_PER_RECIPIENT + 2; j++) many.push(await signed(k3, j));
+    await uploadLocks(deps(0), { key: key3, locks: many });
+    for (let j = 0; j < HOLDS_PER_RECIPIENT; j++) await takeLock(deps(7_000_000), { key: key3 }, "8.8.8.8", `s${j < 5 ? "" : ""}`);
+    await expect(takeLock(deps(7_000_000), { key: key3 }, "8.8.8.8", "s")).rejects.toThrow(/already have a payment|Too many/);
   });
 
   it("refuses unknown usernames and rate-limits askers", async () => {

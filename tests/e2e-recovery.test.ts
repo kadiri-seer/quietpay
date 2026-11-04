@@ -24,7 +24,7 @@ import {
   MAX_GAS_STIPEND,
 } from "@/lib/payer";
 import { discoverLinks, fetchAnnouncementsForRequests, scanRequest, sendFromStealthPayment } from "@/lib/receive";
-import { deriveLinkKeys, deriveLinkSeed } from "@/lib/link-keys";
+import { deriveLinkKeys, deriveLinkKeysLegacy, deriveLinkSeed } from "@/lib/link-keys";
 import { verifyRouter, VerificationError } from "@/lib/chain";
 import { requestStatus } from "@/lib/vault";
 
@@ -156,6 +156,23 @@ describe.skipIf(!existsSync(ANVIL))("recovering links from the wallet on a new d
     // A different wallet finds nothing.
     const stranger = await deriveLinkSeed(sig, "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC");
     expect((await discoverLinks(client, network, { seed: stranger, nextLinkIndex: 0, known: [], token: tokenInfo, fullHistory: true })).found).toHaveLength(0);
+  });
+
+  it("finds links made before 2 November (old key derivation) only when asked to, without taking their numbers", async () => {
+    const legacySig = `0x${"6b".repeat(65)}` as Hex;
+    const seed = await deriveLinkSeed(legacySig, "0x70997970C51812dc3A010C7d01b50e0d17dc79C8");
+    const tokenInfo = { address: network.token!, decimals: 6, symbol: "tUSDG" };
+    const fromBlock = await client.getBlockNumber({ cacheTime: 0 });
+    const old = createPaymentRequest({ kind: "fixed", chainId: 46630, token: network.token!, amount: 5_000_000n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock, keys: await deriveLinkKeysLegacy(seed, 1) });
+    await routedPay(old.link);
+    // The current derivation doesn't see it...
+    expect((await discoverLinks(client, network, { seed, nextLinkIndex: 0, known: [], token: tokenInfo, fullHistory: true })).found).toHaveLength(0);
+    // ...the old one does, and records it without a link number.
+    const d = await discoverLinks(client, network, { seed, nextLinkIndex: 0, known: [], token: tokenInfo, fullHistory: true, legacy: true });
+    expect(d.found).toHaveLength(1);
+    expect(d.found[0].keys.stealthMetaAddress).toBe(old.keys.stealthMetaAddress);
+    expect(d.found[0].index).toBeUndefined();
+    expect((await deriveLinkKeysLegacy(seed, 1)).stealthMetaAddress).not.toBe((await deriveLinkKeys(seed, 46630, 1)).stealthMetaAddress);
   });
 
   it("keeps a fixed link's payments to itself when two links share keys", async () => {

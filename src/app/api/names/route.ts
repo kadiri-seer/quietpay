@@ -8,6 +8,7 @@ import { NextResponse } from "next/server";
 import { ReservationError } from "@/lib/names/names";
 import { lookup, submit } from "@/lib/names/service";
 import { nameStore } from "@/lib/names/store";
+import { watchCaller } from "@/lib/server/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ export async function GET(req: Request) {
   const store = nameStore();
   if (!store) return NextResponse.json({ error: "Name reservations aren't open yet." }, { status: 503, headers: noStore });
   const u = new URL(req.url);
+  await watchCaller(req, "name.lookup.caller");
   try {
     return NextResponse.json(await lookup(store, { name: u.searchParams.get("name"), key: u.searchParams.get("key") }, ipOf(req), salt()), { headers: noStore });
   } catch (e) {
@@ -46,6 +48,7 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Malformed request." }, { status: 400, headers: noStore });
   }
+  await watchCaller(req, "name.claim.caller");
   try {
     return NextResponse.json(await submit(store, body, ipOf(req), salt()), { headers: noStore });
   } catch (e) {

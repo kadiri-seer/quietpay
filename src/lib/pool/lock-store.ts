@@ -8,15 +8,17 @@
  *                   number new locks and to know how far to look for payments).
  *
  * A lock handed to a payer is held for HOLD_MS. If the payer doesn't pay, it is handed out again
- * afterwards; a lock the pool has already accepted is dropped. So an abandoned payment wastes
- * nothing, and two payers never get the same unused lock at the same time.
+ * afterwards; a lock the pool has already accepted is dropped. When every lock is held, the one
+ * held longest (at least MIN_HOLD_MS) is handed out again, so holding locks can't block payments.
  */
 import "server-only";
 import type { Address } from "viem";
 import { upstashEnv } from "@/lib/names/store";
 import type { SignedLock } from "./locks";
 
-export const HOLD_MS = 15 * 60_000;
+export const HOLD_MS = 5 * 60_000;
+/** When every lock is held, the one held longest is handed out again once it's been held this long. */
+export const MIN_HOLD_MS = 60_000;
 export const MAX_LOCKS_PER_KEY = 500;
 
 export interface LockStore {
@@ -33,10 +35,15 @@ const setKey = (k: Address) => `qp:locks:${k.toLowerCase()}`;
 const countKey = (k: Address) => `qp:lockn:${k.toLowerCase()}`;
 const member = (l: SignedLock) => JSON.stringify({ p: l.p, r: l.r, s: l.s });
 
-// Picks the lowest-scored lock that is free now and holds it, atomically.
+// Picks the lowest-scored lock that is free now and holds it, atomically. If none is free, the one
+// held longest is taken over once it has been held MIN_HOLD_MS (ARGV[3] = now + HOLD - MIN_HOLD):
+// someone holding every lock without paying can't stop payments, they only make them share.
 const TAKE_LUA = `
 local m = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)
-if #m == 0 then return false end
+if #m == 0 then
+  m = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[3], 'LIMIT', 0, 1)
+  if #m == 0 then return false end
+end
 redis.call('ZADD', KEYS[1], 'XX', ARGV[2], m[1])
 return m[1]`;
 
@@ -65,7 +72,7 @@ class UpstashLocks implements LockStore {
     return n < 0 ? null : n;
   }
   async take(key: Address, now: number) {
-    const m = await this.cmd<string | null>(["EVAL", TAKE_LUA, 1, setKey(key), now, now + HOLD_MS]);
+    const m = await this.cmd<string | null>(["EVAL", TAKE_LUA, 1, setKey(key), now, now + HOLD_MS, now + HOLD_MS - MIN_HOLD_MS]);
     return m ? (JSON.parse(m) as SignedLock) : null;
   }
   async drop(key: Address, lock: SignedLock) {
@@ -106,6 +113,7 @@ export class MemoryLocks implements LockStore {
     const s = this.set(key);
     let best: [string, number] | null = null;
     for (const [m, score] of s) if (score <= now && (!best || score < best[1])) best = [m, score];
+    if (!best) for (const [m, score] of s) if (score <= now + HOLD_MS - MIN_HOLD_MS && (!best || score < best[1])) best = [m, score];
     if (!best) return null;
     s.set(best[0], now + HOLD_MS);
     return JSON.parse(best[0]) as SignedLock;

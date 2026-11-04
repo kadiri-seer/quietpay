@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAccount, useWalletClient } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
-import { getAddress, isAddress } from "viem";
+import { createWalletClient, getAddress, http, isAddress } from "viem";
+import { erc20Abi } from "@/config/contracts";
 import type { NetworkConfig } from "@/config/networks";
 import { AmountError, formatAmount, parseAmount } from "@/lib/amount";
 import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, verifyPool, type PoolInfo } from "@/lib/pool/actions";
@@ -266,6 +267,7 @@ function NoteCard(p: { note: Note; network: NetworkConfig; info: PoolInfo; snaps
       )}
       {open === "withdraw" && <WithdrawForm {...p} onDone={() => setOpen(null)} />}
       {open === "exit" && (note.received ? <RefundForm {...p} /> : <ExitForm {...p} />)}
+      {note.received && note.status === "ragequit" && <RefundMove {...p} />}
     </li>
   );
 }
@@ -579,6 +581,100 @@ function RefundForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]
         <button type="button" className="btn btn-sm" onClick={run} disabled={busy || !wallet}>
           {busy ? <Spinner /> : null} Return {fmt(note.value)}
         </button>
+      )}
+      {error && <Notice tone="bad">{error}</Notice>}
+    </div>
+  );
+}
+
+/**
+ * Money returned to a link's refund address (a payment that failed screening). The refund key
+ * comes from your pool keys. The address has no ETH, so your connected wallet first sends just
+ * enough for the network fee, then the refund key sends the tokens where you choose. Both steps
+ * are public, and the money can't go back into the pool.
+ */
+function RefundMove({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]) {
+  const { address } = useAccount();
+  const { data: wallet } = useWalletClient({ chainId: network.chain.id });
+  const client = usePublicClient(network);
+  const queryClient = useQueryClient();
+  const refund = useMemo(() => (note.received ? refundAccount(note.keys, info.scope, note.received.receiveIndex) : null), [note, info.scope]);
+  const [held, setHeld] = useState<bigint | null>(null);
+  const [dest, setDest] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<`0x${string}` | null>(null);
+
+  useEffect(() => {
+    if (!refund || !network.token) return;
+    void client.readContract({ address: network.token, abi: erc20Abi, functionName: "balanceOf", args: [refund.address] }).then(setHeld).catch(() => setHeld(null));
+  }, [client, refund, network.token, done]);
+  useEffect(() => {
+    if (address && !dest) setDest(address);
+  }, [address, dest]);
+
+  if (!refund || !held) return null;
+  const to = isAddress(dest.trim()) ? getAddress(dest.trim()) : null;
+
+  async function move() {
+    if (!refund || !to || !wallet || !held || !network.token) return;
+    setError(null);
+    try {
+      const fees = await client.estimateFeesPerGas();
+      const gas = await client.estimateContractGas({ address: network.token, abi: erc20Abi, functionName: "transfer", args: [to, held], account: refund });
+      const need = ((gas * 3n) / 2n) * (fees.maxFeePerGas ?? 0n);
+      const have = await client.getBalance({ address: refund.address });
+      if (have < need) {
+        setBusy("Sending the network fee from your wallet");
+        const h = await wallet.sendTransaction({ to: refund.address, value: need - have, account: wallet.account!, chain: network.chain });
+        await client.waitForTransactionReceipt({ hash: h });
+      }
+      setBusy("Moving the refund");
+      const refundWallet = createWalletClient({ account: refund, chain: network.chain, transport: http(network.rpcUrl, { timeout: 20_000 }) });
+      // Same fee settings the top-up was worked out from, so the ETH sent always covers it.
+      const hash = await refundWallet.writeContract({
+        address: network.token,
+        abi: erc20Abi,
+        functionName: "transfer",
+        args: [to, held],
+        gas: (gas * 3n) / 2n,
+        maxFeePerGas: fees.maxFeePerGas,
+        maxPriorityFeePerGas: fees.maxPriorityFeePerGas,
+      });
+      const r = await client.waitForTransactionReceipt({ hash });
+      if (r.status !== "success") throw new Error("The transfer reverted. Nothing moved.");
+      setDone(hash);
+      await queryClient.invalidateQueries({ queryKey: ["onchain-holdings"] });
+    } catch (e) {
+      setError(e instanceof Error && !("shortMessage" in e) ? e.message : classifyTxError(e).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mt-4 space-y-3 rounded-xl border border-harbor p-4 text-sm">
+      <p className="leading-relaxed text-mist">
+        {fmt(held)} is at this payment&apos;s refund address (<Mono>{shorten(refund.address, 4)}</Mono>). It failed screening, so it can&apos;t go back
+        into the pool. Send it to a wallet; this is public.
+      </p>
+      {done ? (
+        <Notice tone="ok">
+          Moved · <ExplorerLink network={network} tx={done} />
+        </Notice>
+      ) : (
+        <>
+          <input className="field font-mono text-base sm:text-xs" value={dest} onChange={(e) => setDest(e.target.value)} placeholder="0x…" aria-label="Send the refund to" />
+          <button type="button" className="btn btn-sm" onClick={() => void move()} disabled={!to || !!busy || !wallet}>
+            {busy ? (
+              <>
+                <Spinner /> {busy}
+              </>
+            ) : (
+              <>Send {fmt(held)}</>
+            )}
+          </button>
+        </>
       )}
       {error && <Notice tone="bad">{error}</Notice>}
     </div>

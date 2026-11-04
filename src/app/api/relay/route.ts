@@ -8,7 +8,7 @@ import { formatEther } from "viem";
 import { verifyPool } from "@/lib/pool/actions";
 import { quoteMinWithdrawal, relayTransfer, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
 import { relayerContext, withPrice } from "@/lib/pool/server";
-import { kv, rateLimit, readJson, withLock } from "@/lib/server/guard";
+import { kv, rateLimit, readJson, watchCaller, withLock } from "@/lib/server/guard";
 import type { RelayGuard } from "@/lib/pool/relayer";
 
 /** Withdrawals per client per 10 minutes, and terms lookups per minute. */
@@ -62,6 +62,7 @@ export async function POST(req: Request) {
   const ctx = relayerContext();
   if (!ctx) return NextResponse.json({ error: "The relayer is not running." }, { status: 503, headers: noStore });
   if (!(await rateLimit(req, "relay", RELAYS_PER_10_MIN, 600))) return tooMany();
+  await watchCaller(req, "relay.caller");
   const read = await readJson(req, 8_000);
   if (!read.ok) return NextResponse.json({ error: read.status === 413 ? "Request too large." : "Malformed request." }, { status: read.status, headers: noStore });
   const body = read.body;

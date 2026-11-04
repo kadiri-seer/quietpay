@@ -36,6 +36,7 @@ import { WalletGate } from "@/components/WalletGate";
 import { formatEthCeil } from "@/components/ui";
 import { PoolPayPanel } from "./PoolPayPanel";
 import { PersonalPay } from "./PersonalPay";
+import { OwnCheck } from "@/components/OwnCheck";
 import { parsePayTarget } from "@/lib/pool/locks";
 import { useSelectedNetwork } from "@/components/Providers";
 import { useVault } from "@/components/VaultProvider";
@@ -148,13 +149,15 @@ function PayLink({ v, code }: { v: LinkValidation; code: string }) {
       ) : token && readiness.data?.announcer ? (
         <>
           <WalletGate network={network} purpose="Connect the wallet you'll pay from. You'll review everything before anything is sent.">
-            {ownRequest ? (
-              <Notice tone="bad">This is your own request. You can&apos;t pay yourself.</Notice>
-            ) : request.poolLock ? (
-              <PoolPayPanel v={v} />
-            ) : (
-              <PayerPanel v={v} code={code} />
-            )}
+            <OwnCheck>
+              {ownRequest ? (
+                <Notice tone="bad">This is your own request. You can&apos;t pay yourself.</Notice>
+              ) : request.poolLock ? (
+                <PoolPayPanel v={v} />
+              ) : (
+                <PayerPanel v={v} code={code} />
+              )}
+            </OwnCheck>
           </WalletGate>
         </>
       ) : (

@@ -11,6 +11,8 @@ import { upstashEnv } from "@/lib/names/store";
 interface Kv {
   /** Increments `bucket`; false once it passes `limit` within `windowSec`. */
   allow(bucket: string, limit: number, windowSec: number): Promise<boolean>;
+  /** Increments `bucket` (expiring after `windowSec` from its first use) and returns the new count. */
+  count(bucket: string, windowSec: number): Promise<number>;
   /** Takes `key` for `ttlSec` if free. Returns a token to release it, or null if taken. */
   acquire(key: string, ttlSec: number): Promise<string | null>;
   release(key: string, token: string): Promise<void>;
@@ -38,7 +40,10 @@ class UpstashKv implements Kv {
     return j.result as T;
   }
   async allow(bucket: string, limit: number, windowSec: number) {
-    return (await this.cmd<number>(["EVAL", RATE_LUA, 1, `qp:rl:${bucket}`, windowSec])) <= limit;
+    return (await this.count(bucket, windowSec)) <= limit;
+  }
+  async count(bucket: string, windowSec: number) {
+    return this.cmd<number>(["EVAL", RATE_LUA, 1, `qp:rl:${bucket}`, windowSec]);
   }
   async acquire(key: string, ttlSec: number) {
     const token = crypto.randomUUID();
@@ -60,12 +65,15 @@ class MemoryKv implements Kv {
   private rl = new Map<string, { n: number; until: number }>();
   private locks = new Map<string, { token: string; until: number }>();
   async allow(bucket: string, limit: number, windowSec: number) {
+    return (await this.count(bucket, windowSec)) <= limit;
+  }
+  async count(bucket: string, windowSec: number) {
     const now = Date.now();
     const e = this.rl.get(bucket);
     const cur = !e || e.until < now ? { n: 0, until: now + windowSec * 1000 } : e;
     cur.n++;
     this.rl.set(bucket, cur);
-    return cur.n <= limit;
+    return cur.n;
   }
   async acquire(key: string, ttlSec: number) {
     const now = Date.now();
@@ -95,6 +103,9 @@ class FallbackKv implements Kv {
   ) {}
   allow(bucket: string, limit: number, windowSec: number) {
     return this.primary.allow(bucket, limit, windowSec).catch(() => this.backup.allow(bucket, limit, windowSec));
+  }
+  count(bucket: string, windowSec: number) {
+    return this.primary.count(bucket, windowSec).catch(() => this.backup.count(bucket, windowSec));
   }
   acquire(key: string, ttlSec: number) {
     return this.primary.acquire(key, ttlSec).catch(() => this.backup.acquire(key, ttlSec));
@@ -139,9 +150,22 @@ export async function clientId(req: Request): Promise<string> {
 /** True if this client may make another `name` request (limit per window). Fails open if the store is down. */
 export async function rateLimit(req: Request, name: string, limit: number, windowSec: number): Promise<boolean> {
   try {
-    return await kv().allow(`${name}:${await clientId(req)}`, limit, windowSec);
+    const id = await clientId(req);
+    const ok = await kv().allow(`${name}:${id}`, limit, windowSec);
+    // A caller who keeps hitting a limit is worth knowing about (src/lib/server/monitor.ts).
+    if (!ok) await (await import("./monitor")).watch("limit.hit", `${name}:${id}`);
+    return ok;
   } catch {
     return true;
+  }
+}
+
+/** Counts this caller's use of a route for the repeated-action monitor. */
+export async function watchCaller(req: Request, event: "relay.caller" | "approvals.caller" | "name.claim.caller" | "name.lookup.caller"): Promise<void> {
+  try {
+    await (await import("./monitor")).watch(event, await clientId(req));
+  } catch {
+    /* monitoring never blocks a request */
   }
 }
 

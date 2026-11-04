@@ -16,7 +16,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { erc20Abi } from "@/config/contracts";
 import type { NetworkConfig } from "@/config/networks";
 import { findDeployBlock, scanAnnouncements, verifyTransferInReceipt, waitForConfirmedReceipt, type Announcement } from "./chain";
-import { deriveLinkKeys, RECOVERY_GAP } from "./link-keys";
+import { deriveLinkKeys, deriveLinkKeysLegacy, RECOVERY_GAP } from "./link-keys";
 import { parsePaymentMetadata } from "./metadata";
 import { announcementMatches, deriveStealthPrivateKey } from "./stealth";
 import type { StoredPayment, StoredRequest, VaultData } from "./vault";
@@ -211,6 +211,8 @@ export async function discoverLinks(
     onProgress?: (done: bigint, total: bigint) => void;
     onChecking?: (index: number) => void;
     signal?: AbortSignal;
+    /** Links made before 2 November 2026 (old derivation). They are recovered without a link number. */
+    legacy?: boolean;
   },
 ): Promise<DiscoveryResult> {
   if (!network.announcer) throw new Error("No announcer configured.");
@@ -244,7 +246,7 @@ export async function discoverLinks(
     if (p.signal?.aborted) throw new DOMException("Scan cancelled", "AbortError");
     if (knownIndexes.has(i)) continue;
     p.onChecking?.(i);
-    const keys = await deriveLinkKeys(p.seed, network.chain.id, i);
+    const keys = p.legacy ? await deriveLinkKeysLegacy(p.seed, i) : await deriveLinkKeys(p.seed, network.chain.id, i);
     if (knownMeta.has(keys.stealthMetaAddress.toLowerCase())) continue;
     const matches = candidates.filter((a) => announcementMatches(a, keys));
     if (matches.length === 0) continue;
@@ -266,7 +268,7 @@ export async function discoverLinks(
       fromBlock: first.blockNumber.toString(),
       link: "",
       keys,
-      index: i,
+      ...(p.legacy ? {} : { index: i }),
       recovered: true,
       payments: [],
     });

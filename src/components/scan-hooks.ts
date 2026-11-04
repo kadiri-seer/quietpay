@@ -81,3 +81,43 @@ export function usePaymentScan(network: NetworkConfig) {
   const cancel = useCallback(() => abort.current?.abort(), []);
   return { scan, cancel, scanning, progress, message, lastRun, ready: !!vault && !!token && !!network.announcer };
 }
+
+/** Until then, people who used QuietPay before the 2 November sign-in change can bring their funds over. */
+export const OLDER_FUNDS_UNTIL = Date.parse("2027-02-01T00:00:00Z");
+
+/**
+ * Finds funds from before 2 November 2026 on a device that never had them: signs QuietPay's old
+ * message once, recreates the pool keys and link keys it gave, adds the pool keys to the vault
+ * (so those deposits count in the balance and can be spent) and recovers older links with
+ * payments. Their link numbers don't affect new links.
+ */
+export async function findOlderFunds(p: {
+  client: ReturnType<typeof usePublicClient>;
+  network: NetworkConfig;
+  address: `0x${string}`;
+  sign: (message: string) => Promise<`0x${string}`>;
+  vault: NonNullable<ReturnType<typeof useVault>["vault"]>;
+  update: ReturnType<typeof useVault>["update"];
+  token: { address: `0x${string}`; decimals: number; symbol: string };
+}): Promise<{ links: number; newKeys: boolean }> {
+  const { buildLegacyVaultMessage } = await import("@/lib/vault-crypto");
+  const { derivePoolMasterKeys } = await import("@/lib/pool/crypto");
+  const { deriveLinkSeed } = await import("@/lib/link-keys");
+  const sig = await p.sign(buildLegacyVaultMessage(p.address));
+  const pk = await derivePoolMasterKeys(sig, p.address);
+  const pkStr = { masterNullifier: pk.masterNullifier.toString(), masterSecret: pk.masterSecret.toString() };
+  const seed = await deriveLinkSeed(sig, p.address);
+  const d = p.network.announcer
+    ? await discoverLinks(p.client, p.network, { seed, nextLinkIndex: 0, known: p.vault.requests, token: p.token, fullHistory: true, legacy: true })
+    : null;
+  const recovered: StoredRequest[] = [];
+  for (const r of d?.found ?? []) recovered.push((await scanRequest(p.client, p.network, r, d!.anns, d!.toBlock)).request);
+  let newKeys = false;
+  await p.update((v) => {
+    const known = v.poolKeys ?? [];
+    newKeys = !known.some((k) => k.masterNullifier === pkStr.masterNullifier && k.masterSecret === pkStr.masterSecret);
+    const withKeys = newKeys ? { ...v, poolKeys: [...known, pkStr] } : v;
+    return recovered.length ? applyScan(withKeys, { scanned: [], recovered, nextLinkIndex: v.nextLinkIndex ?? 0, checkedAt: v.linksCheckedAt ?? Date.now() }) : withKeys;
+  });
+  return { links: recovered.length, newKeys };
+}

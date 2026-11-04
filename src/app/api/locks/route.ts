@@ -13,6 +13,8 @@ import { ReservationError } from "@/lib/names/names";
 import { nameStore } from "@/lib/names/store";
 import { lockStore } from "@/lib/pool/lock-store";
 import { lockCounts, takeLock, uploadLocks, type LockDeps } from "@/lib/pool/lock-service";
+import { watch } from "@/lib/server/monitor";
+import { clientId } from "@/lib/server/guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -33,10 +35,12 @@ function deps(): LockDeps | null {
     chainId: network.chain.id,
     pool: network.pool.pool,
     isUsed: (p) => client.readContract({ address: network.pool!.entrypoint, abi: Entrypoint.abi, functionName: "usedPrecommitments", args: [p] }),
+    watch,
   };
 }
 
-function fail(e: unknown) {
+async function fail(e: unknown, req: Request) {
+  if (e instanceof ReservationError && e.status === 429) await watch("limit.hit", `locks:${await clientId(req)}`);
   if (e instanceof ReservationError) return NextResponse.json({ error: e.message }, { status: e.status, headers: noStore });
   return NextResponse.json({ error: "Payments to usernames are temporarily unavailable. Try again shortly." }, { status: 502, headers: noStore });
 }
@@ -49,7 +53,7 @@ export async function GET(req: Request) {
     if (u.searchParams.get("counts")) return NextResponse.json(await lockCounts(d, u.searchParams.get("key") ?? ""), { headers: noStore });
     return NextResponse.json(await takeLock(d, { name: u.searchParams.get("name"), key: u.searchParams.get("key") }, ipOf(req), salt()), { headers: noStore });
   } catch (e) {
-    return fail(e);
+    return fail(e, req);
   }
 }
 
@@ -66,6 +70,6 @@ export async function POST(req: Request) {
   try {
     return NextResponse.json(await uploadLocks(d, body), { headers: noStore });
   } catch (e) {
-    return fail(e);
+    return fail(e, req);
   }
 }
