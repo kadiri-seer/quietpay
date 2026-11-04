@@ -12,6 +12,7 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],
+    setupFiles: ["tests/setup-env.ts"],
     testTimeout: 60_000,
     hookTimeout: 60_000,
     // The stealth SDK ships extensionless ESM imports; let Vite resolve them.
