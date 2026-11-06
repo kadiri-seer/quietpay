@@ -1,6 +1,6 @@
 /**
  * What a scanned (or pasted) QR code means. Only QuietPay codes are accepted:
- *   - a username or personal link (…/pay#@name, …/pay#to=0x…, or "@name") -> Send from your balance
+ *   - a personal link (…/pay#to=0x…) -> Send from your balance, to that link
  *   - a wallet address -> Send from your balance
  *   - a payment request (…/pay#<code>) -> Pay page (paid from a connected wallet)
  * A link to any other website is refused, so a QR code can't send you somewhere that looks like
@@ -20,7 +20,6 @@ export function interpretScan(text: string, currentHost: string): ScanResult {
   if (isAddress(s)) return { kind: "send", to: getAddress(s) };
   const ethereum = /^ethereum:(0x[0-9a-fA-F]{40})(?:@\d+)?$/.exec(s);
   if (ethereum) return { kind: "send", to: getAddress(ethereum[1]) };
-  if (/^@[a-z0-9_]{3,20}$/i.test(s)) return { kind: "send", to: s.toLowerCase() };
 
   let url: URL;
   try {
@@ -34,7 +33,8 @@ export function interpretScan(text: string, currentHost: string): ScanResult {
   if (url.pathname.replace(/\/$/, "") !== "/pay" || url.hash.length < 2) return { kind: "error", message: "That isn't a QuietPay payment code." };
   const frag = url.hash.slice(1);
   const target = parsePayTarget(frag);
-  if (target) return { kind: "send", to: target.kind === "name" ? `@${target.name}` : target.key };
+  // "to=0x…" so Send knows it's a personal link, not a wallet address to withdraw to.
+  if (target) return { kind: "send", to: `to=${target.key}` };
   try {
     decodePaymentLink(frag);
     return { kind: "pay", code: frag };

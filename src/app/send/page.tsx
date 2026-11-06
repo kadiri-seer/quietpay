@@ -3,7 +3,7 @@ import { SendFlow } from "./SendFlow";
 
 export const metadata: Metadata = {
   title: "Send | QuietPay",
-  description: "Send from your shielded balance to a QuietPay username, a wallet address, or pay a payment link.",
+  description: "Send from QuietPay to a personal link or a wallet address, or pay a payment link. Every send goes through the shielded pool.",
 };
 
 export default function SendPage() {

@@ -193,7 +193,6 @@ export function SiteFooter() {
             { href: "/send", label: "Send" },
             { href: "/activity", label: "Activity" },
             { href: "/pool", label: "Shielded pool" },
-            { href: "/names", label: "Claim your name" },
           ]}
         />
         <FooterCol

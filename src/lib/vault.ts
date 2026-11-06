@@ -88,7 +88,7 @@ export interface VaultData {
   linkSeed?: Hex;
   /** Number of the next link to create. Links 0..n-1 are in use. */
   nextLinkIndex?: number;
-  /** Signed pool locks uploaded for your @username and personal link (they are numbered 0..n-1). */
+  /** Signed pool locks uploaded for your personal link (they are numbered 0..n-1). */
   lockCount?: number;
   /** When this browser last checked the chain for links made elsewhere (ms). */
   linksCheckedAt?: number;

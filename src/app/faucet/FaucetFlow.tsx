@@ -120,8 +120,8 @@ function TokenClaim({ network }: { network: NetworkConfig }) {
       )}
       {bal && (
         <p className="text-xs leading-relaxed text-haze">
-          This is your wallet, outside QuietPay. Your private QuietPay balance is on Home; money gets there when someone pays your
-          username, link or request.
+          This is your wallet. It shows in your QuietPay total on Home, where you can add it to your private balance or send it through
+          the pool.
         </p>
       )}
       {bal && bal.eth === 0n && (

@@ -6,8 +6,11 @@
  * largest first, one relayed transaction each. Each part pays the relayer's fee.
  *
  *   - to a wallet address: private withdrawals to that address;
- *   - to a @username or personal link: pool-to-pool transfers into the recipient's locks, so the
- *     money never leaves the pool.
+ *   - to a personal link: pool-to-pool transfers into the recipient's locks, so the money never
+ *     leaves the pool.
+ *
+ * Money in your connected wallet can be sent too: it is first paid into your own shielded balance
+ * (one signature), then sent from there like the rest, so every send goes through the pool.
  */
 import type { Address } from "viem";
 import type { PoolNote } from "./state";
@@ -41,5 +44,21 @@ export function afterFees(parts: Part<Pick<PoolNote, "value">>[], feeBPS: bigint
   return { fee, arrives: total - fee };
 }
 
-/** A recipient for Send: a wallet address, or a QuietPay user by @username or personal-link key. */
-export type SendTo = { kind: "address"; address: Address } | { kind: "name"; name: string } | { kind: "key"; key: Address };
+/** A recipient for Send: a wallet address, or a QuietPay user's personal-link key. */
+export type SendTo = { kind: "address"; address: Address } | { kind: "key"; key: Address };
+
+/**
+ * How much of a send comes from your private balance and how much from your connected wallet:
+ * private money first, the wallet only for the rest. Null if the two together aren't enough.
+ */
+/** What to pay into the pool so that `credit` lands after its vetting fee (rounded up). */
+export function depositFor(credit: bigint, vettingFeeBPS: bigint): bigint {
+  const keep = 10_000n - vettingFeeBPS;
+  return (credit * 10_000n + keep - 1n) / keep;
+}
+
+export function splitSend(privateAvailable: bigint, walletAvailable: bigint, amount: bigint): { fromPool: bigint; fromWallet: bigint } | null {
+  if (amount <= 0n || amount > privateAvailable + walletAvailable) return null;
+  const fromPool = amount < privateAvailable ? amount : privateAvailable;
+  return { fromPool, fromWallet: amount - fromPool };
+}

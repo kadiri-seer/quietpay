@@ -9,9 +9,8 @@ import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { useOnchainHoldings, usePoolInfo, usePoolSnapshot } from "@/components/pool-hooks";
 import { findOlderFunds, OLDER_FUNDS_UNTIL, usePaymentScan } from "@/components/scan-hooks";
+import { useAddToBalance, useWalletToken } from "@/components/wallet-funds";
 import { useMoveIntoPool } from "@/components/AutoShield";
-import { useQuery } from "@tanstack/react-query";
-import { erc20Abi } from "@/config/contracts";
 import { useAccount, useSignMessage } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
 import { useSelectedNetwork } from "@/components/Providers";
@@ -82,15 +81,10 @@ function Home({ network }: { network: NetworkConfig }) {
   const holdings = useOnchainHoldings(network, snap.data?.notes, info.data?.scope);
   const payments = usePaymentScan(network);
   const move = useMoveIntoPool();
-  // Your connected wallet's own tokens (what the faucet shows): listed apart, never added to the balance.
-  const { address: walletAddress } = useAccount();
-  const client = usePublicClient(network);
-  const walletBal = useQuery({
-    queryKey: ["wallet-token", network.key, walletAddress, readiness.data?.token?.address],
-    enabled: !!walletAddress && !!readiness.data?.token,
-    staleTime: 15_000,
-    queryFn: () => client.readContract({ address: readiness.data!.token!.address, abi: erc20Abi, functionName: "balanceOf", args: [walletAddress!] }),
-  });
+  // Your connected wallet's own tokens (what the faucet shows): in the total, but public.
+  const walletBal = useWalletToken(network);
+  const wallet = walletBal.data ?? 0n;
+  const add = useAddToBalance(network);
   // Look for new payments to your links each time Home opens (only blocks not checked yet).
   const scanned = useRef(false);
   useEffect(() => {
@@ -133,12 +127,14 @@ function Home({ network }: { network: NetworkConfig }) {
   );
   const poolBalance = balance.pool.ready + balance.pool.waiting;
   const loading = (!!network.pool && snap.isLoading) || readiness.isLoading || holdings.isLoading;
-  const [whole, frac] = formatAmount(balance.total, decimals, { group: true, minFraction: 2 }).split(".");
+  const total = balance.total + wallet;
+  const [whole, frac] = formatAmount(total, decimals, { group: true, minFraction: 2 }).split(".");
   const f = (v: bigint) => formatAmount(v, decimals, { group: true });
   const parts = [
-    poolBalance > 0n || (balance.oneTime === 0n && balance.refunds === 0n) ? `${f(poolBalance)} in the shielded pool` : "",
+    poolBalance > 0n || (balance.oneTime === 0n && balance.refunds === 0n && wallet === 0n) ? `${f(poolBalance)} private` : "",
     balance.oneTime > 0n ? `${f(balance.oneTime)} at one-time addresses` : "",
     balance.refunds > 0n ? `${f(balance.refunds)} at refund addresses` : "",
+    wallet > 0n ? `${f(wallet)} in your wallet (public)` : "",
   ].filter(Boolean);
 
   return (
@@ -248,25 +244,39 @@ function Home({ network }: { network: NetworkConfig }) {
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-lg text-snow">{mock ? "Test USDG" : "USDG"}</p>
-              <p className="text-sm text-haze">{symbol}</p>
+              <p className="text-sm text-haze">{symbol} · private</p>
             </div>
             <p className="text-right font-display text-lg font-semibold text-snow">
               {loading ? <Skeleton className="h-6 w-20" /> : hidden ? "••••" : formatAmount(balance.total, decimals, { group: true })}
             </p>
           </li>
-          {walletBal.data !== undefined && walletBal.data > 0n && (
-            <li className="flex items-center gap-4 rounded-[1.25rem] border border-dashed border-harbor px-4 py-4">
-              <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-harbor font-display text-xl font-bold text-haze">
-                $
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg text-snow">In your wallet</p>
-                <p className="text-sm text-haze">Outside QuietPay, not private · not in your balance</p>
+          {wallet > 0n && (
+            <li className="rounded-[1.25rem] border border-dashed border-harbor px-4 py-4">
+              <div className="flex items-center gap-4">
+                <span aria-hidden className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full border border-harbor font-display text-xl font-bold text-haze">
+                  $
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg text-snow">In your wallet</p>
+                  <p className="text-sm text-haze">Public · anyone can see it</p>
+                </div>
+                <p className="text-right font-display text-lg font-semibold text-snow">{hidden ? "••••" : formatAmount(wallet, decimals, { group: true })}</p>
               </div>
-              <p className="text-right font-display text-lg font-semibold text-haze">{hidden ? "••••" : formatAmount(walletBal.data, decimals, { group: true })}</p>
+              {network.pool && (
+                <div className="mt-3 space-y-2">
+                  <button type="button" className="btn btn-sm w-full" onClick={() => void add.run(wallet)} disabled={!add.ready || add.busy}>
+                    {add.busy ? <Spinner /> : null} {add.busy ? "Adding…" : "Add to private balance"}
+                  </button>
+                  <p className="text-xs leading-relaxed text-haze">
+                    One signature moves it into your shielded balance. Onchain it shows your wallet paid into the pool, not where it goes later.
+                  </p>
+                </div>
+              )}
             </li>
           )}
         </ul>
+        {add.done && <Notice tone="ok">Added to your private balance.</Notice>}
+        {add.error && <Notice tone="bad">{add.error}</Notice>}
       </section>
     </div>
   );

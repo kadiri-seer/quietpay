@@ -87,7 +87,7 @@ export function usePoolSnapshot(network: NetworkConfig) {
   const { vault } = useVault();
   // Payment links that pay into the pool use lock i = link number i.
   const issued = BigInt(vault?.nextLinkIndex ?? 0);
-  // Locks uploaded for @username and personal-link payments.
+  // Locks uploaded for personal-link payments.
   const locksIssued = BigInt(vault?.lockCount ?? 0);
   return useQuery<PoolSnapshot>({
     queryKey: ["pool-snapshot", network.key, info.data?.pool, info.data?.aspRoot?.toString(), keys.map((k) => k.masterNullifier.toString()).join(","), issued.toString(), locksIssued.toString()],
@@ -118,7 +118,7 @@ export function usePoolSnapshot(network: NetworkConfig) {
         // Payments received straight into the pool through payment links.
         const rr = reconstructReceived(k, info.data!.scope, events, i === 0 ? issued : 0n);
         if (i === 0) nextReceiveIndex = rr.nextReceiveIndex;
-        // Payments to your @username or personal link.
+        // Payments to your personal link.
         // (Every key set is checked: a device that unlocked before 2 November signs locks with its older keys.)
         const personal = reconstructReceived(k, info.data!.scope, events, locksIssued, 20, PERSONAL_INDEX_BASE).notes;
         for (const n of [...rr.notes, ...personal]) {

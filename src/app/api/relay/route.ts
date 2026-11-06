@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   try {
     const info = await verifyPool(ctx.client, ctx.network);
     if (!info) return NextResponse.json({ error: "No pool is configured." }, { status: 503, headers: noStore });
-    // A pool-to-pool transfer (paying a @username or personal link from your balance).
+    // A pool-to-pool transfer (paying a personal link from your balance).
     if ((body as { kind?: unknown } | null)?.kind === "transfer") {
       const t = await relayTransfer(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guard);
       return NextResponse.json({ hash: t.hash, amount: t.amount.toString(), fee: t.fee.toString() }, { headers: noStore });

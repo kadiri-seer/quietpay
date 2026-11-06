@@ -1,14 +1,14 @@
 /**
  * Lock API logic, shared by the route and tests.
  *
- *   take:   a payer asks for a lock for @name or a personal-link key. The server picks a free one,
+ *   take:   a payer asks for a lock for a personal-link key. The server picks a free one,
  *           skips any the pool already accepted, and returns it with the key that signed it.
  *   counts: a recipient's device asks how many of its locks are free and how many it has uploaded.
  *   upload: a recipient's device adds locks; every one must be signed by the key it is filed under.
  */
 import "server-only";
 import { getAddress, isAddress, type Address } from "viem";
-import { checkName, ReservationError } from "@/lib/names/names";
+import { ReservationError } from "@/lib/names/names";
 import type { NameStore } from "@/lib/names/store";
 import { verifyLock, type SignedLock } from "./locks";
 import { HOLD_MS, type LockStore } from "./lock-store";
@@ -35,21 +35,10 @@ async function scramble(ip: string, salt: string) {
   return [...new Uint8Array(d)].slice(0, 12).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function resolveKey(d: LockDeps, q: { name?: string | null; key?: string | null }): Promise<{ key: Address; name: string | null }> {
-  if (q.name) {
-    const c = checkName(q.name);
-    if (!c.ok) throw new ReservationError("No QuietPay user has that username.", 404);
-    const r = await d.names.get(c.name);
-    if (!r) throw new ReservationError("No QuietPay user has that username.", 404);
-    return { key: getAddress(r.key), name: c.name };
-  }
-  if (q.key && isAddress(q.key)) return { key: getAddress(q.key), name: null };
-  throw new ReservationError("Say who to pay.");
-}
-
-export async function takeLock(d: LockDeps, q: { name?: string | null; key?: string | null }, ip: string, salt: string) {
+export async function takeLock(d: LockDeps, q: { key?: string | null }, ip: string, salt: string) {
   if (!(await d.names.allow(`lt:${await scramble(ip, salt)}`, TAKES_PER_MINUTE, 60))) throw new ReservationError("Too many requests. Wait a minute.", 429);
-  const { key, name } = await resolveKey(d, q);
+  if (!q.key || !isAddress(q.key)) throw new ReservationError("Say who to pay.");
+  const key = getAddress(q.key);
   const caller = await scramble(ip, salt);
   if (!(await d.names.allow(`lh:${caller}:${key.toLowerCase()}`, HOLDS_PER_RECIPIENT, HOLD_MS / 1000)))
     throw new ReservationError("You already have a payment to this person in progress. Finish it, or wait a few minutes.", 429);
@@ -70,13 +59,10 @@ export async function takeLock(d: LockDeps, q: { name?: string | null; key?: str
       await d.locks.drop(key, lock);
       continue;
     }
-    return { key, name, lock };
+    return { key, lock };
   }
   await d.watch?.("lock.empty.recipient", key.toLowerCase());
-  throw new ReservationError(
-    name ? `@${name} can't receive payments right now. Ask them to open QuietPay, then try again.` : "This person can't receive payments right now. Ask them to open QuietPay, then try again.",
-    409,
-  );
+  throw new ReservationError("This person can't receive payments right now. Ask them to open QuietPay, then try again.", 409);
 }
 
 export async function lockCounts(d: LockDeps, key: string) {

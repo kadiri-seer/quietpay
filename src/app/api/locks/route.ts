@@ -1,6 +1,6 @@
 /**
- * Payment locks for @usernames and personal links (src/lib/pool/locks.ts).
- *   GET ?name=kadiri | ?key=0x…        one lock for a payer (held 15 minutes)
+ * Payment locks for personal links (src/lib/pool/locks.ts).
+ *   GET ?key=0x…                       one lock for a payer (held a few minutes)
  *   GET ?key=0x…&counts=1              free and uploaded counts, for the recipient's devices
  *   POST {key, locks:[{p,r,s}]}        add locks, each signed by `key`
  * Stores locks (hashes and refund addresses) and their signatures. No wallet addresses, no IP logs.
@@ -42,16 +42,16 @@ function deps(): LockDeps | null {
 async function fail(e: unknown, req: Request) {
   if (e instanceof ReservationError && e.status === 429) await watch("limit.hit", `locks:${await clientId(req)}`);
   if (e instanceof ReservationError) return NextResponse.json({ error: e.message }, { status: e.status, headers: noStore });
-  return NextResponse.json({ error: "Payments to usernames are temporarily unavailable. Try again shortly." }, { status: 502, headers: noStore });
+  return NextResponse.json({ error: "Payments to personal links are temporarily unavailable. Try again shortly." }, { status: 502, headers: noStore });
 }
 
 export async function GET(req: Request) {
   const d = deps();
-  if (!d) return NextResponse.json({ error: "Payments to usernames aren't available here." }, { status: 503, headers: noStore });
+  if (!d) return NextResponse.json({ error: "Payments to personal links aren't available here." }, { status: 503, headers: noStore });
   const u = new URL(req.url);
   try {
     if (u.searchParams.get("counts")) return NextResponse.json(await lockCounts(d, u.searchParams.get("key") ?? ""), { headers: noStore });
-    return NextResponse.json(await takeLock(d, { name: u.searchParams.get("name"), key: u.searchParams.get("key") }, ipOf(req), salt()), { headers: noStore });
+    return NextResponse.json(await takeLock(d, { key: u.searchParams.get("key") }, ipOf(req), salt()), { headers: noStore });
   } catch (e) {
     return fail(e, req);
   }
@@ -59,7 +59,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   const d = deps();
-  if (!d) return NextResponse.json({ error: "Payments to usernames aren't available here." }, { status: 503, headers: noStore });
+  if (!d) return NextResponse.json({ error: "Payments to personal links aren't available here." }, { status: 503, headers: noStore });
   if (Number(req.headers.get("content-length") ?? 0) > 40_000) return NextResponse.json({ error: "Request too large." }, { status: 413, headers: noStore });
   let body: unknown;
   try {

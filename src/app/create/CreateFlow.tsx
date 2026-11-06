@@ -67,7 +67,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const poolInfo = usePoolInfo(network);
   const poolRouter = usePoolRouter(network);
   const poolKeys = usePoolKeys();
-  // Requests are for a set amount and pay once. (Any-amount payments go to your @username or
+  // Requests are for a set amount and pay once. (Any-amount payments go to your
   // personal link, which pay into the pool too.)
   const kind: LinkKind = "fixed";
   const [amount, setAmount] = useState("");
@@ -289,6 +289,9 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
           <input id="link" className="field font-mono text-base sm:text-xs" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
           {url && <CopyButton value={url} className="min-h-[2.9rem]" />}
         </div>
+        <button type="button" className="btn mt-3 w-full" onClick={onReset}>
+          Create new link
+        </button>
         <p className="mt-2 text-xs text-haze">
           {open
             ? "The link holds public keys only. Anyone with it can pay you, as many times as they like."
@@ -301,11 +304,6 @@ function LinkResult({ request, onReset }: { request: StoredRequest; onReset: () 
       <Notice tone="info" title="Recoverable from your wallet">
         This link&apos;s keys come from your wallet. On any device, connect the same wallet and QuietPay finds its payments again.
       </Notice>
-      <div className="flex flex-wrap gap-3">
-        <button type="button" className="btn btn-quiet" onClick={onReset}>
-          New request
-        </button>
-      </div>
     </div>
   );
 }

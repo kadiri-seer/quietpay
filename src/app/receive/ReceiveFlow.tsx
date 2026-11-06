@@ -25,10 +25,10 @@ import { useQuery } from "@tanstack/react-query";
 import { privateKeyToAccount } from "viem/accounts";
 import { RequestPanel } from "@/app/create/CreateFlow";
 import { usePoolRouter } from "@/components/pool-hooks";
-import { personalLinkUrl, usernameUrl } from "@/lib/pool/locks";
+import { personalLinkUrl } from "@/lib/pool/locks";
 import { QR } from "@/components/ui";
 
-type Tab = "username" | "link" | "request";
+type Tab = "link" | "request";
 
 export function ReceiveFlow() {
   const { network } = useSelectedNetwork();
@@ -47,16 +47,15 @@ export function ReceiveFlow() {
 }
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: "username", label: "Username" },
   { id: "link", label: "Personal link" },
   { id: "request", label: "Request" },
 ];
 
 function ReceiveHub({ network }: { network: NetworkConfig }) {
-  const [tab, setTab] = useState<Tab>("username");
+  const [tab, setTab] = useState<Tab>("link");
   useEffect(() => {
     const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "username" || t === "link" || t === "request") setTab(t);
+    if (t === "link" || t === "request") setTab(t);
   }, []);
   const choose = (t: Tab) => {
     setTab(t);
@@ -66,7 +65,7 @@ function ReceiveHub({ network }: { network: NetworkConfig }) {
   };
   return (
     <div className="space-y-6">
-      <div role="tablist" aria-label="Ways to receive" className="grid grid-cols-3 gap-1 rounded-xl border border-harbor p-1">
+      <div role="tablist" aria-label="Ways to receive" className="grid grid-cols-2 gap-1 rounded-xl border border-harbor p-1">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -80,7 +79,6 @@ function ReceiveHub({ network }: { network: NetworkConfig }) {
           </button>
         ))}
       </div>
-      {tab === "username" && <UsernameCard network={network} />}
       {tab === "link" && <PersonalLinkCard network={network} />}
       {tab === "request" && (
         <div className="space-y-10">
@@ -113,7 +111,7 @@ function useReceiveReady(network: NetworkConfig, key: Address | null) {
 
 function ReadyNote({ state }: { state: ReturnType<typeof useReceiveReady> }) {
   if (state === "ready") return <p className="text-center text-sm text-haze">Payments go straight into your shielded balance.</p>;
-  if (state === "unavailable") return <Notice tone="warn">Receiving by username or personal link isn&apos;t available right now. Use a request instead.</Notice>;
+  if (state === "unavailable") return <Notice tone="warn">Receiving by personal link isn&apos;t available right now. Use a request instead.</Notice>;
   return (
     <p className="flex items-center justify-center gap-2 text-sm text-haze" aria-live="polite">
       <Spinner className="h-3 w-3" /> Getting ready to receive payments…
@@ -131,41 +129,6 @@ function ShareBlock({ url, label }: { url: string; label: string }) {
         <input aria-label={label} className="field font-mono text-base sm:text-xs" readOnly value={url} onFocus={(e) => e.currentTarget.select()} />
         <CopyButton value={url} className="min-h-[2.9rem]" />
       </div>
-    </div>
-  );
-}
-
-function UsernameCard({ network }: { network: NetworkConfig }) {
-  const { vault } = useVault();
-  const key = vault?.nameKey ? privateKeyToAccount(vault.nameKey).address : null;
-  const state = useReceiveReady(network, key);
-  const [origin, setOrigin] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
-  const mine = useQuery({
-    queryKey: ["my-name", key],
-    enabled: !!key,
-    queryFn: async () => {
-      const r = await fetch(`/api/names?key=${key}`, { cache: "no-store" });
-      if (!r.ok) throw new Error("unavailable");
-      return ((await r.json()) as { mine: { name: string } | null }).mine;
-    },
-  });
-  if (mine.isLoading) return <LoadingRows label="Checking your username" rows={2} />;
-  if (!mine.data)
-    return (
-      <div className="space-y-4 text-center">
-        <p className="text-sm leading-relaxed text-mist">Get a username so people can pay you without asking for anything else, like @yourname.</p>
-        <Link href="/names" className="btn btn-primary">
-          Claim a username
-        </Link>
-        <p className="text-xs text-haze">Until then, share your personal link.</p>
-      </div>
-    );
-  return (
-    <div className="space-y-5">
-      <p className="text-center font-display text-4xl font-semibold tracking-[-0.02em] text-snow">@{mine.data.name}</p>
-      {origin && <ShareBlock url={usernameUrl(origin, mine.data.name)} label="Your username link" />}
-      <ReadyNote state={state} />
     </div>
   );
 }

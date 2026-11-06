@@ -8,7 +8,7 @@ import { Notice } from "@/components/ui";
 
 /**
  * Reads a QuietPay QR code with the camera (on this device only; nothing is uploaded) and goes
- * where it points: Send for a username, personal link or address, Pay for a payment request.
+ * where it points: Send for a personal link or address, Pay for a payment request.
  */
 export function ScanFlow() {
   const router = useRouter();
@@ -109,7 +109,7 @@ export function ScanFlow() {
           }}
         >
           <label htmlFor="scan-paste" className="block text-sm font-medium text-snow">
-            Or paste a link, @username or address
+            Or paste a link or address
           </label>
           <input
             id="scan-paste"

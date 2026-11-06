@@ -15,8 +15,8 @@ const sections: LegalSection[] = [
       <ul>
         <li>QuietPay has no accounts, no server database, no cookies for tracking and no analytics.</li>
         <li>
-          QuietPay&apos;s only server code is the shielded pool&apos;s relayer, used when you withdraw from the pool, and the username waitlist,
-          which stores a name and a key that is not your wallet.
+          QuietPay&apos;s server code is the shielded pool&apos;s relayer and approver, and a store of payment locks for personal links,
+          signed by a key that is not your wallet.
         </li>
         <li>Your payment keys are encrypted and stored only in your own browser.</li>
         <li>Blockchain activity is public and permanent, and some outside services can see technical details such as your IP address.</li>
@@ -30,9 +30,9 @@ const sections: LegalSection[] = [
       <p>
         QuietPay itself does not collect, receive or store personal information. It does not ask for your name, email address or main wallet
         address when you create a link. Payment links keep their data after the # in the address, which browsers do not send to the web server.
-        If you reserve a username, QuietPay&apos;s server stores only that name, the time, and a public key your browser creates for names
-        (not your wallet address). To limit abuse, it also keeps a short-lived counter tied to a scrambled form of your IP address, which
-        expires within an hour and is never stored with your name.
+        For your personal link, QuietPay&apos;s server stores payment locks (hashes and refund addresses) signed by a key your browser
+        creates (not your wallet address). To limit abuse, it also keeps short-lived counters tied to a scrambled form of your IP address,
+        which expire within an hour.
       </p>
     ),
   },
@@ -117,8 +117,7 @@ const sections: LegalSection[] = [
     body: (
       <p>
         Because QuietPay holds no personal data about you, there is nothing for it to access, correct or delete on your behalf. You control
-        everything QuietPay stores in your browser and can remove it by clearing this site&apos;s data. To release a reserved username, use
-        the Names page.
+        everything QuietPay stores in your browser and can remove it by clearing this site&apos;s data.
       </p>
     ),
   },

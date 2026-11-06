@@ -1,15 +1,14 @@
 /**
- * Signed pool locks for payments to a @username or a personal link.
+ * Signed pool locks for payments to a personal link.
  *
- * A one-time payment link carries its own lock. A username or a personal link is paid by many
- * people, so the recipient's device makes locks in advance, signs each one with its name key and
+ * A one-time payment link carries its own lock. A personal link is paid by many people, so the
+ * recipient's device makes locks in advance, signs each one with its link key and
  * leaves them with QuietPay's server. A payer gets one lock per payment, checks the signature
  * against the recipient's key and pays into the pool under it.
  *
  * The server never sees any secret (a lock is a hash; the refund address is public), and it can't
- * substitute a lock of its own: the payer only accepts locks signed by the recipient's key. For a
- * personal link that key is in the link itself; for a @username it comes from the name directory.
- * What the server does learn is which pool payments belong to which username or personal link.
+ * substitute a lock of its own: the payer only accepts locks signed by the key named in the link.
+ * What the server does learn is which pool payments belong to which personal link.
  *
  * Lock j of the personal range uses receive index PERSONAL_INDEX_BASE + j, apart from the locks
  * of one-time links (receive index = link number).
@@ -63,19 +62,16 @@ export async function verifyLock(raw: unknown, p: { key: Address; chainId: numbe
   return { precommitment, refund };
 }
 
-/* ---------------- Who to pay: a @username or a personal link ---------------- */
+/* ---------------- Who to pay: a personal link ---------------- */
 
-export type PayTarget = { kind: "name"; name: string } | { kind: "key"; key: Address };
+export type PayTarget = { kind: "key"; key: Address };
 
-/** "#@kadiri" or "#to=0x…" (personal link). Returns null for anything else (e.g. a request code). */
+/** "#to=0x…" (personal link). Returns null for anything else (e.g. a request code). */
 export function parsePayTarget(fragment: string): PayTarget | null {
   const f = decodeURIComponent(fragment.replace(/^#/, "").trim());
-  const name = /^@([a-z0-9_]{3,20})$/i.exec(f);
-  if (name) return { kind: "name", name: name[1].toLowerCase() };
   const key = /^to=(0x[0-9a-fA-F]{40})$/.exec(f);
   if (key) return { kind: "key", key: getAddress(key[1]) };
   return null;
 }
 
 export const personalLinkUrl = (origin: string, key: Address) => `${origin.replace(/\/$/, "")}/pay#to=${getAddress(key)}`;
-export const usernameUrl = (origin: string, name: string) => `${origin.replace(/\/$/, "")}/pay#@${name}`;

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Before paying a link or a username: if this browser holds QuietPay keys for the connected
+ * Before paying a link: if this browser holds QuietPay keys for the connected
  * wallet but they're locked, unlock them first, so QuietPay can tell when you're about to pay
  * yourself. People who don't use QuietPay here go straight on.
  */

@@ -7,10 +7,10 @@ import { TEST_TOKEN } from "./helpers";
 const HOST = "www.quietpay.sbs";
 
 describe("reading QR codes", () => {
-  it("sends to usernames, personal links and wallet addresses", () => {
-    expect(interpretScan("https://www.quietpay.sbs/pay#@Kadiri", HOST)).toEqual({ kind: "send", to: "@kadiri" });
-    expect(interpretScan("https://quietpay.sbs/pay#to=0x70997970c51812dc3a010c7d01b50e0d17dc79c8", HOST)).toEqual({ kind: "send", to: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" });
-    expect(interpretScan("@alice", HOST)).toEqual({ kind: "send", to: "@alice" });
+  it("sends to personal links and wallet addresses; usernames are gone", () => {
+    expect(interpretScan("https://quietpay.sbs/pay#to=0x70997970c51812dc3a010c7d01b50e0d17dc79c8", HOST)).toEqual({ kind: "send", to: "to=0x70997970C51812dc3A010C7d01b50e0d17dc79C8" });
+    expect(interpretScan("https://www.quietpay.sbs/pay#@Kadiri", HOST)).toMatchObject({ kind: "error" });
+    expect(interpretScan("@alice", HOST)).toMatchObject({ kind: "error" });
     expect(interpretScan("0x70997970c51812dc3a010c7d01b50e0d17dc79c8", HOST)).toMatchObject({ kind: "send" });
     expect(interpretScan("ethereum:0x70997970c51812dc3a010c7d01b50e0d17dc79c8@46630", HOST)).toMatchObject({ kind: "send" });
   });

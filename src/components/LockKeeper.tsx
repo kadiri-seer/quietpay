@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Keeps enough signed pool locks on QuietPay's server for your @username and personal link to be
+ * Keeps enough signed pool locks on QuietPay's server for your personal link to be
  * paid (src/lib/pool/locks.ts). While QuietPay is open and unlocked it checks how many are free
  * and, below LOW, makes and uploads BATCH more from your pool keys, signed by your name key.
  * Payments to them are found by the pool snapshot, which looks through every lock made so far.

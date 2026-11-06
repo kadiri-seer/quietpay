@@ -16,10 +16,10 @@ import { privateKeyToAccount } from "viem/accounts";
 import { PoolPayPanel } from "./PoolPayPanel";
 import { OwnCheck } from "@/components/OwnCheck";
 
-export const targetLabel = (t: PayTarget) => (t.kind === "name" ? `@${t.name}` : shorten(t.key, 4));
+export const targetLabel = (t: PayTarget) => shorten(t.key, 4);
 
 /**
- * Pays a @username or a personal link: the payer picks an amount, gets one of the recipient's
+ * Pays a personal link: the payer picks an amount, gets one of the recipient's
  * signed locks, checks the signature, and pays straight into the recipient's pool balance.
  */
 export function PersonalPay({ target, network }: { target: PayTarget; network: NetworkConfig }) {
@@ -37,7 +37,7 @@ export function PersonalPay({ target, network }: { target: PayTarget; network: N
       {readiness.isLoading ? (
         <LoadingRows label="Getting ready" rows={2} />
       ) : !token || !network.pool?.router ? (
-        <Notice tone="bad">Payments to usernames aren&apos;t available on {network.label} yet.</Notice>
+        <Notice tone="bad">Payments to personal links aren&apos;t available on {network.label} yet.</Notice>
       ) : (
         <WalletGate network={network} purpose="Connect the wallet you'll pay from.">
           <OwnCheck>
@@ -79,12 +79,11 @@ function AmountThenPay({ target, network }: { target: PayTarget; network: Networ
     setBusy(true);
     setError(null);
     try {
-      const q = target.kind === "name" ? `name=${encodeURIComponent(target.name)}` : `key=${target.key}`;
-      const r = await fetch(`/api/locks?${q}`, { cache: "no-store" });
+      const r = await fetch(`/api/locks?key=${target.key}`, { cache: "no-store" });
       const j = (await r.json().catch(() => ({}))) as { key?: Address; lock?: unknown; error?: string };
       if (!r.ok || !j.key || !j.lock) throw new Error(j.error ?? "Couldn't reach QuietPay. Try again.");
       // A personal link names its key; never accept a lock signed by anyone else.
-      if (target.kind === "key" && j.key.toLowerCase() !== target.key.toLowerCase()) throw new Error("These payment details weren't signed by the recipient. Don't pay.");
+      if (j.key.toLowerCase() !== target.key.toLowerCase()) throw new Error("These payment details weren't signed by the recipient. Don't pay.");
       if (ownKey && j.key.toLowerCase() === ownKey.toLowerCase()) throw new Error("This is your own QuietPay. You can't pay yourself.");
       const lock = await verifyLock(j.lock, { key: j.key, chainId: network.chain.id, pool: info.data.pool });
       setReady({
@@ -110,7 +109,7 @@ function AmountThenPay({ target, network }: { target: PayTarget; network: Networ
   }
 
   if (ready) return <PoolPayPanel v={ready} />;
-  if (target.kind === "key" && ownKey && target.key === ownKey) return <Notice tone="bad">This is your own personal link. You can&apos;t pay yourself.</Notice>;
+  if (ownKey && target.key === ownKey) return <Notice tone="bad">This is your own personal link. You can&apos;t pay yourself.</Notice>;
   return (
     <form
       className="space-y-4"

@@ -22,7 +22,7 @@ const TILES: Tile[] = [
     href: "/receive",
     step: 1,
     title: "Get paid",
-    body: "Share your @username, your personal link or a request for a set amount.",
+    body: "Share your personal link, or a request for a set amount.",
     action: "Receive",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
@@ -51,7 +51,7 @@ const TILES: Tile[] = [
     href: "/send",
     step: 3,
     title: "Send privately",
-    body: "Send to a @username or any wallet. Your device proves the money is yours without saying where it came from.",
+    body: "Send to a personal link or any wallet. Your device proves the money is yours without saying where it came from.",
     action: "Send",
     art: (
       <svg viewBox="0 0 120 80" {...ART_STROKE}>
@@ -182,8 +182,8 @@ export default function Home() {
 
       <section className="mx-auto mt-24 max-w-3xl border-y border-mist/15 px-4 py-10 text-center sm:px-6">
         <p className="mx-auto max-w-[62ch] leading-relaxed text-mist">
-          Your wallet address never goes into a link or a username. Payers pay into the shielded pool under a one-time lock that only your
-          device can open. QuietPay&apos;s server keeps those locks for your username, never your keys or your wallet address.
+          Your wallet address never goes into a link. Payers pay into the shielded pool under a one-time lock that only your device can
+          open. QuietPay&apos;s server keeps those locks for your personal link, never your keys or your wallet address.
         </p>
       </section>
 

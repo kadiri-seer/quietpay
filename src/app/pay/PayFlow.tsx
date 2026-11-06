@@ -56,6 +56,7 @@ export function PayFlow() {
   const target = useMemo(() => (code ? parsePayTarget(code) : null), [code]);
   const validation = useMemo<{ ok: LinkValidation } | { error: string } | null>(() => {
     if (!code || target) return null;
+    if (/^@/.test(decodeURIComponent(code))) return { error: "QuietPay no longer has usernames, to protect privacy. Ask the person for their personal link instead." };
     try {
       return { ok: validatePaymentLink(code) };
     } catch (e) {

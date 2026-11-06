@@ -40,7 +40,7 @@ describe("signed locks", () => {
   });
 
   it("reads who to pay from a link", () => {
-    expect(parsePayTarget("#@Kadiri")).toEqual({ kind: "name", name: "kadiri" });
+    expect(parsePayTarget("#@Kadiri")).toBeNull();
     expect(parsePayTarget("to=0x70997970c51812dc3a010c7d01b50e0d17dc79c8")).toEqual({ kind: "key", key: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8" });
     expect(parsePayTarget("AgAAtiZ…")).toBeNull();
     expect(parsePayTarget("@ab")).toBeNull();
@@ -68,9 +68,8 @@ describe("lock service", () => {
   });
 
   it("hands each payer a different lock, holds it, reissues it if unpaid, and drops used ones", async () => {
-    await names.reserve("alice", key, 0);
     const t0 = 1_000_000;
-    const a = await takeLock(deps(t0), { name: "alice" }, "1.1.1.1", "s");
+    const a = await takeLock(deps(t0), { key }, "1.1.1.1", "s");
     const b = await takeLock(deps(t0), { key }, "1.1.1.2", "s");
     expect(a.key).toBe(key);
     expect(a.lock.p).not.toBe(b.lock.p);
@@ -110,9 +109,9 @@ describe("lock service", () => {
     await expect(takeLock(deps(7_000_000), { key: key3 }, "8.8.8.8", "s")).rejects.toThrow(/already have a payment|Too many/);
   });
 
-  it("refuses unknown usernames and rate-limits askers", async () => {
-    await expect(takeLock(deps(0), { name: "nobody_here" }, "2.2.2.2", "s")).rejects.toThrow(/No QuietPay user/);
-    const flood = await Promise.allSettled(Array.from({ length: 25 }, () => takeLock(deps(0), { name: "nobody_here" }, "3.3.3.3", "s")));
+  it("needs a key (usernames are gone) and rate-limits askers", async () => {
+    await expect(takeLock(deps(0), { key: "kadiri" }, "2.2.2.2", "s")).rejects.toThrow(/Say who to pay/);
+    const flood = await Promise.allSettled(Array.from({ length: 25 }, () => takeLock(deps(0), { key: "nobody" }, "3.3.3.3", "s")));
     expect(flood.some((r) => r.status === "rejected" && /Too many/.test(String(r.reason)))).toBe(true);
   });
 });
