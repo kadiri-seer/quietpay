@@ -30,61 +30,66 @@ import { QR } from "@/components/ui";
 import { poolRouterAbi } from "@/lib/pool/receive";
 import { spareIndex } from "@/lib/pool/request-sig";
 
-type Tab = "link" | "request";
-
 export function ReceiveFlow() {
   const { network } = useSelectedNetwork();
   return (
     <div className="mx-auto max-w-xl px-4 pt-6 sm:px-6">
       <h1 className="mb-6 font-display text-[2rem] font-bold leading-[1.08] tracking-[-0.03em] text-snow sm:text-[2.6rem]">Receive</h1>
-      <div className="panel p-5 sm:p-7">
-        <WalletGate network={network} purpose="Connect the wallet you use with QuietPay. Its signature unlocks your keys on this device.">
-          <VaultGate>
-            <ReceiveHub network={network} />
-          </VaultGate>
-        </WalletGate>
-      </div>
+      <WalletGate network={network} purpose="Connect the wallet you use with QuietPay. Its signature unlocks your keys on this device.">
+        <VaultGate>
+          <ReceiveHub network={network} />
+        </VaultGate>
+      </WalletGate>
     </div>
   );
 }
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: "link", label: "Personal link" },
-  { id: "request", label: "Request" },
-];
-
+/**
+ * One place to get paid: your personal link (any amount, any time, from anyone), and from it, a
+ * one-time link for an exact amount when you want to know that a particular payment came in.
+ */
 function ReceiveHub({ network }: { network: NetworkConfig }) {
-  const [tab, setTab] = useState<Tab>("link");
+  const { vault } = useVault();
+  const [asking, setAsking] = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
   useEffect(() => {
-    const t = new URLSearchParams(window.location.search).get("tab");
-    if (t === "link" || t === "request") setTab(t);
+    // Old links into the Request tab open the amount form directly.
+    if (new URLSearchParams(window.location.search).get("tab") === "request") {
+      setAsking(true);
+      setShowRequests(true);
+    }
   }, []);
-  const choose = (t: Tab) => {
-    setTab(t);
-    const u = new URL(window.location.href);
-    u.searchParams.set("tab", t);
-    window.history.replaceState(null, "", u);
-  };
+  const hasRequests = (vault?.requests ?? []).some((r) => r.chainId === network.chain.id);
   return (
     <div className="space-y-6">
-      <div role="tablist" aria-label="Ways to receive" className="grid grid-cols-2 gap-1 rounded-xl border border-harbor p-1">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => choose(t.id)}
-            className={`rounded-lg px-2 py-2.5 text-sm font-medium ${tab === t.id ? "bg-snow text-abyss" : "text-mist hover:text-snow"}`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="panel p-5 sm:p-7">
+        <PersonalLinkCard network={network} />
       </div>
-      {tab === "link" && <PersonalLinkCard network={network} />}
-      {tab === "request" && (
-        <div className="space-y-10">
-          <RequestPanel />
+      <div className="panel p-5 sm:p-7">
+        {asking ? (
+          <div className="space-y-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">Ask for a specific amount</h2>
+                <p className="mt-1 text-sm leading-relaxed text-haze">A one-time link for an exact amount. It can be paid once, expires, and shows you when it&apos;s paid.</p>
+              </div>
+              <button type="button" className="btn btn-sm btn-quiet shrink-0" onClick={() => setAsking(false)}>
+                Close
+              </button>
+            </div>
+            <RequestPanel />
+          </div>
+        ) : (
+          <div className="space-y-2 text-center">
+            <button type="button" className="btn w-full" onClick={() => setAsking(true)}>
+              Ask for a specific amount
+            </button>
+            <p className="text-xs leading-relaxed text-haze">Makes a one-time link for an exact amount, so you can see when that payment arrives.</p>
+          </div>
+        )}
+      </div>
+      {(hasRequests || showRequests) && (
+        <div className="panel p-5 sm:p-7">
           <Dashboard network={network} />
         </div>
       )}
@@ -144,7 +149,10 @@ function PersonalLinkCard({ network }: { network: NetworkConfig }) {
   if (!key) return <Notice tone="warn">Unlock again to set up your personal link.</Notice>;
   return (
     <div className="space-y-5">
-      <p className="text-center text-sm leading-relaxed text-mist">One link for anyone to pay you any amount, as many times as they like. It never shows your wallet.</p>
+      <div className="text-center">
+        <h2 className="font-display text-lg font-semibold tracking-[-0.01em] text-snow">Your personal link</h2>
+        <p className="mt-1 text-sm leading-relaxed text-mist">Anyone can pay you any amount with it, as often as they like. It never shows your wallet.</p>
+      </div>
       {origin && <ShareBlock url={personalLinkUrl(origin, key)} label="Your personal link" />}
       <ReadyNote state={state} />
     </div>
