@@ -58,10 +58,17 @@ export interface PoolConfig {
   /** Where the approver publishes exclusion lists (deposits that failed screening). */
   exclusionsUrl: string;
   /**
-   * QuietPay's pool router (contracts/src/QuietPayPoolRouter.sol): pays straight into the pool
-   * for someone else. Null until it is deployed for this pool.
+   * QuietPay's pool router (contracts/src/QuietPayPoolRouterV2.sol, or v1): pays straight into the
+   * pool for someone else. Null until it is deployed for this pool. All new payments use it.
    */
   router: Address | null;
+  /**
+   * Earlier pool routers for this pool. Never used for new payments: only to return unapproved
+   * deposits made through them (each deposit's refund is recorded in the router that made it).
+   */
+  legacyRouters?: Address[];
+  /** QuietPayPoolGuardian (contracts/src/QuietPayPoolGuardian.sol) once it owns the Entrypoint. */
+  guardian?: Address | null;
 }
 
 function optionalBlock(v: string | undefined): bigint | null {
@@ -74,6 +81,8 @@ function poolConfig(
   fromBlock: string | undefined,
   relayerUrl: string | undefined,
   router?: string | undefined,
+  legacyRouters?: string | undefined,
+  guardian?: string | undefined,
 ): PoolConfig | null {
   const e = optionalAddress(entrypoint);
   const p = optionalAddress(pool);
@@ -85,6 +94,11 @@ function poolConfig(
     relayerUrl: relayerUrl?.trim() || "/api/relay",
     exclusionsUrl: "/api/pool/exclusions",
     router: optionalAddress(router),
+    legacyRouters: (legacyRouters ?? "")
+      .split(",")
+      .map((a) => optionalAddress(a))
+      .filter((a): a is Address => !!a),
+    guardian: optionalAddress(guardian),
   };
 }
 
@@ -152,6 +166,8 @@ export const NETWORKS: Record<NetworkKey, NetworkConfig> = {
       process.env.NEXT_PUBLIC_TESTNET_POOL_FROM_BLOCK,
       process.env.NEXT_PUBLIC_TESTNET_RELAYER_URL,
       process.env.NEXT_PUBLIC_TESTNET_POOL_ROUTER_ADDRESS,
+      process.env.NEXT_PUBLIC_TESTNET_POOL_ROUTER_LEGACY,
+      process.env.NEXT_PUBLIC_TESTNET_POOL_GUARDIAN,
     ),
     confirmations: positiveInt(process.env.NEXT_PUBLIC_TESTNET_CONFIRMATIONS, 1),
     logChunkSize: BigInt(positiveInt(process.env.NEXT_PUBLIC_LOG_CHUNK_SIZE, 50_000)),

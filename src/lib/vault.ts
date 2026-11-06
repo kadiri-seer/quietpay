@@ -69,7 +69,8 @@ export interface StoredRequest {
    * Set when the link pays straight into the shielded pool: the lock it carries (receive index =
    * link index). Its payment shows up as a pool note, not at a one-time address.
    */
-  pool?: { precommitment: string; refund: Address; receiveIndex: number };
+  /** requestKey and router are set for signed requests (QuietPayPoolRouterV2). */
+  pool?: { precommitment: string; refund: Address; receiveIndex: number; requestKey?: Address; router?: Address };
   payments: StoredPayment[];
 }
 
@@ -213,7 +214,7 @@ const requestShellSchema = z.strictObject({
   keys: requestKeysSchema,
   index: z.number().int().min(0).max(1_000_000).optional(),
   recovered: z.boolean().optional(),
-  pool: z.strictObject({ precommitment: uintStr, refund: address, receiveIndex: z.number().int().min(0).max(1_000_000) }).optional(),
+  pool: z.strictObject({ precommitment: uintStr, refund: address, receiveIndex: z.number().int().min(0).max(1_000_000), requestKey: address.optional(), router: address.optional() }).optional(),
   payments: z.array(z.unknown()).max(1000),
 });
 

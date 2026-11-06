@@ -16,7 +16,8 @@ import {
 } from "viem";
 import {
   KNOWN_ANNOUNCER_CODE_HASHES,
-  KNOWN_ROUTER_CODE_HASHES,
+  RETIRED_ROUTER_V1_CODE_HASHES,
+  KNOWN_ROUTER_V3_CODE_HASHES,
   KNOWN_ROUTER_V2_CODE_HASHES,
   announcerAbi,
   erc20Abi,
@@ -106,10 +107,11 @@ export interface RouterInfo {
   address: Address;
   codeHash: Hex;
   /**
-   * 1: v1 (token and announcer passed by the caller, one-time links checked by the app only).
    * 2: v2 (token and announcer fixed at deployment, one-time links enforced onchain).
+   * 3: v3 (v2 plus onchain destination checks).
+   * v1 is retired and refused.
    */
-  version: 1 | 2;
+  version: 2 | 3;
 }
 
 /**
@@ -120,14 +122,15 @@ export interface RouterInfo {
 export async function verifyRouter(
   client: PublicClient,
   network: NetworkConfig,
-  knownHashes: readonly Hex[] = KNOWN_ROUTER_CODE_HASHES,
   knownV2Hashes: readonly Hex[] = KNOWN_ROUTER_V2_CODE_HASHES,
+  knownV3Hashes: readonly Hex[] = KNOWN_ROUTER_V3_CODE_HASHES,
 ): Promise<RouterInfo | null> {
   if (!network.router) return null;
   const code = await client.getCode({ address: network.router });
   if (!code || code === "0x") throw new VerificationError(`No contract is deployed at the configured router address on ${network.label}.`);
   const codeHash = keccak256(code).toLowerCase() as Hex;
-  if (knownV2Hashes.map((h) => h.toLowerCase()).includes(codeHash)) {
+  const v3 = knownV3Hashes.map((h) => h.toLowerCase()).includes(codeHash);
+  if (v3 || knownV2Hashes.map((h) => h.toLowerCase()).includes(codeHash)) {
     const [token, announcer] = await Promise.all([
       client.readContract({ address: network.router, abi: routerV2Abi, functionName: "token" }),
       client.readContract({ address: network.router, abi: routerV2Abi, functionName: "announcer" }),
@@ -138,9 +141,10 @@ export async function verifyRouter(
     if (!network.announcer || getAddress(announcer) !== getAddress(network.announcer)) {
       throw new VerificationError("The configured router is bound to a different announcer than this network's.");
     }
-    return { address: network.router, codeHash, version: 2 };
+    return { address: network.router, codeHash, version: v3 ? 3 : 2 };
   }
-  if (knownHashes.map((h) => h.toLowerCase()).includes(codeHash)) return { address: network.router, codeHash, version: 1 };
+  if (RETIRED_ROUTER_V1_CODE_HASHES.map((h) => h.toLowerCase()).includes(codeHash))
+    throw new VerificationError("The configured router is QuietPay's retired v1 router. QuietPay no longer pays through it; configure the v3 (or v2) router.");
   throw new VerificationError("The configured router's bytecode does not match QuietPay's router build.");
 }
 

@@ -4,12 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import type { NetworkConfig } from "@/config/networks";
 import { verifyPool } from "@/lib/pool/actions";
-import { refundAccount, verifyPoolRouter } from "@/lib/pool/receive";
+import { refundAccount, verifyPoolRouter, verifyPoolRouterInfo } from "@/lib/pool/receive";
 import { PERSONAL_INDEX_BASE } from "@/lib/pool/locks";
 import { erc20Abi } from "@/config/contracts";
 import type { OnchainHoldings } from "@/lib/balance";
 import type { PoolMasterKeys } from "@/lib/pool/crypto";
-import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes, reconstructReceived, RECEIVE_INDEX_BASE, type PoolNote } from "@/lib/pool/state";
+import { currentApprovalSet, exclusionsFrom, fetchPoolEvents, latestExclusions, reconstructNotes, reconstructReceived, reconstructSpares, RECEIVE_INDEX_BASE, type PoolNote } from "@/lib/pool/state";
 import { useVault } from "./VaultProvider";
 import { usePublicClient } from "./hooks";
 
@@ -33,6 +33,18 @@ export function usePoolRouter(network: NetworkConfig) {
     staleTime: 60_000,
     retry: 1,
     queryFn: () => verifyPoolRouter(client, network),
+  });
+}
+
+/** The configured pool router's address and version (2 takes signed requests). */
+export function usePoolRouterInfo(network: NetworkConfig) {
+  const client = usePublicClient(network);
+  return useQuery({
+    queryKey: ["pool-router-info", network.key, network.pool?.router],
+    enabled: !!network.pool?.router,
+    staleTime: 60_000,
+    retry: 1,
+    queryFn: () => verifyPoolRouterInfo(client, network),
   });
 }
 
@@ -121,7 +133,9 @@ export function usePoolSnapshot(network: NetworkConfig) {
         // Payments to your personal link.
         // (Every key set is checked: a device that unlocked before 2 November signs locks with its older keys.)
         const personal = reconstructReceived(k, info.data!.scope, events, locksIssued, 20, PERSONAL_INDEX_BASE).notes;
-        for (const n of [...rr.notes, ...personal]) {
+        // Spare locks of signed requests (used when a link's own lock was burned).
+        const spares = reconstructSpares(k, info.data!.scope, events, i === 0 ? issued : 0n);
+        for (const n of [...rr.notes, ...personal, ...spares]) {
           const ok = approved.has(String(n.label));
           notes.push({ ...n, keys: k, approved: ok, excluded: !ok && excluded.has(String(n.label)), received: { receiveIndex: n.depositIndex - RECEIVE_INDEX_BASE } });
         }

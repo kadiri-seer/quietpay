@@ -97,8 +97,14 @@ The rule is written into the entrypoint's 32 to 64 character "IPFS CID" field as
 `quietpay-asp-v1:upto=<block>`, so clients rebuild the set from chain events and compare roots; no
 off-chain file is needed. The approver (`POST /api/pool/approvals`, also callable by anyone) only
 sends a transaction when deposits older than `POOL_APPROVAL_DELAY_SECONDS` (default 0 on testnet,
-so right away) are missing, at most once every 10 seconds. A root change makes in-flight proofs stale; the relayer reports
-that and the browser proves again automatically, once.
+so right away) are missing.
+
+Roots go out on a fixed cadence: at most one per `POOL_ROOT_INTERVAL_SECONDS` (default 60), and
+while a relay is being submitted the next one is held back, for at most three intervals after the
+last root. Deposits and calls can't make roots come faster. A root change makes proofs in progress
+stale (the pool accepts only its latest root, so no old root is ever accepted); the relayer
+recognises that, even when the pool's error isn't decoded, and the browser proves again
+automatically, once.
 
 **On testnet this approves everything, immediately.** That is fine for worthless test tokens.
 
@@ -138,8 +144,12 @@ Each deposit newer than the last approval is checked before it is approved, in s
   the minimum amount, which `GET /api/relay` also quotes so the UI can say so up front. Without
   this, many tiny withdrawals to addresses an attacker controls would collect the relayer's ETH;
 - tops up the recipient towards `RELAYER_GAS_DROP_ETH` (default at most 0.0002 ETH) so a fresh
-  address can move its tokens, but only with what the fee has left after gas, so the top-up is
-  always paid for.
+  address can move its tokens, only with what the fee has left after gas, and only within its
+  limits: the relayer keeps `RELAYER_MIN_BALANCE_ETH` (default 0.02), each receiving address gets
+  one top-up per `RELAYER_DROP_COOLDOWN_SECONDS` (default a day), each caller at most
+  `RELAYER_DROPS_PER_CALLER_PER_DAY` (3), and everyone together `RELAYER_DROPS_PER_DAY` (50). On
+  testnet the fee is in free tokens, so these limits are what protect the relayer's ETH
+  (`src/lib/server/gas-drops.ts`).
 
 Each client is rate-limited, a withdrawal is locked by its nullifier while it is being submitted
 (so duplicate copies sent at once cost one transaction, not one failed transaction each), and the
@@ -162,11 +172,27 @@ the deployer key, which owns the entrypoint and must never sit on the web host.
 
 ## Owner powers (testnet deployment)
 
-The entrypoint is upgradeable (UUPS) and has an owner (the deployer). The owner can register pools,
-change fees within limits, stop new deposits, and upgrade the entrypoint. Pool funds are held by the
-pool contract, which the owner cannot take from, and `ragequit` does not touch the entrypoint. An
-owner could still block *private* withdrawals by publishing bad roots or upgrading the entrypoint.
-For mainnet the owner should be a multisig with a timelock, and the UI should show who it is.
+The entrypoint is upgradeable (UUPS) and has an owner. The owner can register pools, change fees,
+stop new deposits, and upgrade the entrypoint. Pool funds are held by the pool contract, which the
+owner cannot take from, and `ragequit` does not touch the entrypoint. An owner could still block
+*private* withdrawals by upgrading the entrypoint.
+
+`QuietPayPoolGuardian` (`contracts/src/QuietPayPoolGuardian.sol`) is the owner meant to replace the
+deployer key: every change is proposed onchain, waits a delay (1 day by default), can be cancelled,
+and can't push the deposit fee above 1% or the relay-fee ceiling above 5%; winding a pool down is
+immediate. Its admin can be a multisig. Deploy it with `DEPLOY=guardian`, then hand it the owner
+role with `DEPLOY=handover` (which also renounces the deployer's). The Security page shows the
+current fees, the guardian and pending changes from the chain.
+
+## Paying requests into the pool (pool router v2)
+
+`QuietPayPoolRouterV2` adds `payRequest`: a one-time request is paid only by exactly its amount into
+a lock signed by the request's own key, and its paid state lives in the router (`requestPaid`).
+Each request also leaves three spare locks with QuietPay's lock store, used if someone burns the
+link's own lock by depositing into it directly. Refund addresses that could never receive a
+refund (the router, the token, the pool, the entrypoint) are refused. Deposits made through the
+first router can only be refunded through it, so it stays listed in
+`NEXT_PUBLIC_TESTNET_POOL_ROUTER_LEGACY`.
 
 ## Files
 
@@ -183,8 +209,24 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 | `src/app/api/relay`, `src/app/api/pool/approvals` | Relayer and approver endpoints |
 | `src/app/pool` | Pool page |
 | `tests/e2e-pool.test.ts` | End to end on a local EVM with real proofs |
+| `contracts/src/QuietPayPoolRouterV2.sol` | Pays into the pool for someone else; signed one-time requests |
+| `contracts/src/QuietPayPoolGuardian.sol` | Timelocked owner of the entrypoint, with fee ceilings |
+| `src/lib/pool/request-sig.ts` | Request and lock signatures the pool router v2 checks |
+| `src/lib/server/gas-drops.ts` | Limits on the relayer's gas top-ups |
+| `tests/e2e-pool-v2.test.ts` | Regression tests for the security fixes, on a local EVM |
 
-## Deploying on testnet
+## Deploying on testnet (pool router v2 and the guardian)
+
+1. Actions → *Deploy testnet contracts* → `deploy: poolrouter`. Set the printed
+   `NEXT_PUBLIC_TESTNET_POOL_ROUTER_ADDRESS` and `NEXT_PUBLIC_TESTNET_POOL_ROUTER_LEGACY` in
+   `.env.production`.
+2. `deploy: guardian`, `guardian_admin: <multisig or admin address>`, `guardian_delay_seconds`.
+3. Check the guardian on the explorer, then `deploy: handover`, `guardian_address: <guardian>`,
+   `confirm_handover: yes`. Set `NEXT_PUBLIC_TESTNET_POOL_GUARDIAN`.
+4. `deploy: router` deploys `QuietPayRouterV3` for one-time-address payments; set the printed
+   `NEXT_PUBLIC_TESTNET_ROUTER_ADDRESS`.
+
+## Deploying the pool on testnet
 
 1. Create a second throwaway account for the relayer. Fund it with testnet ETH.
 2. GitHub → Actions → *Deploy testnet contracts* → `deploy: pool`, `postman: <relayer address>`.
@@ -199,10 +241,10 @@ For mainnet the owner should be a multisig with a timelock, and the UI should sh
 2. Screening: list screening is built (above). Decide on a risk-scoring provider, and have a
    compliance lawyer confirm the policy.
 3. Legal checks: complete.
-4. Owner as a multisig with a timelock; consider renouncing upgrades once stable.
-5. Relayer hardening: a funded balance monitor, a live ETH price instead of the
-   configured one, and an option to use any other relayer. (The fee already has to cover the gas
-   and the top-up.)
+4. Owner: the guardian (timelock, fee ceilings) with a multisig admin; consider renouncing upgrades once stable.
+5. Relayer hardening: a live ETH price instead of the configured one, and an option to use any
+   other relayer. (The fee has to cover gas and the top-up, top-ups are limited, and a low balance
+   is monitored.)
 6. Licensing: snarkjs (GPL-3.0) runs in the browser bundle. Either publish the web app's source under
    a GPL-compatible licence or isolate the prover as a separately distributed GPL component.
 7. Check Robinhood Chain mainnet supports the BN254 precompiles (it is an Arbitrum Orbit chain, which

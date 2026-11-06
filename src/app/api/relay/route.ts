@@ -8,14 +8,35 @@ import { formatEther } from "viem";
 import { verifyPool } from "@/lib/pool/actions";
 import { quoteMinWithdrawal, relayTransfer, relayWithdrawal, RelayRejected } from "@/lib/pool/relayer";
 import { relayerContext, withPrice } from "@/lib/pool/server";
-import { kv, rateLimit, readJson, watchCaller, withLock } from "@/lib/server/guard";
+import { clientId, kv, rateLimit, readJson, watchCaller, withLock } from "@/lib/server/guard";
 import type { RelayGuard } from "@/lib/pool/relayer";
+import { decideGasDrop, gasDropLimitsFromEnv } from "@/lib/server/gas-drops";
+import { watch } from "@/lib/server/monitor";
+
+/** How long a relay counts as in progress for the approver (src/lib/pool/relayer.ts, approvalRootDecision). */
+const RELAY_BUSY_SECONDS = 60;
 
 /** Withdrawals per client per 10 minutes, and terms lookups per minute. */
 const RELAYS_PER_10_MIN = 30;
 const TERMS_PER_MIN = 120;
 
-const guard: RelayGuard = {
+function guardFor(req: Request, ctx: NonNullable<ReturnType<typeof relayerContext>>): RelayGuard {
+  return {
+    ...baseGuard,
+    async allowDrop(recipient, want) {
+      const balance = await ctx.client.getBalance({ address: ctx.policy.feeRecipient });
+      const d = await decideGasDrop({ kv: kv(), limits: gasDropLimitsFromEnv(), relayerBalance: balance, watch }, { recipient, caller: await clientId(req), want });
+      return d.amount;
+    },
+    async busy() {
+      await kv()
+        .set("relay:busy-until", String(Math.floor(Date.now() / 1000) + RELAY_BUSY_SECONDS))
+        .catch(() => undefined);
+    },
+  };
+}
+
+const baseGuard: RelayGuard = {
   async claim(nullifierHash) {
     const key = `relay:nf:${nullifierHash.toString(16)}`;
     const token = await kv().acquire(key, 300);
@@ -40,6 +61,8 @@ export async function GET(req: Request) {
   const ctx = relayerContext();
   if (!ctx) return NextResponse.json({ available: false }, { headers: noStore });
   const balance = await ctx.client.getBalance({ address: ctx.policy.feeRecipient }).catch(() => 0n);
+  // Watched on every terms lookup, so a relayer running low shows up before top-ups stop.
+  if (balance < gasDropLimitsFromEnv().minBalanceWei) await watch("relayer.low-balance", "relayer").catch(() => undefined);
   const minWithdrawal = await withPrice(ctx)
     .then((p) => quoteMinWithdrawal(ctx.client, p))
     .catch(() => null);
@@ -71,10 +94,10 @@ export async function POST(req: Request) {
     if (!info) return NextResponse.json({ error: "No pool is configured." }, { status: 503, headers: noStore });
     // A pool-to-pool transfer (paying a personal link from your balance).
     if ((body as { kind?: unknown } | null)?.kind === "transfer") {
-      const t = await relayTransfer(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guard);
+      const t = await relayTransfer(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guardFor(req, ctx));
       return NextResponse.json({ hash: t.hash, amount: t.amount.toString(), fee: t.fee.toString() }, { headers: noStore });
     }
-    const r = await relayWithdrawal(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guard);
+    const r = await relayWithdrawal(ctx.client, ctx.wallet, ctx.network, info, await withPrice(ctx), body, guardFor(req, ctx));
     return NextResponse.json(
       { hash: r.hash, recipient: r.recipient, amount: r.amount.toString(), fee: r.fee.toString(), gasDropHash: r.gasDropHash },
       { headers: noStore },

@@ -76,7 +76,7 @@ export async function deliverNote(
     const j = (await r.json()) as { hash?: `0x${string}`; amount?: string; fee?: string; error?: string; minWithdrawal?: string };
     if (r.ok && j.hash) return { status: "delivered", hash: j.hash, amount: BigInt(j.amount ?? note.value), fee: BigInt(j.fee ?? 0) };
     if (r.status === 422 && j.minWithdrawal) return { status: "too-small", minWithdrawal: BigInt(j.minWithdrawal) };
-    if (attempt === 0 && /approval list changed/i.test(j.error ?? "")) {
+    if (attempt === 0 && /approval list changed|pool moved on/i.test(j.error ?? "")) {
       ({ info, events } = await loadState(client, network));
       note = find();
       if (!note || note.status !== "spendable") return { status: "gone" };

@@ -63,6 +63,17 @@ export async function deriveLinkKeys(seed: Hex, chainId: number, index: number):
  * Link keys as derived before 2 November 2026 (no chain in the label), from the seed of the old
  * sign-in message. Only used to find funds sent to links made back then.
  */
+/**
+ * The key that signs link number `index`'s payment request (its terms and its pool locks), for
+ * QuietPayPoolRouterV2. One key per link, so links can't be tied together by their signer, and
+ * derived from the wallet like the rest, so it is recoverable.
+ */
+export async function deriveRequestKey(seed: Hex, chainId: number, index: number): Promise<Hex> {
+  if (!Number.isInteger(index) || index < 0) throw new Error("Invalid link index.");
+  if (!Number.isInteger(chainId) || chainId <= 0) throw new Error("Invalid chain.");
+  return scalar(seed, `request|${chainId}|${index}`);
+}
+
 export async function deriveLinkKeysLegacy(seed: Hex, index: number): Promise<RequestKeys> {
   if (!Number.isInteger(index) || index < 0) throw new Error("Invalid link index.");
   const spendingPrivateKey = await scalar(seed, `spend|${index}`);

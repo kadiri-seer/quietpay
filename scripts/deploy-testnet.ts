@@ -8,7 +8,13 @@
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=announcer npm run contracts:deploy   # announcer only
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=router npm run contracts:deploy      # router only
  *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=pool POSTMAN_ADDRESS=0x... npm run contracts:deploy
- *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=poolrouter npm run contracts:deploy  # pays straight into the pool
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=poolrouter npm run contracts:deploy  # pays straight into the pool (v2)
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=guardian GUARDIAN_ADMIN=0x... [GUARDIAN_DELAY_SECONDS=86400] npm run contracts:deploy
+ *     Deploys QuietPayPoolGuardian (timelocked owner for the pool's Entrypoint, with fee ceilings).
+ *     It owns nothing until the handover below.
+ *   DEPLOYER_PRIVATE_KEY=0x... DEPLOY=handover GUARDIAN_ADDRESS=0x... CONFIRM_HANDOVER=yes npm run contracts:deploy
+ *     Grants the Entrypoint's owner role to the guardian, then renounces the deployer's. After this
+ *     only the guardian (after its delay) can change fees, roles or upgrade the Entrypoint.
  *     Shielded pool (Privacy Pools contracts, unchanged) for the configured testnet token.
  *     POSTMAN_ADDRESS is the relayer's address: it publishes approval roots. The deployer
  *     stays the pool owner, so keep its key out of the web host.
@@ -88,7 +94,7 @@ async function main() {
   const env: string[] = [];
   const prefix = chainId === MAINNET_ID ? "NEXT_PUBLIC_MAINNET" : "NEXT_PUBLIC_TESTNET";
 
-  async function deploy(name: string, args: unknown[] = []) {
+  async function deploy(name: string, args: unknown[] = [], opts: { immutables?: boolean } = {}) {
     const a = artifact(name);
     console.log(`\nDeploying ${name} (${a.compiler})…`);
     const hash = await wallet.deployContract({ abi: a.abi, bytecode: a.bytecode, args });
@@ -96,7 +102,9 @@ async function main() {
     const receipt = await client.waitForTransactionReceipt({ hash, timeout: 180_000 });
     if (receipt.status !== "success" || !receipt.contractAddress) fail(`${name} deployment failed.`);
     const code = await client.getCode({ address: receipt.contractAddress });
-    if (!code || keccak256(code) !== a.runtimeCodeHash) fail(`${name} runtime code hash mismatch at ${receipt.contractAddress}.`);
+    // A contract with immutables (the guardian) has deployment-specific runtime code; check its length instead.
+    if (!code || (opts.immutables ? code.length !== a.deployedBytecode.length : keccak256(code) !== a.runtimeCodeHash))
+      fail(`${name} runtime code mismatch at ${receipt.contractAddress}.`);
     console.log(`  ✓ ${name} at ${receipt.contractAddress} (block ${receipt.blockNumber}), runtime code hash verified`);
     return receipt.contractAddress;
   }
@@ -118,7 +126,8 @@ async function main() {
     const symbol = await client.readContract({ address: getAddress(token), abi: [{ type: "function", name: "symbol", stateMutability: "view", inputs: [], outputs: [{ type: "string" }] }] as const, functionName: "symbol" }).catch(() => null);
     const expected = chainId === MAINNET_ID ? "USDG" : "tUSDG";
     if (symbol !== expected) fail(`${token} reports symbol ${JSON.stringify(symbol)}; expected ${expected}.`);
-    const router = await deploy("QuietPayRouterV2", [getAddress(token), getAddress(announcer)]);
+    // v3: v2 plus onchain destination checks. (v1 is retired; the app refuses it.)
+    const router = await deploy("QuietPayRouterV3", [getAddress(token), getAddress(announcer)]);
     const read = (fn: "token" | "announcer") =>
       client.readContract({ address: router, abi: [{ type: "function", name: fn, stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const, functionName: fn });
     if (getAddress(await read("token")) !== getAddress(token) || getAddress(await read("announcer")) !== getAddress(announcer)) {
@@ -148,22 +157,66 @@ async function main() {
     env.push(`${prefix}_POOL_ENTRYPOINT=${d.entrypoint}`, `${prefix}_POOL_ADDRESS=${d.pool}`, `${prefix}_POOL_FROM_BLOCK=${d.fromBlock}`);
   }
   if (what.includes("poolrouter")) {
-    // Pays straight into the pool for someone else (contracts/src/QuietPayPoolRouter.sol).
+    // Pays straight into the pool for someone else (contracts/src/QuietPayPoolRouterV2.sol: signed
+    // one-time requests, refund-address checks).
     if (chainId !== TESTNET_ID) fail("The pool router is testnet only, like the pool.");
     const pool = process.env.NEXT_PUBLIC_TESTNET_POOL_ADDRESS;
     const entrypoint = process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT;
     const token = process.env.NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS;
     if (!pool || !isAddress(pool) || !entrypoint || !isAddress(entrypoint) || !token || !isAddress(token))
       fail("Set NEXT_PUBLIC_TESTNET_POOL_ADDRESS, NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT and NEXT_PUBLIC_TESTNET_TOKEN_ADDRESS before deploying the pool router.");
-    const r = await deploy("QuietPayPoolRouter", [getAddress(pool)]);
+    const previous = process.env.NEXT_PUBLIC_TESTNET_POOL_ROUTER_ADDRESS;
+    const r = await deploy("QuietPayPoolRouterV2", [getAddress(pool)]);
     const read = (fn: "pool" | "entrypoint" | "token") =>
       client.readContract({ address: r, abi: [{ type: "function", name: fn, stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const, functionName: fn });
     if ((await read("pool")) !== getAddress(pool) || (await read("entrypoint")) !== getAddress(entrypoint) || (await read("token")) !== getAddress(token))
       fail(`Pool router ${r} is not bound to the expected pool, entrypoint and token.`);
     console.log(`  ✓ bound to pool ${getAddress(pool)}, entrypoint ${getAddress(entrypoint)}, token ${getAddress(token)}`);
     env.push(`${prefix}_POOL_ROUTER_ADDRESS=${r}`);
+    // Deposits made through the previous router can only be refunded through it: keep it listed.
+    const legacy = [process.env.NEXT_PUBLIC_TESTNET_POOL_ROUTER_LEGACY, previous]
+      .flatMap((x) => (x ?? "").split(","))
+      .map((x) => x.trim())
+      .filter((x) => isAddress(x) && getAddress(x) !== getAddress(r));
+    if (legacy.length) env.push(`${prefix}_POOL_ROUTER_LEGACY=${[...new Set(legacy.map((x) => getAddress(x)))].join(",")}`);
   }
-  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router, pool, poolrouter.`);
+  if (what.includes("guardian")) {
+    if (chainId !== TESTNET_ID) fail("The pool guardian is testnet only, like the pool.");
+    const entrypoint = process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT;
+    const admin = (process.env.GUARDIAN_ADMIN ?? "").trim();
+    const delay = BigInt((process.env.GUARDIAN_DELAY_SECONDS ?? "86400").trim() || "86400");
+    if (!entrypoint || !isAddress(entrypoint)) fail("Set NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT before deploying the guardian.");
+    if (!isAddress(admin)) fail("Set GUARDIAN_ADMIN to the guardian's admin (ideally a multisig).");
+    const g = await deploy("QuietPayPoolGuardian", [getAddress(entrypoint), getAddress(admin), delay], { immutables: true });
+    console.log(`  ✓ admin ${getAddress(admin)}, delay ${delay}s. It owns nothing until DEPLOY=handover.`);
+    env.push(`${prefix}_POOL_GUARDIAN=${g}`);
+  }
+  if (what.includes("handover")) {
+    if (chainId !== TESTNET_ID) fail("Testnet only.");
+    if (process.env.CONFIRM_HANDOVER !== "yes") fail("The handover gives up the deployer's control of the pool. Set CONFIRM_HANDOVER=yes to do it.");
+    const entrypoint = process.env.NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT;
+    const guardian = (process.env.GUARDIAN_ADDRESS ?? process.env.NEXT_PUBLIC_TESTNET_POOL_GUARDIAN ?? "").trim();
+    if (!entrypoint || !isAddress(entrypoint) || !isAddress(guardian)) fail("Set NEXT_PUBLIC_TESTNET_POOL_ENTRYPOINT and GUARDIAN_ADDRESS.");
+    const roleAbi = [
+      { type: "function", name: "grantRole", stateMutability: "nonpayable", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [] },
+      { type: "function", name: "renounceRole", stateMutability: "nonpayable", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [] },
+      { type: "function", name: "hasRole", stateMutability: "view", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [{ type: "bool" }] },
+    ] as const;
+    const guardianAbi = [{ type: "function", name: "entrypoint", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] }] as const;
+    const ep = getAddress(entrypoint);
+    const g = getAddress(guardian);
+    if (getAddress(await client.readContract({ address: g, abi: guardianAbi, functionName: "entrypoint" })) !== ep) fail(`${g} is not a guardian for ${ep}.`);
+    const OWNER = keccak256(new TextEncoder().encode("OWNER_ROLE"));
+    const tx1 = await wallet.writeContract({ address: ep, abi: roleAbi, functionName: "grantRole", args: [OWNER, g] });
+    await client.waitForTransactionReceipt({ hash: tx1 });
+    if (!(await client.readContract({ address: ep, abi: roleAbi, functionName: "hasRole", args: [OWNER, g] }))) fail("Granting the owner role failed.");
+    const tx2 = await wallet.writeContract({ address: ep, abi: roleAbi, functionName: "renounceRole", args: [OWNER, account.address] });
+    await client.waitForTransactionReceipt({ hash: tx2 });
+    if (await client.readContract({ address: ep, abi: roleAbi, functionName: "hasRole", args: [OWNER, account.address] })) fail("Renouncing the deployer's owner role failed.");
+    console.log(`  ✓ ${g} now holds the Entrypoint's owner role; the deployer no longer does.`);
+    env.push(`${prefix}_POOL_GUARDIAN=${g}`);
+  }
+  if (env.length === 0) fail(`Nothing to deploy. Set DEPLOY to a comma list of: announcer, token, router, pool, poolrouter, guardian, handover.`);
 
   console.log("\nAdd to .env.local (and your hosting provider's env settings):\n");
   for (const l of env) console.log(`  ${l}`);

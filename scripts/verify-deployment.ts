@@ -11,6 +11,8 @@
 import "./load-env";
 import { NETWORKS, type NetworkKey } from "../src/config/networks";
 import { verifyPool } from "../src/lib/pool/actions";
+import { verifyPoolRouterAt, verifyPoolRouterInfo } from "../src/lib/pool/receive";
+import { keccak256, toBytes } from "viem";
 import { assertChainId, createNetworkClient, verifyAnnouncer, verifyRouter, verifyToken } from "../src/lib/chain";
 
 async function main() {
@@ -49,7 +51,7 @@ async function main() {
       true,
       "QuietPay router",
       r
-        ? `${r.address}, v${r.version}${r.version === 2 ? " (bound to this network's token and announcer; one-time links enforced onchain)" : " (legacy)"}, code ${r.codeHash}`
+        ? `${r.address}, v${r.version} (bound to this network's token and announcer; one-time links enforced onchain${r.version === 3 ? "; destinations checked onchain" : ""}), code ${r.codeHash}`
         : "not configured (two-transaction payments)",
     );
   } catch (e) {
@@ -64,6 +66,30 @@ async function main() {
     );
   } catch (e) {
     line(false, "Shielded pool", (e as Error).message);
+  }
+  try {
+    const pr = await verifyPoolRouterInfo(client, network);
+    line(true, "Pool router", pr ? `${pr.address}, v${pr.version}${pr.version === 2 ? " (signed one-time requests, refund checks)" : " (v1: deploy v2 for signed requests)"}` : "not configured");
+    for (const l of network.pool?.legacyRouters ?? []) {
+      const v = await verifyPoolRouterAt(client, network, l);
+      line(true, "Earlier pool router (refunds only)", `${v.address}, v${v.version}`);
+    }
+  } catch (e) {
+    line(false, "Pool router", (e as Error).message);
+  }
+  if (network.pool?.guardian) {
+    try {
+      const OWNER = keccak256(toBytes("OWNER_ROLE"));
+      const owns = await client.readContract({
+        address: network.pool.entrypoint,
+        abi: [{ type: "function", name: "hasRole", stateMutability: "view", inputs: [{ type: "bytes32" }, { type: "address" }], outputs: [{ type: "bool" }] }] as const,
+        functionName: "hasRole",
+        args: [OWNER, network.pool.guardian],
+      });
+      line(true, "Pool guardian", `${network.pool.guardian}${owns ? " holds the Entrypoint's owner role" : " deployed, not the owner yet (run DEPLOY=handover)"}`);
+    } catch (e) {
+      line(false, "Pool guardian", (e as Error).message);
+    }
   }
   console.log(`\nMainnet enabled in this build: ${NETWORKS.mainnet.enabled}`);
   process.exit(ok ? 0 : 1);

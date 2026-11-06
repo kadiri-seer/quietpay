@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { NETWORKS, type NetworkConfig, type NetworkKey } from "@/config/networks";
-import { erc20Abi, mockTokenFaucetAbi, routerAbi } from "@/config/contracts";
+import { erc20Abi, mockTokenFaucetAbi } from "@/config/contracts";
 import { createPaymentRequest } from "@/lib/request";
 import { validatePaymentLink } from "@/lib/link";
 import { deriveStealthPayment } from "@/lib/stealth";
@@ -41,9 +41,9 @@ let payer: WalletClient;
 let network: NetworkConfig;
 let networks: Record<NetworkKey, NetworkConfig>;
 
-async function deploy(name: string): Promise<Address> {
+async function deploy(name: string, args: unknown[] = []): Promise<Address> {
   const a = art(name);
-  const hash = await payer.deployContract({ abi: a.abi, bytecode: a.bytecode as Hex, account: payer.account!, chain: network.chain });
+  const hash = await payer.deployContract({ abi: a.abi, bytecode: a.bytecode as Hex, args, account: payer.account!, chain: network.chain });
   return (await client.waitForTransactionReceipt({ hash })).contractAddress!;
 }
 
@@ -68,6 +68,8 @@ async function routedPay(link: string, chosen?: bigint) {
     ephemeralPublicKey: rec.ephemeralPublicKey,
     metadata: rec.metadata,
     stipend: pf.stipend,
+    routerVersion: pf.routerVersion,
+    requestId: request.kind === "fixed" ? request.requestId : null,
   });
   await confirmRoutedPayment(client, hash, { network, token: network.token!, stealthAddress: rec.stealthAddress, amount, payer: from });
   // The first payment allows the router once, for any amount, so later payments are one
@@ -93,7 +95,8 @@ describe.skipIf(!existsSync(ANVIL))("recovering links from the wallet on a new d
     payer = createWalletClient({ account: privateKeyToAccount(PAYER_KEY), chain: network.chain, transport: http(RPC) });
     const announcer = await deploy("ERC5564Announcer");
     const token = await deploy("QuietPayTestUSDG");
-    const router = await deploy("QuietPayRouter");
+    // The app pays only through router v2/v3 (v1 is retired).
+    const router = await deploy("QuietPayRouterV3", [token, announcer]);
     network = { ...network, announcer, token, router };
     networks = { testnet: network, mainnet: NETWORKS.mainnet };
     const h = await payer.writeContract({ address: token, abi: mockTokenFaucetAbi, functionName: "faucet", args: [5_000_000_000n], account: payer.account!, chain: network.chain });

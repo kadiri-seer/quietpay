@@ -17,6 +17,7 @@ import { getAddress, isAddress, recoverMessageAddress, type Address, type Hex } 
 import { privateKeyToAccount } from "viem/accounts";
 import type { PoolMasterKeys } from "./crypto";
 import { receiveLock } from "./receive";
+import { lockDigest, recoverDigest } from "./request-sig";
 
 export const PERSONAL_INDEX_BASE = 1n << 40n;
 const SNARK_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -26,8 +27,10 @@ export interface SignedLock {
   p: string;
   /** Refund address. */
   r: Address;
-  /** Signature by the recipient's name key over lockMessage(). */
+  /** Signature by the recipient's key over lockMessage(), or for v 2 over lockDigest(). */
   s: Hex;
+  /** 2: a signed request's spare lock, signed over request-sig.ts lockDigest (the router checks it onchain). */
+  v?: 2;
 }
 
 export function lockMessage(p: { chainId: number; pool: Address; precommitment: bigint; refund: Address }): string {
@@ -57,7 +60,11 @@ export async function verifyLock(raw: unknown, p: { key: Address; chainId: numbe
   const precommitment = BigInt(l.p);
   if (precommitment === 0n || precommitment >= SNARK_FIELD) throw new Error("The recipient's payment details are malformed.");
   const refund = getAddress(l.r);
-  const signer = await recoverMessageAddress({ message: lockMessage({ chainId: p.chainId, pool: p.pool, precommitment, refund }), signature: l.s as Hex }).catch(() => null);
+  if (l.v !== undefined && l.v !== 2) throw new Error("The recipient's payment details are malformed.");
+  const signer =
+    l.v === 2
+      ? await recoverDigest(lockDigest({ chainId: p.chainId, pool: p.pool, precommitment, refund }), l.s as Hex).catch(() => null)
+      : await recoverMessageAddress({ message: lockMessage({ chainId: p.chainId, pool: p.pool, precommitment, refund }), signature: l.s as Hex }).catch(() => null);
   if (!signer || getAddress(signer) !== getAddress(p.key)) throw new Error("These payment details weren't signed by the recipient. Don't pay.");
   return { precommitment, refund };
 }

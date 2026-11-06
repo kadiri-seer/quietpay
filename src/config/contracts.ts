@@ -14,8 +14,12 @@ export const KNOWN_ANNOUNCER_CODE_HASHES: readonly `0x${string}`[] = [
   "0x0af95fb5a29fc215ce3b805393c1f7c0530999f793faeb08f8bae6dd110797c0",
 ];
 
-/** QuietPayRouter v1 build (no constructor args or immutables, so the hash is the same everywhere). */
-export const KNOWN_ROUTER_CODE_HASHES: readonly `0x${string}`[] = [
+/**
+ * QuietPayRouter v1 build. RETIRED: the app never pays through it (it didn't check that the
+ * announcement matched the transfer). Kept only so a misconfigured v1 address is recognised and
+ * refused with a clear message.
+ */
+export const RETIRED_ROUTER_V1_CODE_HASHES: readonly `0x${string}`[] = [
   "0xc651ba2cdd6e69e0ff3048a9d2291633ec1476301cc964ea563bdb494066483d",
 ];
 
@@ -26,6 +30,11 @@ export const KNOWN_ROUTER_CODE_HASHES: readonly `0x${string}`[] = [
  */
 export const KNOWN_ROUTER_V2_CODE_HASHES: readonly `0x${string}`[] = [
   "0x4a156d5db51b4115a9d541c8ac43e30367b362787feae7a72bbeed05e860f434",
+];
+
+/** QuietPayRouterV3: v2 plus onchain destination checks (same ABI, same token/announcer binding). */
+export const KNOWN_ROUTER_V3_CODE_HASHES: readonly `0x${string}`[] = [
+  "0x7204fbccf48311a25c51fc39827c319a9f331142c457464a4589b21d574d6e3b",
 ];
 
 export const routerV2Abi = [
@@ -59,8 +68,10 @@ export const routerV2Abi = [
   { type: "function", name: "paidOnce", stateMutability: "view", inputs: [{ name: "requestId", type: "bytes16" }], outputs: [{ type: "bool" }] },
   { type: "function", name: "MAX_GAS_STIPEND", stateMutability: "view", inputs: [], outputs: [{ type: "uint256" }] },
   { type: "error", name: "AlreadyPaid", inputs: [{ name: "requestId", type: "bytes16" }] },
+  { type: "error", name: "BadDestination", inputs: [] },
 ] as const;
 
+/** QuietPayRouter v1 ABI. Retired: only tests of the old contract use it. */
 export const routerAbi = [
   {
     type: "function",

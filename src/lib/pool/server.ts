@@ -10,6 +10,11 @@
  *   POOL_APPROVAL_DELAY_SECONDS  how old a deposit must be before it is approved, default 0 (immediately)
  *   POOL_SCREENING               "on" or "off": check deposits against the OFAC sanctions list before
  *                                approving them. Default on for mainnet, off for testnet.
+ *   POOL_ROOT_INTERVAL_SECONDS   least time between approval roots, 15 to 3600, default 60
+ *   RELAYER_MIN_BALANCE_ETH      no gas top-ups below this relayer balance, default 0.02
+ *   RELAYER_DROP_COOLDOWN_SECONDS one top-up per receiving address per this long, default 86400
+ *   RELAYER_DROPS_PER_CALLER_PER_DAY  top-ups per caller (salted IP hash) per day, default 3
+ *   RELAYER_DROPS_PER_DAY        top-ups in total per day, default 50
  */
 import "server-only";
 import { createWalletClient, http, parseEther, parseUnits, type Hex, type WalletClient } from "viem";

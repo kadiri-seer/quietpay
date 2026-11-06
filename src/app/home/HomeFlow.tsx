@@ -10,6 +10,7 @@ import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { useOnchainHoldings, usePoolInfo, usePoolSnapshot } from "@/components/pool-hooks";
 import { findOlderFunds, OLDER_FUNDS_UNTIL, usePaymentScan } from "@/components/scan-hooks";
 import { useAddToBalance, useWalletToken } from "@/components/wallet-funds";
+import { creditedAmount } from "@/lib/pool/receive";
 import { useMoveIntoPool } from "@/components/AutoShield";
 import { useAccount, useSignMessage } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
@@ -269,6 +270,14 @@ function Home({ network }: { network: NetworkConfig }) {
                   </button>
                   <p className="text-xs leading-relaxed text-haze">
                     One signature moves it into your shielded balance. Onchain it shows your wallet paid into the pool, not where it goes later.
+                    {info.data && (
+                      <>
+                        {" "}
+                        {info.data.vettingFeeBPS > 0n
+                          ? `The pool's fee is ${Number(info.data.vettingFeeBPS) / 100}% (${formatAmount(wallet - creditedAmount(wallet, info.data.vettingFeeBPS), decimals, { group: true })} ${symbol}).`
+                          : "The pool charges no fee."}
+                      </>
+                    )}
                   </p>
                 </div>
               )}

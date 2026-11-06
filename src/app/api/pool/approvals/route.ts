@@ -1,14 +1,17 @@
 /**
  * Publishes the pool's approval root by its public rule: every deposit at least
  * POOL_APPROVAL_DELAY_SECONDS old (0 on testnet: right away). Anyone may call it; it only sends a
- * transaction when the approved set would grow, at most once every 10 seconds.
+ * transaction when the approved set would grow, and on a fixed cadence: at most one root every
+ * POOL_ROOT_INTERVAL_SECONDS (default 60), held back while a relay is being submitted (up to three
+ * intervals). See approvalRootDecision in src/lib/pool/relayer.ts for why.
  */
 import { NextResponse } from "next/server";
 import { verifyPool } from "@/lib/pool/actions";
-import { refreshApprovals } from "@/lib/pool/relayer";
+import { approvalRootDecision, refreshApprovals } from "@/lib/pool/relayer";
+import { watch } from "@/lib/server/monitor";
 import { relayerContext } from "@/lib/pool/server";
 import { fetchPoolEvents } from "@/lib/pool/state";
-import { rateLimit, watchCaller, withLock } from "@/lib/server/guard";
+import { kv, rateLimit, watchCaller, withLock } from "@/lib/server/guard";
 import { approverScreening } from "@/lib/screening/approver";
 
 /** Calls per client per minute. The site asks at most every few seconds while a deposit waits. */
@@ -19,6 +22,12 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const noStore = { "Cache-Control": "no-store" };
+
+/** Seconds between approval roots: POOL_ROOT_INTERVAL_SECONDS, 15 to 3600, default 60. */
+function rootIntervalSeconds() {
+  const n = Number(process.env.POOL_ROOT_INTERVAL_SECONDS ?? 60);
+  return Number.isFinite(n) ? Math.min(3600, Math.max(15, Math.floor(n))) : 60;
+}
 
 export async function POST(req: Request) {
   await watchCaller(req, "approvals.caller");
@@ -46,8 +55,11 @@ async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
     });
     const last = events.rootUpdates.at(-1);
     const now = Math.floor(Date.now() / 1000);
-    if (last && now - Number(last.timestamp) < 10) {
-      return NextResponse.json({ updated: false, reason: "recent" }, { headers: noStore });
+    const intervalSec = rootIntervalSeconds();
+    const busy = Number((await kv().get("relay:busy-until").catch(() => null)) ?? 0) || null;
+    const decision = approvalRootDecision({ nowSec: now, lastRootAtSec: last ? Number(last.timestamp) : null, intervalSec, maxDeferSec: intervalSec * 3, relayBusyUntilSec: busy });
+    if (!decision.publish) {
+      return NextResponse.json({ updated: false, reason: decision.reason, retryAt: decision.retryAtSec }, { headers: noStore });
     }
     const r = await refreshApprovals(ctx.client, ctx.wallet, ctx.network, info, events, {
       delaySeconds: ctx.approvalDelaySeconds,
@@ -57,7 +69,7 @@ async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
             token: ctx.network.token!,
             fromBlock: ctx.network.announcerFromBlock ?? ctx.network.pool!.fromBlock,
             ignore: [info.pool, info.entrypoint],
-            poolRouters: ctx.network.pool!.router ? [ctx.network.pool!.router] : [],
+            poolRouters: [ctx.network.pool!.router, ...(ctx.network.pool!.legacyRouters ?? [])].filter((a): a is `0x${string}` => !!a),
           })
         : undefined,
       // The approver signs with the relayer's key, so its transaction takes the relayer's send lock
@@ -68,6 +80,7 @@ async function approve(ctx: NonNullable<ReturnType<typeof relayerContext>>) {
         return r.value;
       },
     });
+    if (r.hash) await watch("approvals.root", "published");
     return NextResponse.json(
       { updated: !!r.hash, hash: r.hash, approved: r.approved, excluded: r.excluded, uptoBlock: r.uptoBlock.toString() },
       { headers: noStore },

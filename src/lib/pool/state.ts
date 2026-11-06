@@ -6,6 +6,7 @@
  */
 import { keccak256, stringToBytes, type Address, type PublicClient } from "viem";
 import { Entrypoint, PrivacyPoolComplex } from "@/config/pool-contracts.generated";
+import { spareIndex, SPARES_PER_LINK } from "./request-sig";
 import {
   commitmentHash,
   depositSecrets,
@@ -328,6 +329,26 @@ export function reconstructReceived(
     notes.push(followNote(keys, m, dep, s, RECEIVE_INDEX_BASE + offset + i));
   }
   return { notes, nextReceiveIndex: next };
+}
+
+/**
+ * Payments into the spare locks of signed requests (src/lib/pool/request-sig.ts): spare j of link
+ * i has receive index SPARE_INDEX_BASE + i * SPARES_PER_LINK + j. Checks every link up to
+ * `issued` plus a margin, so a new device finds them too.
+ */
+export function reconstructSpares(keys: PoolMasterKeys, scope: bigint, ev: PoolEvents, issued: bigint, margin = 20n): PoolNote[] {
+  const m = noteMaps(ev);
+  const notes: PoolNote[] = [];
+  if (ev.deposits.length === 0) return notes;
+  for (let i = 0n; i < issued + margin; i++) {
+    for (let j = 0n; j < SPARES_PER_LINK; j++) {
+      const idx = spareIndex(i, j);
+      const s = receiveSecrets(keys, scope, idx);
+      const dep = m.byPrecommitment.get(precommitmentHash(s));
+      if (dep) notes.push(followNote(keys, m, dep, s, RECEIVE_INDEX_BASE + idx));
+    }
+  }
+  return notes;
 }
 
 function noteMaps(ev: PoolEvents) {

@@ -101,6 +101,45 @@ export class RelayRejected extends Error {
 export interface RelayGuard {
   claim(nullifierHash: bigint): Promise<(() => Promise<void>) | null>;
   send<T>(fn: () => Promise<T>): Promise<T>;
+  /**
+   * How much of a wanted gas top-up may go to `recipient` (src/lib/server/gas-drops.ts). Asked
+   * only after the withdrawal succeeded. Without it (tests), the wanted amount.
+   */
+  allowDrop?(recipient: Address, want: bigint): Promise<bigint>;
+  /** Marks a relay as in progress, so the approver holds back a new root meanwhile (approvalRootDecision). */
+  busy?(): Promise<void>;
+}
+
+/**
+ * When the approver may publish a new approval root. Every withdrawal proof is made against the
+ * latest root and the pool accepts only the latest, so each new root makes proofs in progress
+ * fail (they must be made again). Roots are therefore published on a fixed cadence instead of on
+ * every deposit: at most one per `intervalSec`, and while a relay is being submitted, held back
+ * for up to `maxDeferSec` after the last root. Deposits can't speed this up, and calling the
+ * approver repeatedly changes nothing.
+ */
+export function approvalRootDecision(p: { nowSec: number; lastRootAtSec: number | null; intervalSec: number; maxDeferSec: number; relayBusyUntilSec: number | null }):
+  | { publish: true }
+  | { publish: false; reason: "interval" | "relay-in-progress"; retryAtSec: number } {
+  if (p.lastRootAtSec === null) return { publish: true };
+  const since = p.nowSec - p.lastRootAtSec;
+  if (since < p.intervalSec) return { publish: false, reason: "interval", retryAtSec: p.lastRootAtSec + p.intervalSec };
+  if (p.relayBusyUntilSec !== null && p.relayBusyUntilSec > p.nowSec && since < p.maxDeferSec)
+    return { publish: false, reason: "relay-in-progress", retryAtSec: Math.min(p.relayBusyUntilSec, p.lastRootAtSec + p.maxDeferSec) };
+  return { publish: true };
+}
+
+/**
+ * Why the pool refused a relay, in words the app acts on. The pool's errors are raised inside the
+ * pool contract, which the Entrypoint and router ABIs don't list, so they're matched by name or by
+ * their 4-byte selector. "approval list changed" makes the app make the proof again.
+ */
+export function relayRevertReason(msg: string, fallback: string): string {
+  if (/IncorrectASPRoot|0xa6a78244/i.test(msg)) return "The approval list changed. Generate the proof again.";
+  if (/NullifierAlreadySpent|0xb115d857/i.test(msg)) return "This note was already spent.";
+  if (/UnknownStateRoot|0xfd3d3c4c/i.test(msg)) return "The pool moved on since the proof was made. Generate the proof again.";
+  if (/PrecommitmentAlreadyUsed|0xda85277b/i.test(msg)) return "The recipient's payment details were already used. Try again.";
+  return fallback;
 }
 
 const noGuard: RelayGuard = { claim: async () => async () => undefined, send: (fn) => fn() };
@@ -154,12 +193,13 @@ export async function relayWithdrawal(
 
   async function submitRelay() {
 
+  await guard.busy?.();
   // Simulation runs the full onchain checks (proof, roots, nullifier) at no cost.
   try {
     await client.simulateContract({ address: info.entrypoint, abi: Entrypoint.abi, functionName: "relay", args, account: wallet.account! });
   } catch (e) {
     const msg = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
-    throw new RelayRejected(/IncorrectASPRoot/.test(msg) ? "The approval list changed. Generate the proof again." : /NullifierAlreadySpent/.test(msg) ? "This note was already spent." : `The pool rejected this withdrawal: ${msg.split("\n")[0]}`);
+    throw new RelayRejected(relayRevertReason(msg, `The pool rejected this withdrawal: ${msg.split("\n")[0]}`));
   }
   // The fee must pay for this transaction (and any gas top-up), or the relayer is being drained.
   const [gas, gasPrice] = await Promise.all([
@@ -188,8 +228,11 @@ export async function relayWithdrawal(
   const fee = relayed ? (relayed.args as { _feeAmount: bigint })._feeAmount : 0n;
 
   let gasDropHash: Hash | null = null;
-  if (econ.drop > 0n) {
-    gasDropHash = await guard.send(() => wallet.sendTransaction({ to: data.recipient, value: econ.drop, account: wallet.account!, chain: network.chain }));
+  // The fee covering a top-up means nothing when it's paid in free test tokens: every top-up
+  // also has to pass the relayer's limits (per address, per caller, per day, minimum balance).
+  const drop = econ.drop > 0n ? ((await guard.allowDrop?.(getAddress(data.recipient), econ.drop).catch(() => 0n)) ?? econ.drop) : 0n;
+  if (drop > 0n) {
+    gasDropHash = await guard.send(() => wallet.sendTransaction({ to: data.recipient, value: drop, account: wallet.account!, chain: network.chain }));
     await waitForConfirmedReceipt(client, gasDropHash, { confirmations: network.confirmations });
   }
   return { hash: receipt.transactionHash, recipient: getAddress(data.recipient), amount, fee, gasDropHash };
@@ -321,19 +364,12 @@ export async function relayTransfer(
   if (!release) throw new RelayRejected("This payment is already being submitted. Wait a moment and check again.");
   let submitted = false;
   try {
+    await guard.busy?.();
     try {
       await client.simulateContract({ address: router, abi: poolRouterAbi, functionName: "transfer", args, account: wallet.account! });
     } catch (e) {
       const msg = e instanceof Error ? (e as { shortMessage?: string }).shortMessage ?? e.message : String(e);
-      throw new RelayRejected(
-        /IncorrectASPRoot/.test(msg)
-          ? "The approval list changed. Generate the proof again."
-          : /NullifierAlreadySpent/.test(msg)
-            ? "This note was already spent."
-            : /PrecommitmentAlreadyUsed/.test(msg)
-              ? "The recipient's payment details were already used. Try again."
-              : "The pool rejected this payment.",
-      );
+      throw new RelayRejected(relayRevertReason(msg, "The pool rejected this payment."));
     }
     const [gas, gasPrice] = await Promise.all([
       client.estimateContractGas({ address: router, abi: poolRouterAbi, functionName: "transfer", args, account: wallet.account! }),

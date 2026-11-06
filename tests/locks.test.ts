@@ -4,6 +4,7 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { masterKeysFromSeeds } from "@/lib/pool/crypto";
 import { lockMessage, parsePayTarget, personalLock, PERSONAL_INDEX_BASE, signLock, verifyLock } from "@/lib/pool/locks";
 import { receiveLock } from "@/lib/pool/receive";
+import { lockDigest, signDigest } from "@/lib/pool/request-sig";
 import { HOLD_MS, MIN_HOLD_MS, MemoryLocks } from "@/lib/pool/lock-store";
 import { HOLDS_PER_RECIPIENT, lockCounts, takeLock, uploadLocks, type LockDeps } from "@/lib/pool/lock-service";
 import { MemoryStore } from "@/lib/names/store";
@@ -45,6 +46,24 @@ describe("signed locks", () => {
     expect(parsePayTarget("AgAAtiZ…")).toBeNull();
     expect(parsePayTarget("@ab")).toBeNull();
     expect(parsePayTarget("to=0x123")).toBeNull();
+  });
+});
+
+describe("v2 locks (spares of signed requests)", () => {
+  it("are verified against the structured digest and stored with their version", async () => {
+    const k = generatePrivateKey();
+    const key = privateKeyToAccount(k).address as Address;
+    const l = personalLock(keys, SCOPE, 5n);
+    const s = await signDigest(k, lockDigest({ chainId: CHAIN, pool: POOL, precommitment: l.precommitment, refund: l.refund }));
+    const lock = { p: l.precommitment.toString(), r: l.refund, s, v: 2 as const };
+    expect(await verifyLock(lock, { key, chainId: CHAIN, pool: POOL })).toEqual({ precommitment: l.precommitment, refund: getAddress(l.refund) });
+    // The same signature read as a v1 (text) lock doesn't verify, and vice versa.
+    await expect(verifyLock({ ...lock, v: undefined }, { key, chainId: CHAIN, pool: POOL })).rejects.toThrow(/weren't signed/);
+    await expect(verifyLock({ ...lock, v: 3 }, { key, chainId: CHAIN, pool: POOL })).rejects.toThrow(/malformed/);
+    const store = new MemoryLocks();
+    const d = { locks: store, names: new MemoryStore(), chainId: CHAIN, pool: POOL, isUsed: async () => false, now: 0 };
+    expect(await uploadLocks(d, { key, locks: [lock] })).toEqual({ total: 1 });
+    expect((await takeLock(d, { key }, "4.4.4.4", "s")).lock).toEqual(lock);
   });
 });
 

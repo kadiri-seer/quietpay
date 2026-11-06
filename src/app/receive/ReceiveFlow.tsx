@@ -27,6 +27,8 @@ import { RequestPanel } from "@/app/create/CreateFlow";
 import { usePoolRouter } from "@/components/pool-hooks";
 import { personalLinkUrl } from "@/lib/pool/locks";
 import { QR } from "@/components/ui";
+import { poolRouterAbi } from "@/lib/pool/receive";
+import { spareIndex } from "@/lib/pool/request-sig";
 
 type Tab = "link" | "request";
 
@@ -235,8 +237,22 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
   // A link that pays into the pool: its payment is a pool note (found by its lock), not a
   // payment at a one-time address.
   const snap = usePoolSnapshot(network);
-  const poolNote = request.pool ? snap.data?.notes.find((n) => n.received && n.received.receiveIndex === BigInt(request.pool!.receiveIndex)) : undefined;
-  const status = poolNote ? "claimed" : requestStatus(request);
+  const client = usePublicClient(network);
+  // Signed requests (router v2): paid only when the router recorded a full payment, which may have
+  // gone into the link's own lock or one of its spares.
+  const signed = request.pool?.requestKey && request.pool.router ? { key: request.pool.requestKey, router: request.pool.router } : null;
+  const paidQ = useQuery({
+    queryKey: ["request-paid", signed?.router, signed?.key],
+    enabled: !!signed,
+    refetchInterval: (q) => (q.state.data ? false : 15_000),
+    queryFn: () => client.readContract({ address: signed!.router, abi: poolRouterAbi, functionName: "requestPaid", args: [signed!.key] }),
+  });
+  const lockIndexes = request.pool ? [BigInt(request.pool.receiveIndex), ...[0, 1, 2, 3].map((j) => spareIndex(request.pool!.receiveIndex, j))] : [];
+  const lockNotes = request.pool ? (snap.data?.notes ?? []).filter((n) => n.received && lockIndexes.includes(n.received.receiveIndex)) : [];
+  const poolNote = signed ? (paidQ.data ? lockNotes.find((n) => n.deposit.value > 0n) ?? lockNotes[0] : undefined) : lockNotes.find((n) => n.received!.receiveIndex === lockIndexes[0]);
+  // Money someone put into this link's lock without paying the request in full (it's yours anyway).
+  const stray = signed && !paidQ.data ? lockNotes : [];
+  const status = poolNote || (signed && paidQ.data) ? "claimed" : requestStatus(request);
   const open = request.kind === "open";
   const [origin, setOrigin] = useState("");
   useEffect(() => setOrigin(window.location.origin), []);
@@ -272,7 +288,7 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
             </p>
           )}
         </div>
-        <StatusPill state={status} label={poolNote ? "In your pool balance" : STATE_LABELS[status]} />
+        <StatusPill state={status} label={poolNote || (signed && paidQ.data) ? "In your pool balance" : STATE_LABELS[status]} />
       </div>
       {request.pool && (
         <p className="mt-2 text-sm text-mist">
@@ -283,9 +299,17 @@ function RequestCard({ request, network }: { request: StoredRequest; network: Ne
                 Pool
               </a>
             </>
+          ) : signed && paidQ.data ? (
+            "Paid in full, straight into your shielded pool balance."
           ) : (
             "Pays straight into your shielded pool balance."
           )}
+        </p>
+      )}
+      {stray.length > 0 && (
+        <p className="mt-2 text-xs text-haze">
+          Someone deposited {fmt(stray.reduce((t, n) => t + n.deposit.value, 0n))} into this link&apos;s lock without paying the request. It&apos;s in
+          your balance, and the link can still be paid in full.
         </p>
       )}
       {shareable && origin && (

@@ -84,7 +84,7 @@ export async function uploadLocks(d: LockDeps, raw: unknown) {
       throw new ReservationError("Every lock must be signed by the key it is filed under.", 403);
     }
     const s = l as SignedLock;
-    clean.push({ p: s.p, r: getAddress(s.r), s: s.s });
+    clean.push({ p: s.p, r: getAddress(s.r), s: s.s, ...(s.v === 2 ? { v: 2 as const } : {}) });
   }
   const total = await d.locks.add(key, clean);
   if (total === null) throw new ReservationError("Too many unused locks stored already.", 409);

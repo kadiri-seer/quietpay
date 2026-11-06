@@ -10,11 +10,27 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: "What to deploy, comma separated: announcer, token, router, pool, poolrouter"
+        description: "What to deploy, comma separated: announcer, token, router, pool, poolrouter, guardian, handover"
         required: true
         default: "router"
       postman:
         description: "For pool: the relayer's address (its public address, never its key)"
+        required: false
+        default: ""
+      guardian_admin:
+        description: "For guardian: its admin address (ideally a multisig)"
+        required: false
+        default: ""
+      guardian_delay_seconds:
+        description: "For guardian: delay before any change takes effect (3600 to 2592000)"
+        required: false
+        default: "86400"
+      guardian_address:
+        description: "For handover: the deployed guardian's address"
+        required: false
+        default: ""
+      confirm_handover:
+        description: "For handover: type yes to give the pool's owner role to the guardian and renounce the deployer's"
         required: false
         default: ""
 
@@ -53,6 +69,10 @@ jobs:
           DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
           DEPLOY: ${{ inputs.deploy }}
           POSTMAN_ADDRESS: ${{ inputs.postman }}
+          GUARDIAN_ADMIN: ${{ inputs.guardian_admin }}
+          GUARDIAN_DELAY_SECONDS: ${{ inputs.guardian_delay_seconds }}
+          GUARDIAN_ADDRESS: ${{ inputs.guardian_address }}
+          CONFIRM_HANDOVER: ${{ inputs.confirm_handover }}
         shell: bash
         run: |
           set -o pipefail

@@ -1,4 +1,4 @@
-import { bytesToHex, type Address } from "viem";
+import { bytesToHex, type Address, type Hex } from "viem";
 import { EXPIRY_OPTIONS, OPEN_EXPIRY_OPTIONS } from "@/config/networks";
 import { encodePaymentLink, type LinkKind } from "./link";
 import { createRequestKeys, type RequestKeys } from "./stealth";
@@ -27,6 +27,9 @@ export function createPaymentRequest(p: {
   index?: number;
   /** The recipient's pool lock for this link (fixed links only): it then pays into the pool. */
   poolLock?: { precommitment: bigint; refund: Address; receiveIndex: number };
+  /** Request ID (16 bytes) and signatures, for a signed pool request (see createSignedPoolRequest). */
+  id?: Hex;
+  signed?: { lockSig: Hex; termsSig: Hex; requestKey: Address; router: Address };
 }): StoredRequest {
   if (p.poolLock && (p.kind ?? "fixed") !== "fixed") throw new Error("Only one-time links can pay into the pool.");
   const kind: LinkKind = p.kind ?? "fixed";
@@ -36,7 +39,7 @@ export function createPaymentRequest(p: {
   const amount = kind === "fixed" ? p.amount : 0n;
   const now = p.nowMs ?? Date.now();
   const keys = p.keys ?? createRequestKeys();
-  const id = bytesToHex(randomBytes(16));
+  const id = p.id ?? bytesToHex(randomBytes(16));
   const expiresAt = p.expirySeconds === 0 ? 0 : Math.floor(now / 1000) + p.expirySeconds;
   const link = encodePaymentLink({
     kind,
@@ -46,7 +49,8 @@ export function createPaymentRequest(p: {
     expiresAt,
     requestId: id,
     stealthMetaAddress: keys.stealthMetaAddress,
-    ...(p.poolLock ? { poolLock: { precommitment: p.poolLock.precommitment, refund: p.poolLock.refund } } : {}),
+    ...(p.poolLock ? { poolLock: { precommitment: p.poolLock.precommitment, refund: p.poolLock.refund, ...(p.signed ? { sig: p.signed.lockSig } : {}) } } : {}),
+    ...(p.signed ? { termsSig: p.signed.termsSig } : {}),
   });
   return {
     id,
@@ -62,7 +66,19 @@ export function createPaymentRequest(p: {
     link,
     keys,
     ...(p.index !== undefined ? { index: p.index } : {}),
-    ...(p.poolLock ? { pool: { precommitment: p.poolLock.precommitment.toString(), refund: p.poolLock.refund, receiveIndex: p.poolLock.receiveIndex } } : {}),
+    ...(p.poolLock
+      ? {
+          pool: {
+            precommitment: p.poolLock.precommitment.toString(),
+            refund: p.poolLock.refund,
+            receiveIndex: p.poolLock.receiveIndex,
+            ...(p.signed ? { requestKey: p.signed.requestKey, router: p.signed.router } : {}),
+          },
+        }
+      : {}),
     payments: [],
   };
 }
+
+/** Expiry (unix seconds) a request made now with this option will have; matches createPaymentRequest. */
+export const expiryFor = (expirySeconds: number, nowMs: number) => (expirySeconds === 0 ? 0 : Math.floor(nowMs / 1000) + expirySeconds);

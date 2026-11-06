@@ -5,8 +5,8 @@ import { EXPIRY_OPTIONS, OPEN_EXPIRY_OPTIONS, PAYMENT_LIMITS } from "@/config/ne
 import type { LinkKind } from "@/lib/link";
 import { AmountError, checkLimits, formatAmount, limitsFor, parseAmount } from "@/lib/amount";
 import { buildPayUrl } from "@/lib/link";
-import { createPaymentRequest } from "@/lib/request";
-import { deriveLinkKeys } from "@/lib/link-keys";
+import { createPaymentRequest, expiryFor } from "@/lib/request";
+import { deriveLinkKeys, deriveRequestKey } from "@/lib/link-keys";
 import { discoverLinks } from "@/lib/receive";
 import type { StoredRequest } from "@/lib/vault";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
@@ -16,10 +16,14 @@ import { CopyButton, Countdown, Notice, PageTitle, QR, Skeleton, Spinner, format
 import { useVault } from "@/components/VaultProvider";
 import { VaultGate, WalletGate } from "@/components/WalletGate";
 import { SetupBlocker } from "@/components/SetupBlocker";
-import { usePoolInfo, usePoolKeys, usePoolRouter } from "@/components/pool-hooks";
+import { usePoolInfo, usePoolKeys, usePoolRouter, usePoolRouterInfo } from "@/components/pool-hooks";
 import { Entrypoint } from "@/config/pool-contracts.generated";
 import { fetchPoolEvents, reconstructReceived } from "@/lib/pool/state";
 import { receiveLock } from "@/lib/pool/receive";
+import { lockDigest, requestDigest, signDigest, spareIndex, SPARES_UPLOADED } from "@/lib/pool/request-sig";
+import { bytesToHex, type Address, type Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { randomBytes } from "@/lib/vault-crypto";
 
 export function CreateFlow() {
   const { network } = useSelectedNetwork();
@@ -66,6 +70,7 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const { vault, update } = useVault();
   const poolInfo = usePoolInfo(network);
   const poolRouter = usePoolRouter(network);
+  const routerInfo = usePoolRouterInfo(network);
   const poolKeys = usePoolKeys();
   // Requests are for a set amount and pay once. (Any-amount payments go to your
   // personal link, which pay into the pool too.)
@@ -97,9 +102,19 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
   const poolMin = poolInfo.data?.minimumDeposit ?? null;
   // Wait for the pool check before creating a one-time link, so whether it pays into the pool
   // never depends on how fast the page loaded. (If the check fails, links use one-time addresses.)
-  const poolPending = kind === "fixed" && !!network.pool?.router && (poolInfo.isLoading || poolRouter.isLoading);
+  const poolPending = kind === "fixed" && !!network.pool?.router && (poolInfo.isLoading || poolRouter.isLoading || routerInfo.isLoading);
   const poolEligible =
     kind === "fixed" && !!poolRouter.data && !!poolInfo.data && poolKeys.length > 0 && "value" in parsed && parsed.value !== undefined && parsed.value >= (poolMin ?? 0n);
+
+  async function uploadSpares(requestKey: Hex, index: number) {
+    const locks = [];
+    for (let j = 0; j < SPARES_UPLOADED; j++) {
+      const l = receiveLock(poolKeys[0], poolInfo.data!.scope, spareIndex(index, j));
+      const digest = lockDigest({ chainId: network.chain.id, pool: poolInfo.data!.pool, precommitment: l.precommitment, refund: l.refund });
+      locks.push({ p: l.precommitment.toString(), r: l.refund, s: await signDigest(requestKey, digest), v: 2 });
+    }
+    await fetch("/api/locks", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ key: privateKeyToAccount(requestKey).address, locks }) });
+  }
 
   async function create() {
     setTouched(true);
@@ -137,6 +152,10 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
       // Take the link number from the latest saved vault, inside the update, so two tabs (or a
       // scan running elsewhere) can never hand out the same number twice.
       let record: StoredRequest | null = null;
+      const spares: { v: { requestKey: Hex; index: number } | null } = { v: null };
+      // With router v2, one-time requests are signed: the router only marks one paid when exactly
+      // its amount goes into a lock the request's own key signed.
+      const signedRouter = poolEligible && routerInfo.data?.version === 2 ? routerInfo.data.address : null;
       await update(async (v) => {
         let cur = v;
         if (found) {
@@ -158,7 +177,27 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
           lock = receiveLock(poolKeys[0], poolInfo.data!.scope, BigInt(index));
         }
         const keys = await deriveLinkKeys(cur.linkSeed!, network.chain.id, index);
+        const nowMs = Date.now();
+        const amountValue = kind === "fixed" && "value" in parsed && parsed.value ? parsed.value : 0n;
+        let signed: { id: Hex; signed: { lockSig: Hex; termsSig: Hex; requestKey: Address; router: Address } } | null = null;
+        if (lock && signedRouter) {
+          const requestKey = await deriveRequestKey(cur.linkSeed!, network.chain.id, index);
+          const id = bytesToHex(randomBytes(16));
+          const terms = { chainId: network.chain.id, router: signedRouter, token: token.address, requestId: id, amount: amountValue, expiresAt: expiryFor(expiry, nowMs) };
+          signed = {
+            id,
+            signed: {
+              termsSig: await signDigest(requestKey, requestDigest(terms)),
+              lockSig: await signDigest(requestKey, lockDigest({ chainId: network.chain.id, pool: poolInfo.data!.pool, precommitment: lock.precommitment, refund: lock.refund })),
+              requestKey: privateKeyToAccount(requestKey).address,
+              router: signedRouter,
+            },
+          };
+          spares.v = { requestKey, index };
+        }
         record = createPaymentRequest({
+          nowMs,
+          ...(signed ?? {}),
           kind,
           chainId: network.chain.id,
           token: token.address,
@@ -175,6 +214,9 @@ function CreateForm({ onCreated }: { onCreated: (r: StoredRequest) => void }) {
         return { ...cur, requests: [record, ...cur.requests], nextLinkIndex: index + 1 };
       });
       if (!record) throw new Error("Could not create the link.");
+      // Spare locks for this request, kept by QuietPay's server: if someone burns the link's own
+      // lock by depositing into it directly, the payer takes a spare and the link still works.
+      if (spares.v) void uploadSpares(spares.v.requestKey, spares.v.index).catch(() => null);
       onCreated(record);
     } catch (e) {
       setError(e instanceof Error ? e.message.split("\n")[0] : "Could not create the link.");

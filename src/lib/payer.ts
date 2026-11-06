@@ -11,7 +11,7 @@
  */
 import { encodeFunctionData, formatEther, getAddress, type Address, type Hash, type Hex, type PublicClient, type WalletClient } from "viem";
 import { PAYMENT_LIMITS, CLOCK_SKEW_SECONDS, MAX_EXPIRY_SECONDS, type NetworkConfig } from "@/config/networks";
-import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerAbi, routerV2Abi } from "@/config/contracts";
+import { announcerAbi, erc20Abi, ERC5564_SCHEME_ID, routerV2Abi } from "@/config/contracts";
 import { SHIELD_GAS_BUDGET } from "./pool/constants";
 import { checkLimits, formatAmount, limitsFor } from "./amount";
 import {
@@ -56,7 +56,7 @@ export interface PreflightResult {
   /** True when an exact token approval for the router is needed first. */
   needsApproval: boolean;
   /** Router version in router mode (2 enforces one-time links onchain). */
-  routerVersion?: 1 | 2;
+  routerVersion?: 2 | 3;
 }
 
 /** Router contract's cap on the stipend (0.001 ETH). */
@@ -151,7 +151,7 @@ export async function preflight(
   let mode: PayMode = "direct";
   let stipend = 0n;
   let needsApproval = false;
-  let routerVersion: 1 | 2 | undefined;
+  let routerVersion: 2 | 3 | undefined;
   const done = (): PreflightResult => ({ ok: checks.every((c) => c.status !== "fail"), checks, token, existingPayments, mode, stipend, needsApproval, routerVersion });
 
   try {
@@ -289,7 +289,7 @@ export async function preflight(
       // With router v2 the contract's own record is authoritative (and also refuses a second
       // payment onchain). Earlier payments made another way are still found by scanning.
       const paidOnchain =
-        mode === "router" && routerVersion === 2 && p.network.router
+        mode === "router" && !!routerVersion && p.network.router
           ? await client.readContract({ address: p.network.router, abi: routerV2Abi, functionName: "paidOnce", args: [p.request.requestId as Hex] })
           : false;
       existingPayments = await findExistingPayments(client, p.network, p.request, p.scanFromBlock);
@@ -468,6 +468,7 @@ export async function submitPayment(
   p: { network: NetworkConfig; token: Address; stealthAddress: Address; amount: bigint },
 ): Promise<Hash> {
   if (!wallet.account) throw new Error("Wallet not connected.");
+  checkStealthDestination(p.network, p.token, p.stealthAddress);
   return wallet.writeContract({
     chain: p.network.chain,
     account: wallet.account,
@@ -549,19 +550,28 @@ export function routedPaymentCall(p: {
   ephemeralPublicKey: Hex;
   metadata: Hex;
   stipend: bigint;
-  routerVersion?: 1 | 2;
+  routerVersion?: 2 | 3;
   requestId?: Hex | null;
 }): { to: Address; data: Hex; value: bigint } {
   if (!p.network.router || !p.network.announcer) throw new Error("Router or announcer not configured.");
   if (p.stipend > MAX_GAS_STIPEND) throw new Error("Gas stipend is above the router's limit.");
-  const data =
-    p.routerVersion === 2
-      ? p.requestId
-        ? encodeFunctionData({ abi: routerV2Abi, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
-        : encodeFunctionData({ abi: routerV2Abi, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
-      : encodeFunctionData({ abi: routerAbi, functionName: "pay", args: [p.token, p.network.announcer, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
+  if (p.routerVersion !== 2 && p.routerVersion !== 3) throw new Error("QuietPay only pays through its v2 or v3 router.");
+  checkStealthDestination(p.network, p.token, p.stealthAddress);
+  const data = p.requestId
+    ? encodeFunctionData({ abi: routerV2Abi, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
+    : encodeFunctionData({ abi: routerV2Abi, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
   return { to: p.network.router, data, value: p.stipend };
 }
+
+/**
+ * Refuses destinations tokens could never leave: the zero address, the router, the token and the
+ * announcer. (Router v3 also refuses them onchain; v2 and direct payments rely on this check.)
+ */
+export function checkStealthDestination(network: NetworkConfig, token: Address, to: Address) {
+  const bad = [ZERO, network.router, token, network.announcer].filter((a): a is Address => !!a).map((a) => a.toLowerCase());
+  if (bad.includes(to.toLowerCase())) throw new Error("This payment's destination is invalid. Nothing was sent.");
+}
+const ZERO = "0x0000000000000000000000000000000000000000" as Address;
 
 export async function submitRoutedPayment(
   wallet: WalletClient,
@@ -573,8 +583,8 @@ export async function submitRoutedPayment(
     ephemeralPublicKey: Hex;
     metadata: Hex;
     stipend: bigint;
-    /** Router version from verifyRouter. v2 needs `requestId` for one-time links. */
-    routerVersion?: 1 | 2;
+    /** Router version from verifyRouter (2 or 3). One-time links need `requestId`. */
+    routerVersion?: 2 | 3;
     /** One-time link's request ID (fixed links); null for reusable links. */
     requestId?: Hex | null;
   },
@@ -582,21 +592,12 @@ export async function submitRoutedPayment(
   if (!wallet.account) throw new Error("Wallet not connected.");
   if (!p.network.router || !p.network.announcer) throw new Error("Router or announcer not configured.");
   if (p.stipend > MAX_GAS_STIPEND) throw new Error("Gas stipend is above the router's limit.");
-  if (p.routerVersion === 2) {
-    const common = { chain: p.network.chain, account: wallet.account, address: p.network.router, abi: routerV2Abi, value: p.stipend } as const;
-    return p.requestId
-      ? wallet.writeContract({ ...common, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
-      : wallet.writeContract({ ...common, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
-  }
-  return wallet.writeContract({
-    chain: p.network.chain,
-    account: wallet.account,
-    address: p.network.router,
-    abi: routerAbi,
-    functionName: "pay",
-    args: [p.token, p.network.announcer, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata],
-    value: p.stipend,
-  });
+  if (p.routerVersion !== 2 && p.routerVersion !== 3) throw new Error("QuietPay only pays through its v2 or v3 router.");
+  checkStealthDestination(p.network, p.token, p.stealthAddress);
+  const common = { chain: p.network.chain, account: wallet.account, address: p.network.router, abi: routerV2Abi, value: p.stipend } as const;
+  return p.requestId
+    ? wallet.writeContract({ ...common, functionName: "payOnce", args: [p.requestId, p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] })
+    : wallet.writeContract({ ...common, functionName: "pay", args: [p.stealthAddress, p.amount, p.ephemeralPublicKey, p.metadata] });
 }
 
 /** Waits for a routed payment and verifies both the token transfer and the announcement in its receipt. */

@@ -39,6 +39,8 @@ import { prepareSpend } from "@/lib/one-confirmation";
 
 /** Runtime code hash of contracts/src/QuietPayPoolRouter.sol (identical for every deployment). */
 export const POOL_ROUTER_CODE_HASH = "0xb7daf1530d7c3c8c0d850f784168cae50cf45b5618abbd3c9d709b8ebc42f8b6";
+/** Runtime code hash of contracts/src/QuietPayPoolRouterV2.sol (signed requests, refund checks). */
+export const POOL_ROUTER_V2_CODE_HASH = "0xa46b1aca668abebfd25b2babe4bf17ba91eefa7fb117837c83ed49802b177b6a";
 
 export const poolRouterAbi = [
   { type: "function", name: "pool", stateMutability: "view", inputs: [], outputs: [{ type: "address" }] },
@@ -135,7 +137,87 @@ export const poolRouterAbi = [
   { type: "error", name: "ZeroAmount", inputs: [] },
   { type: "error", name: "TokenTransferFailed", inputs: [] },
   { type: "error", name: "LabelMismatch", inputs: [] },
+  // v2 only
+  {
+    type: "function",
+    name: "payRequest",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "requestId", type: "bytes16" },
+      { name: "amount", type: "uint256" },
+      { name: "expiresAt", type: "uint64" },
+      { name: "termsSig", type: "bytes" },
+      { name: "precommitment", type: "uint256" },
+      { name: "refund", type: "address" },
+      { name: "lockSig", type: "bytes" },
+    ],
+    outputs: [{ name: "label", type: "uint256" }],
+  },
+  { type: "function", name: "requestPaid", stateMutability: "view", inputs: [{ name: "requestKey", type: "address" }], outputs: [{ type: "bool" }] },
+  {
+    type: "function",
+    name: "requestDigest",
+    stateMutability: "view",
+    inputs: [
+      { name: "requestId", type: "bytes16" },
+      { name: "amount", type: "uint256" },
+      { name: "expiresAt", type: "uint64" },
+    ],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "function",
+    name: "lockDigest",
+    stateMutability: "view",
+    inputs: [
+      { name: "precommitment", type: "uint256" },
+      { name: "refund", type: "address" },
+    ],
+    outputs: [{ type: "bytes32" }],
+  },
+  {
+    type: "event",
+    name: "RequestPaid",
+    inputs: [
+      { name: "requestKey", type: "address", indexed: true },
+      { name: "requestId", type: "bytes16", indexed: false },
+      { name: "label", type: "uint256", indexed: true },
+      { name: "amount", type: "uint256", indexed: false },
+    ],
+  },
+  { type: "error", name: "BadDestination", inputs: [] },
+  { type: "error", name: "BadSignature", inputs: [] },
+  { type: "error", name: "SignerMismatch", inputs: [] },
+  { type: "error", name: "ZeroRequestId", inputs: [] },
+  { type: "error", name: "RequestExpired", inputs: [] },
+  { type: "error", name: "RequestAlreadyPaid", inputs: [] },
 ] as const;
+
+export type PoolRouterVersion = 1 | 2;
+
+/**
+ * Checks a pool router at `router`: its code is exactly one of QuietPay's published router
+ * builds, bound to this network's pool, entrypoint and token. Returns its version.
+ */
+export async function verifyPoolRouterAt(client: PublicClient, network: NetworkConfig, router: Address): Promise<{ address: Address; version: PoolRouterVersion }> {
+  if (!network.pool || !network.token) throw new VerificationError("No pool is configured.");
+  const code = await client.getCode({ address: router });
+  const hash = code && code !== "0x" ? keccak256(code) : null;
+  const version: PoolRouterVersion | null = hash === POOL_ROUTER_V2_CODE_HASH ? 2 : hash === POOL_ROUTER_CODE_HASH ? 1 : null;
+  if (!version) throw new VerificationError("The pool payment contract doesn't match QuietPay's published code. Don't pay through it.");
+  const read = (functionName: "pool" | "entrypoint" | "token") => client.readContract({ address: router, abi: poolRouterAbi, functionName });
+  const [pool, entrypoint, token] = await Promise.all([read("pool"), read("entrypoint"), read("token")]);
+  if (getAddress(pool) !== getAddress(network.pool.pool) || getAddress(entrypoint) !== getAddress(network.pool.entrypoint) || getAddress(token) !== getAddress(network.token))
+    throw new VerificationError("The pool payment contract is bound to a different pool or token. Don't pay through it.");
+  return { address: getAddress(router), version };
+}
+
+/** The configured router's address and version, or null if none is configured. */
+export async function verifyPoolRouterInfo(client: PublicClient, network: NetworkConfig) {
+  const router = network.pool?.router;
+  if (!router || !network.pool || !network.token) return null;
+  return verifyPoolRouterAt(client, network, router);
+}
 
 /**
  * Checks the configured pool router before any payment through it: its code is exactly the
@@ -143,15 +225,7 @@ export const poolRouterAbi = [
  * address, or null if no router is configured.
  */
 export async function verifyPoolRouter(client: PublicClient, network: NetworkConfig): Promise<Address | null> {
-  const router = network.pool?.router;
-  if (!router || !network.pool || !network.token) return null;
-  const code = await client.getCode({ address: router });
-  if (!code || code === "0x" || keccak256(code) !== POOL_ROUTER_CODE_HASH) throw new VerificationError("The pool payment contract doesn't match QuietPay's published code. Don't pay through it.");
-  const read = (functionName: "pool" | "entrypoint" | "token") => client.readContract({ address: router, abi: poolRouterAbi, functionName });
-  const [pool, entrypoint, token] = await Promise.all([read("pool"), read("entrypoint"), read("token")]);
-  if (getAddress(pool) !== getAddress(network.pool.pool) || getAddress(entrypoint) !== getAddress(network.pool.entrypoint) || getAddress(token) !== getAddress(network.token))
-    throw new VerificationError("The pool payment contract is bound to a different pool or token. Don't pay through it.");
-  return getAddress(router);
+  return (await verifyPoolRouterInfo(client, network))?.address ?? null;
 }
 
 /** A lock handed to a payer. Contains nothing that lets anyone but the recipient spend. */
@@ -237,6 +311,36 @@ export async function payIntoPool(
     args: [p.lock.precommitment, p.amount, getAddress(p.lock.refund)],
     account: wallet.account!,
   });
+  const hash = await wallet.writeContract({ ...request, account: wallet.account!, chain: p.network.chain });
+  return { hash, approveHash };
+}
+
+/**
+ * Payer side, QuietPayPoolRouterV2: pays a signed one-time request (exactly its amount, into a
+ * lock its request key signed). Approves the router first if needed, like payIntoPool.
+ */
+export async function payRequestIntoPool(
+  wallet: WalletClient,
+  client: PublicClient,
+  p: {
+    network: NetworkConfig;
+    router: Address;
+    token: Address;
+    request: { requestId: Hex; amount: bigint; expiresAt: number; termsSig: Hex };
+    lock: { precommitment: bigint; refund: Address; sig: Hex };
+  },
+): Promise<{ hash: Hash; approveHash: Hash | null }> {
+  const args = [p.request.requestId, p.request.amount, BigInt(p.request.expiresAt), p.request.termsSig, p.lock.precommitment, getAddress(p.lock.refund), p.lock.sig] as const;
+  const plan = await prepareSpend(wallet, client, {
+    chain: p.network.chain,
+    token: p.token,
+    spender: p.router,
+    amount: p.request.amount,
+    payment: { to: p.router, data: encodeFunctionData({ abi: poolRouterAbi, functionName: "payRequest", args }) },
+  });
+  if (plan.kind === "batched") return { hash: plan.hash, approveHash: null };
+  const approveHash: Hash | null = plan.kind === "approved" ? plan.approveTx : null;
+  const { request } = await client.simulateContract({ address: p.router, abi: poolRouterAbi, functionName: "payRequest", args, account: wallet.account! });
   const hash = await wallet.writeContract({ ...request, account: wallet.account!, chain: p.network.chain });
   return { hash, approveHash };
 }

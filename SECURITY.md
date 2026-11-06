@@ -165,13 +165,38 @@ states this on every page and the payer must acknowledge it before paying.
   the payer to that one-time address before offering a new payment, and warns if it can't tell.
 
 ### QuietPay router
-- `QuietPayRouter` has no owner, no storage of funds and no upgrade path. It pulls exactly the
-  approved amount from the payer to the one-time address, forwards any ETH sent with the call
-  (capped at 0.001 ETH) to the same address, and calls the announcer, all in one transaction.
-- The app verifies the router's runtime bytecode hash before using it, and only ever passes its
-  allowlisted token and verified announcer. Approvals are for the exact payment amount, so no
-  lingering allowance remains after a payment.
-- If no router is configured the app falls back to the two-transaction flow below.
+- The app pays one-time addresses only through `QuietPayRouterV3` (or `QuietPayRouterV2`). Both have
+  no owner, hold no funds and can't be upgraded; their token and announcer are fixed at deployment,
+  the announcement must describe the transfer that happened, and a one-time link's request ID can
+  be paid once. V3 also refuses destinations tokens could never leave (zero address, the router,
+  the token, the announcer); the app refuses them for V2 and direct payments too.
+- `QuietPayRouter` (v1) is retired: it let the caller pick the token and announcer and didn't tie
+  the announcement to the transfer. Its code hash is kept only so a v1 address is recognised and
+  refused with a clear error; there is no fallback to it.
+- The app verifies the router's runtime bytecode hash before using it. If no router is configured
+  the app falls back to the two-transaction flow below.
+
+### One-time payment requests (pool router v2)
+- New one-time requests are signed by a key made for that request alone (derived from the wallet,
+  so recoverable). It signs the terms (amount, expiry, request ID, token, router, chain) and the
+  lock the money goes into. `QuietPayPoolRouterV2.payRequest` marks a request paid only when
+  exactly its amount goes into a lock signed by the same key, in the same transaction. An
+  underpaid, overpaid, wrong-token or redirected payment reverts, and a reverted attempt records
+  nothing, so it can't use the request up.
+- The pool accepts any deposit under any precommitment, so someone holding a link can still burn
+  its lock by depositing straight into it (the money lands with the recipient). That never marks
+  the request paid: the payer then takes one of the request's spare locks (signed the same way,
+  kept by QuietPay's lock store) and pays in full. The request's paid state is read from the
+  router, not from whether the lock was used.
+- Requests made before this, and links paid through pool router v1, keep v1's behaviour (a lock
+  used by any deposit reads as paid). One-time links without the pool (stealth addresses, used only
+  where no pool exists) can be paid once through router v2/v3, but the router can't check that the
+  one-time address belongs to the recipient; see "Remaining limits" below.
+
+### Remaining limits
+- A stealth one-time link (no pool) can be used up by someone holding the link who pays its full
+  amount to an address of their own. Only possible for whoever has the link, and costs them the
+  gas; the pool request above doesn't have this problem.
 
 ### Reusable (any-amount) links
 - Payments to the same link each go to a fresh one-time address, and their announcements carry no
@@ -206,9 +231,29 @@ states this on every page and the payer must acknowledge it before paying.
   stops just before that deposit and retries; nothing is approved unchecked. This is list screening
   only: money that passed through other wallets first isn't traced (a risk-scoring provider is the
   next step).
-- The entrypoint is upgradeable and owned by the deployer. The owner cannot take pool funds, and
+- The entrypoint is upgradeable. Its owner role is meant to be held by `QuietPayPoolGuardian`
+  (see below); until the handover it is the deployer. The owner cannot take pool funds, and
   `ragequit` works without the owner, approver or relayer, but the owner could block private
   withdrawals. The relayer key is separate from the owner key and is the only key on the web host.
+- Approval roots are published on a fixed cadence (at most one per `POOL_ROOT_INTERVAL_SECONDS`,
+  default 60, held back up to three intervals while a relay is being submitted), not per deposit.
+  The pool only accepts its latest root, so an old root is never accepted; a proof made against a
+  replaced root is refused by the relayer with "The approval list changed", and the app makes it
+  again automatically, once.
+
+### Pool administration (`QuietPayPoolGuardian`)
+- Holds the Entrypoint's owner role. Changes to fees, roles, pools and Entrypoint upgrades are
+  proposed onchain (`Proposed` event with the full call), wait `delay` (1 hour to 30 days; 1 day by
+  default), can be cancelled meanwhile, expire 14 days after becoming ready, and can then be carried
+  out by anyone. Only listed calls can be proposed.
+- Hard ceilings: deposit (vetting) fee at most 1%, relay-fee ceiling at most 5%, whatever is proposed.
+- Immediate controls: winding a pool down (stops new deposits; withdrawals and ragequits keep
+  working) and collecting the Entrypoint's fees (never users' deposits, which the pool holds).
+- The admin can be any address, including a multisig (Safe). Changing the admin or the delay goes
+  through the same delay. The Security page shows the guardian, its delay, the current fees and any
+  pending changes, read from the chain.
+- Withdrawals: the proof binds the recipient, fee recipient and fee, and the relayer only submits
+  it as is; the direct path (`withdraw` by the note owner) and `ragequit` don't involve the relayer.
 - The pool hides which deposit a withdrawal came from. It does not hide deposits, withdrawals,
   amounts or timing, and gives little privacy while few people use it.
 - Details: [docs/shielded-pool.md](./docs/shielded-pool.md).
@@ -219,6 +264,14 @@ states this on every page and the payer must acknowledge it before paying.
   tab or a delivery can't overwrite newer data (lost deliveries, or a reused link number and with
   it reused keys). Tabs reload the vault when another tab saves it. Only one tab sends scheduled
   deliveries at a time.
+
+### Relayer gas top-ups
+- On testnet the withdrawal fee is paid in free test tokens, so the fee covering a top-up protects
+  nothing on its own. Every top-up also needs: the relayer keeping `RELAYER_MIN_BALANCE_ETH`
+  (default 0.02) afterwards; one top-up per receiving address per `RELAYER_DROP_COOLDOWN_SECONDS`
+  (default a day); at most `RELAYER_DROPS_PER_CALLER_PER_DAY` (default 3) per caller; at most
+  `RELAYER_DROPS_PER_DAY` (default 50) in total. Refusals, a low balance and repeated top-ups are
+  recorded by the repeated-action monitor (`/api/monitor`).
 
 ### Server routes
 - `/api/relay` and `/api/pool/approvals` are rate-limited per client (salted IP hash in expiring

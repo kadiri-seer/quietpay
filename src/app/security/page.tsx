@@ -6,6 +6,7 @@ import { enabledNetworks, explorerAddressUrl } from "@/config/networks";
 import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { PageTitle } from "@/components/ui";
 import { LiveContractCheck } from "./LiveContractCheck";
+import { PoolAdmin } from "./PoolAdmin";
 
 export const metadata: Metadata = {
   title: "Security | QuietPay",
@@ -52,7 +53,7 @@ const RISKS: { title: string; body: string }[] = [
   },
   {
     title: "Losing your keys",
-    body: "There's nothing to back up. Your links, payments, pool funds and name all come back when you connect the same wallet on any device. Keep your wallet's recovery phrase safe: losing the wallet means losing access.",
+    body: "There's nothing to back up. Your links, payments and pool funds all come back when you connect the same wallet on any device. Keep your wallet's recovery phrase safe: losing the wallet means losing access.",
   },
   {
     title: "Phishing for your vault signature",
@@ -93,6 +94,22 @@ const RISKS: { title: string; body: string }[] = [
   {
     title: "The relayer and approver",
     body: "QuietPay runs a small relayer so withdrawals can go to an empty address. It sees your IP address and the withdrawal, can refuse to submit, but cannot change the recipient or fee because the proof fixes them. The approver publishes approvals by a public rule anyone can check. If either stops, deposits can always exit to their one-time address.",
+  },
+  {
+    title: "Underpaid or hijacked payment requests",
+    body: "New one-time requests are signed by a key made for that request alone. QuietPay's pool payment contract (v2) marks a request paid only when exactly its amount goes into a lock that same key signed, so nobody can use a request up by paying less or paying somewhere else, and a failed attempt changes nothing. If someone deposits straight into a request's lock, the money is yours, and the payer uses one of the request's spare locks instead.",
+  },
+  {
+    title: "Approval timing",
+    body: "Each withdrawal proof is made against the pool's latest approval list, and a new list makes proofs in progress start over. So the approver publishes at most one new list a minute, holds back while a withdrawal is being submitted, and ignores how many deposits arrive. The pool only accepts the latest list, so an old one is never accepted.",
+  },
+  {
+    title: "Gas top-ups",
+    body: "After a relayed withdrawal, the relayer may send a little ETH to an empty receiving address. Each address gets at most one top-up a day, each caller a few, with a daily total, and none while the relayer's balance is low. Free test tokens can't be used to drain it.",
+  },
+  {
+    title: "Who controls the pool",
+    body: "The pool's settings belong to the Entrypoint's owner. Once the guardian contract holds that role, every change (fees, roles, upgrades) is announced onchain, waits out a delay during which anyone can withdraw, and can be cancelled. The deposit fee can never go above 1%. The current fee is read from the chain and shown before you pay.",
   },
   {
     title: "Reusable links",
@@ -259,6 +276,10 @@ export default function SecurityPage() {
             and every circuit file against the trusted-setup ceremony output. Unlike the announcer and router, the pool has an owner: on testnet,
             QuietPay&apos;s deployer can upgrade the entrypoint, add pools and stop new deposits. Funds sit in the pool contract, which the owner cannot take from, and a depositor&apos;s exit back to its one-time address does not depend on the owner, the approver or the relayer.
           </p>
+        </Section>
+
+        <Section id="pool-admin" title="Pool administration">
+          <PoolAdmin />
         </Section>
 
         <Section title="Mainnet">

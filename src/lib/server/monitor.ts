@@ -21,6 +21,14 @@ export const RULES = {
   "lock.empty.recipient": { alertAt: 5, windowSec: 3600 },
   "lock.upload.recipient": { alertAt: 12, windowSec: 3600 },
   "name.claim.caller": { alertAt: 10, windowSec: 3600 },
+  /** Gas top-ups: per receiving address, per caller, and refusals by a limit. */
+  "gasdrop.recipient": { alertAt: 2, windowSec: 86400 },
+  "gasdrop.caller": { alertAt: 3, windowSec: 86400 },
+  "gasdrop.denied": { alertAt: 10, windowSec: 3600 },
+  /** The relayer's ETH is below its minimum (top-ups stop). */
+  "relayer.low-balance": { alertAt: 0, windowSec: 3600 },
+  /** Approval roots deferred or published. */
+  "approvals.root": { alertAt: 120, windowSec: 3600 },
   "name.lookup.caller": { alertAt: 300, windowSec: 600 },
   "relay.caller": { alertAt: 40, windowSec: 600 },
   "approvals.caller": { alertAt: 2000, windowSec: 3600 },

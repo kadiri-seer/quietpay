@@ -11,7 +11,7 @@ import { NotApprovedYetError, prepareWithdrawal, ragequit, serializeWithdrawal, 
 import { exclusionsFrom, fetchPoolEvents } from "@/lib/pool/state";
 import { ArtifactIntegrityError, fetchArtifact } from "@/lib/pool/prover";
 import { stealthAccount } from "@/lib/receive";
-import { refundAccount, refundUnapproved, verifyPoolRouter } from "@/lib/pool/receive";
+import { refundAccount, refundUnapproved, verifyPoolRouterAt } from "@/lib/pool/receive";
 import { classifyTxError } from "@/lib/tx-errors";
 import { useNetworkReadiness, usePublicClient } from "@/components/hooks";
 import { usePoolInfo, usePoolSnapshot, useRelayerTerms, type PoolSnapshot, type RelayerTerms } from "@/components/pool-hooks";
@@ -340,7 +340,7 @@ function WithdrawForm({ note, network, info, snapshot, terms, fmt, decimals, onD
         });
         j = (await r.json()) as typeof j;
         if (r.ok && j.hash) break;
-        if (attempt === 0 && /approval list changed/i.test(j.error ?? "")) {
+        if (attempt === 0 && /approval list changed|pool moved on/i.test(j.error ?? "")) {
           const fresh = await verifyPool(client, network);
           if (!fresh) break;
           poolInfo = fresh;
@@ -550,12 +550,15 @@ function RefundForm({ note, network, info, fmt }: Parameters<typeof NoteCard>[0]
   const refund = note.received ? refundAccount(note.keys, info.scope, note.received.receiveIndex).address : null;
 
   async function run() {
-    if (!wallet || !network.pool?.router) return;
+    if (!wallet || !network.pool) return;
     setBusy(true);
     setError(null);
     try {
-      const router = await verifyPoolRouter(client, network);
-      if (!router) throw new Error("The pool payment contract isn't configured on this site.");
+      // The refund is recorded in the router that made the deposit (this one or an earlier one).
+      const known = [network.pool.router, ...(network.pool.legacyRouters ?? [])].filter((a): a is `0x${string}` => !!a);
+      const depositor = known.find((a) => a.toLowerCase() === note.deposit.depositor.toLowerCase());
+      if (!depositor) throw new Error("This payment wasn't made through a QuietPay payment contract this site knows.");
+      const router = (await verifyPoolRouterAt(client, network, depositor)).address;
       const hash = await refundUnapproved(wallet, loadArtifacts, { network, router, note });
       await client.waitForTransactionReceipt({ hash });
       setDone(hash);

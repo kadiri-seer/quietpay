@@ -12,7 +12,7 @@ import { join } from "node:path";
 import { createPublicClient, createWalletClient, http, parseEther, type Address, type Hex, type PublicClient, type WalletClient } from "viem";
 import { privateKeyToAccount, generatePrivateKey } from "viem/accounts";
 import { NETWORKS, type NetworkConfig, type NetworkKey } from "@/config/networks";
-import { announcerAbi, erc20Abi, mockTokenFaucetAbi, routerAbi } from "@/config/contracts";
+import { announcerAbi, erc20Abi, mockTokenFaucetAbi, routerV2Abi } from "@/config/contracts";
 import { createPaymentRequest } from "@/lib/request";
 import { validatePaymentLink } from "@/lib/link";
 import { deriveStealthPayment } from "@/lib/stealth";
@@ -24,6 +24,7 @@ import {
   newPayerRecord,
   preflight,
   submitRoutedPayment,
+  checkStealthDestination,
   MAX_GAS_STIPEND,
 } from "@/lib/payer";
 import { fetchAnnouncementsForRequests, recordSend, scanRequest, sendFromStealthPayment, stealthBalances } from "@/lib/receive";
@@ -43,9 +44,9 @@ let payer: WalletClient;
 let network: NetworkConfig;
 let networks: Record<NetworkKey, NetworkConfig>;
 
-async function deploy(name: string): Promise<Address> {
+async function deploy(name: string, args: unknown[] = []): Promise<Address> {
   const a = art(name);
-  const hash = await payer.deployContract({ abi: a.abi, bytecode: a.bytecode as Hex, account: payer.account!, chain: network.chain });
+  const hash = await payer.deployContract({ abi: a.abi, bytecode: a.bytecode as Hex, args, account: payer.account!, chain: network.chain });
   return (await client.waitForTransactionReceipt({ hash })).contractAddress!;
 }
 
@@ -70,6 +71,8 @@ async function routedPay(link: string, chosen?: bigint) {
     ephemeralPublicKey: rec.ephemeralPublicKey,
     metadata: rec.metadata,
     stipend: pf.stipend,
+    routerVersion: pf.routerVersion,
+    requestId: request.kind === "fixed" ? request.requestId : null,
   });
   await confirmRoutedPayment(client, hash, { network, token: network.token!, stealthAddress: rec.stealthAddress, amount, payer: from });
   // The first payment allows the router once, for any amount, so later payments are one
@@ -95,7 +98,8 @@ describe.skipIf(!existsSync(ANVIL))("router payments and reusable links on a loc
     payer = createWalletClient({ account: privateKeyToAccount(PAYER_KEY), chain: network.chain, transport: http(RPC) });
     const announcer = await deploy("ERC5564Announcer");
     const token = await deploy("QuietPayTestUSDG");
-    const router = await deploy("QuietPayRouter");
+    // The app pays only through router v2/v3 (v1 is retired).
+    const router = await deploy("QuietPayRouterV3", [token, announcer]);
     network = { ...network, announcer, token, router };
     networks = { testnet: network, mainnet: NETWORKS.mainnet };
     const h = await payer.writeContract({ address: token, abi: mockTokenFaucetAbi, functionName: "faucet", args: [5_000_000_000n], account: payer.account!, chain: network.chain });
@@ -107,6 +111,13 @@ describe.skipIf(!existsSync(ANVIL))("router payments and reusable links on a loc
     await expect(verifyRouter(client, network)).resolves.toMatchObject({ address: network.router });
     await expect(verifyRouter(client, { ...network, router: network.token })).rejects.toBeInstanceOf(VerificationError);
     await expect(verifyRouter(client, { ...network, router: null })).resolves.toBeNull();
+    await expect(verifyRouter(client, network)).resolves.toMatchObject({ version: 3 });
+    // The retired v1 router is refused, never used as a fallback.
+    const v1 = await deploy("QuietPayRouter");
+    await expect(verifyRouter(client, { ...network, router: v1 })).rejects.toThrow(/retired v1/);
+    await expect(
+      submitRoutedPayment(payer, { network, token: network.token!, stealthAddress: payer.account!.address, amount: 1n, ephemeralPublicKey: "0x02", metadata: "0x00", stipend: 0n, routerVersion: 1 as unknown as 2 }),
+    ).rejects.toThrow(/v2 or v3/);
   });
 
   it("pays a fixed link in one transaction; the recipient moves funds with no gas top-up", async () => {
@@ -209,12 +220,13 @@ describe.skipIf(!existsSync(ANVIL))("router payments and reusable links on a loc
 
   it("rejects an oversized stipend and refuses payments without approval", async () => {
     const derivation = deriveStealthPayment(createPaymentRequest({ chainId: 46630, token: network.token!, amount: 1n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock: 0n }).keys.stealthMetaAddress);
+    const meta = (amount: bigint) => buildPaymentMetadata({ viewTag: derivation.viewTag, token: network.token!, amount });
     const call = (value: bigint, amount: bigint) =>
       client.simulateContract({
         address: network.router!,
-        abi: routerAbi,
+        abi: routerV2Abi,
         functionName: "pay",
-        args: [network.token!, network.announcer!, derivation.stealthAddress, amount, derivation.ephemeralPublicKey, "0x00"],
+        args: [derivation.stealthAddress, amount, derivation.ephemeralPublicKey, meta(amount)],
         value,
         account: payer.account!.address,
       });
@@ -224,5 +236,26 @@ describe.skipIf(!existsSync(ANVIL))("router payments and reusable links on a loc
     const bal = await client.getBalance({ address: network.router! });
     expect(bal).toBe(0n); // the router never holds funds
     void parseEther;
+  });
+
+  it("v3 refuses destinations tokens could never leave, atomically; real one-time addresses still work", async () => {
+    const d = deriveStealthPayment(createPaymentRequest({ chainId: 46630, token: network.token!, amount: 1n, decimals: 6, symbol: "tUSDG", expirySeconds: 3600, fromBlock: 0n }).keys.stealthMetaAddress);
+    const amount = 1_000_000n;
+    await approveRouterIfNeeded(payer, client, { network, token: network.token!, owner: payer.account!.address, amount });
+    const meta = buildPaymentMetadata({ viewTag: d.viewTag, token: network.token!, amount });
+    const tokenBefore = await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [payer.account!.address] });
+    for (const bad of [network.router!, network.token!, network.announcer!, "0x0000000000000000000000000000000000000000" as Address]) {
+      await expect(
+        client.simulateContract({ address: network.router!, abi: routerV2Abi, functionName: "pay", args: [bad, amount, d.ephemeralPublicKey, meta], account: payer.account!.address }),
+      ).rejects.toThrow(/BadDestination|ZeroAddress|revert/);
+      // The app refuses them before asking the wallet, too.
+      expect(() => checkStealthDestination(network, network.token!, bad)).toThrow(/invalid/);
+    }
+    // Nothing moved, nothing is held by the router.
+    expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [payer.account!.address] })).toBe(tokenBefore);
+    expect(await client.readContract({ address: network.token!, abi: erc20Abi, functionName: "balanceOf", args: [network.router!] })).toBe(0n);
+    // A real one-time address is accepted.
+    const ok = await client.simulateContract({ address: network.router!, abi: routerV2Abi, functionName: "pay", args: [d.stealthAddress, amount, d.ephemeralPublicKey, meta], account: payer.account!.address });
+    expect(ok.request.functionName).toBe("pay");
   });
 });

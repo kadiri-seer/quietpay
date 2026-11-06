@@ -33,7 +33,7 @@ export interface LockStore {
 
 const setKey = (k: Address) => `qp:locks:${k.toLowerCase()}`;
 const countKey = (k: Address) => `qp:lockn:${k.toLowerCase()}`;
-const member = (l: SignedLock) => JSON.stringify({ p: l.p, r: l.r, s: l.s });
+const member = (l: SignedLock) => JSON.stringify(l.v === 2 ? { p: l.p, r: l.r, s: l.s, v: 2 } : { p: l.p, r: l.r, s: l.s });
 
 // Picks the lowest-scored lock that is free now and holds it, atomically. If none is free, the one
 // held longest is taken over once it has been held MIN_HOLD_MS (ARGV[3] = now + HOLD - MIN_HOLD):

@@ -278,7 +278,7 @@ function FromBalance({ network, mode, prefill }: { network: NetworkConfig; mode:
           const r = await fetch(network.pool!.relayerUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
           j = (await r.json().catch(() => ({}))) as typeof j;
           if (r.ok && j.hash) break;
-          if (attempt === 0 && /approval list changed|payment details were already used/i.test(j.error ?? "")) {
+          if (attempt === 0 && /approval list changed|pool moved on|payment details were already used/i.test(j.error ?? "")) {
             const fresh = await verifyPool(client, network);
             if (!fresh) break;
             poolInfo = fresh;

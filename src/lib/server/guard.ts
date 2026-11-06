@@ -8,7 +8,7 @@
 import "server-only";
 import { upstashEnv } from "@/lib/names/store";
 
-interface Kv {
+export interface Kv {
   /** Increments `bucket`; false once it passes `limit` within `windowSec`. */
   allow(bucket: string, limit: number, windowSec: number): Promise<boolean>;
   /** Increments `bucket` (expiring after `windowSec` from its first use) and returns the new count. */
@@ -61,7 +61,7 @@ class UpstashKv implements Kv {
   }
 }
 
-class MemoryKv implements Kv {
+export class MemoryKv implements Kv {
   private rl = new Map<string, { n: number; until: number }>();
   private locks = new Map<string, { token: string; until: number }>();
   async allow(bucket: string, limit: number, windowSec: number) {
