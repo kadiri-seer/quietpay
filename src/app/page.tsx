@@ -1,7 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { PaymentTrack } from "@/components/PaymentTrack";
-import { PrivacyStatement } from "@/components/PrivacyStatement";
 import { HeroFaucet, HeroNetwork } from "./HeroNetwork";
 import { GetStarted, HomeApp } from "./home/HomeFlow";
 
@@ -149,10 +148,6 @@ export default function Home() {
           </div>
           <PaymentTrack className="-mx-4 h-auto w-[calc(100%+2rem)] max-w-none sm:mx-0 sm:w-full" />
         </div>
-      </section>
-
-      <section className="relative mx-auto max-w-3xl px-4 sm:px-6">
-        <PrivacyStatement />
       </section>
 
       <section id="how" className="relative mx-auto mt-20 max-w-6xl scroll-mt-24 px-4 sm:px-6" aria-label="How QuietPay works">
